@@ -16,6 +16,7 @@ test {
     _ = @import("ced_test.zig");
     _ = @import("multi_test.zig");
     _ = @import("pf4k_test.zig");
+    _ = @import("prefill_tp4_test.zig");
     _ = @import("pfovl_test.zig");
     _ = @import("pftbo_test.zig");
     _ = @import("streamrb_test.zig");

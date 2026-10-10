@@ -205,6 +205,15 @@ Treat these as rough; the engine has no GPU qualification at TP>2 at all.
 - `aot-needs` reads `TF_TP_RANK` as well as the world, refuses a context that is not a whole number of pages
   (instead of panicking), and splits the pool's pages over the world rather than 2.
 - The embedding's vocabulary rows stay an even split (32,320 a rank), independent of the head's split.
+- Second window's boot failure (`prefill: a 2048-row segment is not on the prefill path`):
+  - Cause: `block_prefill.zig` moeRows refused any x3gm block that did not fit the decode-sized expert scratch
+    (`expert_rows · (topk+1) · max(8·I, D)` floats). At TP=4, 8·I ≤ D on every rank, so the 2,048-row segments at
+    the boot's options (pf4k off) were refused on all four ranks; rank 2 only failed first. `aot-needs` never saw this,
+    because it emits every program with pf4k on.
+  - Fix: past TP=2 the block is the segment, as under 4K, and the buffer plan sizes `s.ex.z` from the views (about
+    +100 MB a rank). TP=2 keeps Python's limit.
+  - Tests: `prefill_tp4_test.zig`. It also shows the boot's 2K programs launch exactly the Triton variants `aot-needs`
+    listed, so the AOT fill needs no new variant.
 
 **Done (launcher, config, bench):**
 

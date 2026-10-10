@@ -1158,7 +1158,13 @@ const Seg = struct {
         // x3gm.Buffers: past what the 1,024-row scratch holds, rows halve (Python streams the trellis twice); under 4K
         // the block is the segment (pf4k.gm_rows: moe.arena_scratch holds it; here the views below size s.ex.z / xg in
         // the buffer plan, one rank's 4,096 x 6 pairs: 503 MB of X / Y, 57 MB of Xd)
-        if (!e.o.pf4k and (P * D > zb or P * I > rows * (topk + 1) * D)) return error.Unsupported;
+        // Past TP=2 a rank's expert columns are narrower (TP=4: 640 / 512, so 8 I <= D) and the decode-sized scratch no
+        // longer holds a 2,048-row block's X / Y (P x D: 12,288 x 5,120 floats against 1,024 x 7 x 5,120), where at TP=2
+        // (I 1,152) it does. Python halves the block there (two passes, the same bits a pair); here, as under 4K, the
+        // block is the segment and the buffer plan sizes s.ex.z / s.ex.xg from the views below (+~100 MB a rank at
+        // 2,048 rows). TP=2 keeps Python's limit (and its launches) exactly.
+        const whole_block = e.o.pf4k or e.o.world > 2;
+        if (!whole_block and (P * D > zb or P * I > rows * (topk + 1) * D)) return error.Unsupported;
         const pre = try e.fmt("L{d}.moe", .{L});
         const xg = try e.view(.{ .buf = "s.ex.z" }, .f16, &.{ P, D }, &.{ D, 1 }, 0);
         const xu = try e.view(.{ .buf = "s.ex.z" }, .f16, &.{ P, D }, &.{ D, 1 }, P * D * 2);
