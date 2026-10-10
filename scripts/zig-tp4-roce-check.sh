@@ -55,8 +55,8 @@ verdict() { # NAME OK DETAIL
 }
 
 # --- safety: nothing of the live service (or a Zig server) may run; the GPUs and the CX7 ports are ours alone -------
-pattern="^(dsv41-tf4-r|${ZIG_NAME:-zigtp4}-r|zigtp4-check-r)[0-9]"
-listing="docker ps --format '{{.Names}}' | grep -E $(printf '%q' "$pattern") || true"
+pattern="^(dsv41-tf4-|tensorfold-zig|${ZIG_NAME:-zigtp4}-)"
+listing="docker ps --format '{{.Names}}' | grep -E $(printf '%q' "$pattern") | grep -vE '^zigtp4-check-r[0-9]' || true"
 for ((r = 0; r < WORLD; r++)); do
     if ! running=$(on "$r" "$listing"); then
         echo "rank $r: ssh / docker failed; nothing was started" >&2

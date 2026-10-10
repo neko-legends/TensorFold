@@ -146,9 +146,10 @@ not misread. Drain-first stop sends `op_stop` to every follower. Notes for TP=4:
    TP=4 config. Host tests at world 4. *Estimate: 1-2 days of work; this session's status is below.*
 2. **First GPU window: correctness on NCCL.** Build `dsv41-tensorfold:zigtp4-<sha>` with fatbins. Run the AOT fill per
    rank with `TF_TP_WORLD=4 TF_TP_RANK=r`, then the rope and Engram host assets. Write the prepared files (first
-   boot: several minutes a rank, about 50-100 GB of NVMe a node). **Boot with `TF_COMM_BACKEND=nccl` explicitly**
-   (the config default is RoCE; NCCL is the qualified transport, so the first window changes one variable — the
-   engine — and not two). Capture rank 0's `world|nccl|roce` line as evidence of what actually ran. Then the gates: 17 x 23 = 391,
+   boot: several minutes a rank, about 50-100 GB of NVMe a node). **Set `TF_COMM_BACKEND=nccl` in the `tp4-zig.env` you copy on each node**
+   (the example defaults to RoCE; `run-zig.sh` sources the config with `set -a`, so a value on the command line does not
+   stick). NCCL is the qualified transport, so the first window changes one variable — the
+   engine — and not two. Capture rank 0's `world|nccl|roce` line as evidence of what actually ran. Then the gates: 17 x 23 = 391,
    greedy token parity against the live Python TP=4 on the depth bench's prompts, drafted equal to plain,
    concurrent equal to solo, and the code word at 30/60/85 % of 20k/80k/158k. *1-2 windows; most likely failures
    are a missing AOT variant, or a kernel shape check refusing 640/512 widths or 32,384/32,256 head slices.*
@@ -327,6 +328,7 @@ bash scripts/serve4.sh stop                           # the live dsv41-tf4-r0..r
 # boot with TF_COMM_BACKEND=nccl (or leave the fallback on) and keep results/zig-tp4-roce-*/ for the next session
 CONFIG=config/tp4-zig.env WORKERS="$WORKERS" scripts/zig-tp4-roce-check.sh
 # Zig ranks: followers first, then rank 0 (each on its own node, from this checkout, config/tp4-zig.env filled in)
+# FIRST WINDOW: that copied config has TF_COMM_BACKEND=nccl (set in the FILE: sourcing overrides the environment)
 CONFIG=config/tp4-zig.env scripts/run-zig.sh 3 &    # on rank 3's node; likewise 2 and 1 on theirs
 CONFIG=config/tp4-zig.env scripts/run-zig.sh 0 &    # on forge
 # health: the first boot writes prepared files and measures calibration (minutes a rank)

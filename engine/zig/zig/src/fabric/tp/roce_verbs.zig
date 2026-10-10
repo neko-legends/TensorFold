@@ -286,6 +286,10 @@ pub const VerbsWire = struct {
                 hits += 1;
             };
             if (hits > 1) out[i] = @intCast(i); // one subnet for both: keep the order
+            // No subnet in common: the positional fallback would *connect* a pair no
+            // subnet agrees on (review F1). Refuse instead, so the ranks take the NCCL
+            // fallback rather than a topology Python would never have built.
+            if (hits == 0) return error.BadRecord;
         }
         // two of ours on one of the peer's: the stripes would cross (each HCA i must reach a distinct peer HCA)
         for (0..mine.n_hca) |i| for (0..i) |k| if (out[i] == out[k]) return error.BadRecord;
