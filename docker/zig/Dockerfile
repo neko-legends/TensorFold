@@ -33,7 +33,7 @@ RUN set -eu; \
         gpu="-Dnvcc=/usr/local/cuda/bin/nvcc -Dtp-fatbin=/tp_mailbox.fatbin"; \
     fi; \
     zig build -Dtarget="$ZIG_TARGET" -Dcpu="$ZIG_CPU" $gpu -Dsm=121 -Doptimize=ReleaseSafe -j4 --prefix /out install; \
-    test -x /out/bin/tensorfold-dsv41 && test -x /out/bin/tf-dsv41-m1
+    test -x /out/bin/tensorfold-dsv41 && test -x /out/bin/tf-dsv41-m1 && test -x /out/bin/tf-tp-test
 
 FROM ${CUDA_RUNTIME}
 ARG ZIG_COMMIT=unknown
@@ -41,7 +41,8 @@ ARG ZIG_COMMIT=unknown
 RUN apt-get update && apt-get install -y --no-install-recommends libnccl2 libibverbs1 ibverbs-providers rdma-core \
         curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-COPY --from=build /out/bin/tensorfold-dsv41 /out/bin/tf-dsv41-m1 /opt/tensorfold/bin/
+# tf-tp-test: the transport's own gate on the nodes (scripts/zig-tp4-roce-check.sh), no model needed
+COPY --from=build /out/bin/tensorfold-dsv41 /out/bin/tf-dsv41-m1 /out/bin/tf-tp-test /opt/tensorfold/bin/
 COPY --from=build /tp_mailbox.fatbin /opt/tensorfold/share/tp_mailbox.fatbin
 ENV PATH=/opt/tensorfold/bin:$PATH \
     TF_TP_KERNEL_IMAGE=/opt/tensorfold/share/tp_mailbox.fatbin

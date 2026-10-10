@@ -56,5 +56,5 @@ pub fn add(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builti
     runner.addImport("tp_kernel", kernelModule(b, image));
     const exe = b.addExecutable(.{ .name = "tf-tp-test", .root_module = runner });
     b.installArtifact(exe);
-    b.step("tf-tp-test", "TP=2 on two GPUs: bootstrap, every collective bit-exact, graph capture, fail-fast, latency").dependOn(&b.addInstallArtifact(exe, .{}).step);
+    b.step("tf-tp-test", "TP on 2 to 16 GPUs: bootstrap, every collective bit-exact, graph capture, fail-fast, latency").dependOn(&b.addInstallArtifact(exe, .{}).step);
 }

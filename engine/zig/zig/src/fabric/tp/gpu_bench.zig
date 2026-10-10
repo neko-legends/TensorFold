@@ -67,16 +67,40 @@ pub fn sweep(c: *Ctx, comm: Collective, label: []const u8, lo: usize, hi: usize)
             const per_graph: u32 = if (bytes >= 1 << 20) 20 else 100;
             const e = try eager(c, comm, kind, bytes, if (bytes >= 1 << 20) 50 else 200);
             const g = try graphed(c, comm, kind, bytes, per_graph, 5);
-            const moved: f64 = @floatFromInt(if (kind == .all_gather) 2 * bytes else bytes);
-            const factor: f64 = if (kind == .all_gather) 0.5 else 1.0;
-            const busbw = moved / (g * 1e-6) * factor / 1e9;
-            if (c.rank == 0) std.debug.print("RESULT {{\"backend\":\"{s}\",\"op\":\"{t}\",\"bytes\":{d},\"eager_us\":{d:.2},\"graph_us\":{d:.2},\"busbw_GBps\":{d:.2}}}\n", .{ label, kind, bytes, e, g, busbw });
+            const busbw = busBw(kind, bytes, c.world, g);
+            if (c.rank == 0) std.debug.print("RESULT {{\"backend\":\"{s}\",\"world\":{d},\"op\":\"{t}\",\"bytes\":{d},\"eager_us\":{d:.2},\"graph_us\":{d:.2},\"busbw_GBps\":{d:.2}}}\n", .{ label, c.world, kind, bytes, e, g, busbw });
         }
+    }
+}
+
+/// nccl-tests' bus bandwidth for `bytes` a rank in `us` microseconds: all-gather (world - 1) / world of the gathered
+/// bytes, all-reduce 2 (world - 1) / world of the buffer.
+fn busBw(kind: Kind, bytes: usize, world: u32, us: f64) f64 {
+    const w: f64 = @floatFromInt(world);
+    const size: f64 = @floatFromInt(if (kind == .all_gather) world * bytes else bytes);
+    const factor: f64 = if (kind == .all_gather) (w - 1) / w else 2 * (w - 1) / w;
+    return size / (us * 1e-6) * factor / 1e9;
+}
+
+/// One row of the model's exchanges: a bf16 partial of the 5,120-wide hidden state (forward.zig's `exchange`,
+/// `exchange_f32` and `embed` gather n x D a rank).
+pub const row_bytes = 5120 * 2;
+
+/// The engine's all-gathers by shard (a rank's bytes): the 16-byte agreement word, then `row_bytes` rows for 1 to 128
+/// rows of a window, eager and graphed. 96 rows (960 KiB) is the largest under the 1 MiB slot of GLM53_TF_ROCE_MAX_KB=1024;
+/// above the route's slot the RoCE route itself uses NCCL, so the 128-row line is NCCL on both.
+pub fn engineGathers(c: *Ctx, comm: Collective, label: []const u8) !void {
+    const rows = [_]usize{ 0, 1, 2, 4, 8, 16, 32, 64, 96, 128 };
+    for (rows) |n| {
+        const bytes = if (n == 0) 16 else n * row_bytes;
+        const e = try eager(c, comm, .all_gather, bytes, if (bytes >= 1 << 20) 50 else 200);
+        const g = try graphed(c, comm, .all_gather, bytes, if (bytes >= 1 << 20) 20 else 100, 5);
+        if (c.rank == 0) std.debug.print("RESULT {{\"backend\":\"{s}\",\"world\":{d},\"op\":\"engine_all_gather\",\"bytes\":{d},\"rows\":{d},\"eager_us\":{d:.2},\"graph_us\":{d:.2},\"busbw_GBps\":{d:.2}}}\n", .{ label, c.world, bytes, n, e, g, busBw(.all_gather, bytes, c.world, g) });
     }
 }
 
 /// One decode window's exchanges: `n` all-gathers of one row's bf16 partials (`row_bytes` a rank) in one graph.
 pub fn decodeWindow(c: *Ctx, comm: Collective, label: []const u8, n: u32, row_bytes: usize) !void {
     const per = try graphed(c, comm, .all_gather, row_bytes, n, 20);
-    if (c.rank == 0) std.debug.print("RESULT {{\"backend\":\"{s}\",\"op\":\"decode_window\",\"exchanges\":{d},\"bytes\":{d},\"per_exchange_us\":{d:.2},\"window_us\":{d:.1}}}\n", .{ label, n, row_bytes, per, per * @as(f64, @floatFromInt(n)) });
+    if (c.rank == 0) std.debug.print("RESULT {{\"backend\":\"{s}\",\"world\":{d},\"op\":\"decode_window\",\"exchanges\":{d},\"bytes\":{d},\"per_exchange_us\":{d:.2},\"window_us\":{d:.1}}}\n", .{ label, c.world, n, row_bytes, per, per * @as(f64, @floatFromInt(n)) });
 }
