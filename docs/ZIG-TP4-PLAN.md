@@ -42,6 +42,9 @@ The TP runtime is N-rank everywhere except the RoCE and mailbox fast path. `TF_T
 (`fabric/tp/bootstrap.zig:219`). NCCL is generic (`fabric/tp/nccl.zig:45`). The plan link writes every frame to
 `fds[1..world]` (`fabric/tp/planlink.zig:48`). Fail-fast is N-way (`fabric/tp/fate.zig:98,152,206`).
 
+**The RoCE rows below are done on this branch** (N-way RoCE, see the status section). The table is kept as it was at
+the merge, as the list of what changed.
+
 | file:line | assumption | TP=4 change |
 | --- | --- | --- |
 | `fabric/tp/roce.zig:154` | `if (b.world != 2) return error.Unsupported` | Remove once the parts below are N-way. Until then, TP=4 falls back to NCCL (`TF_TP_ROCE_FALLBACK=nccl`, the default; `fabric/tp/tp.zig:94,119-122`) |
@@ -116,8 +119,8 @@ not misread. Drain-first stop sends `op_stop` to every follower. Notes for TP=4:
 | 0003 whole-block uneven splits | experts 640/640/512/512, vocab 32,384/32,384/32,256/32,256 | absent (`BadWorld`, `SplitNotOnBlocks`) | step 1 below |
 | 0003 `--tp 4 --rank 0..3` | four ranks | `TF_TP_WORLD`/`TF_TP_RANK` (`fabric/tp/config.zig:69-70`); launcher 0/1 only | launcher |
 | 0003 N-way rank agreement, plan link with rank handshake, fail-fast | | has equivalents (`fabric/tp/bootstrap.zig:80,174`, `fabric/tp/fate.zig`) | none |
-| 0003 plan link over RDMA at 4 ranks | the round plan over the RoCE mailbox | `TF_DSV41_PLAN_LINK=rdma` is TCP plus spin-polling (`fabric/tp/config.zig:111-114`) | none needed first; measure |
-| 0003 RoCE all-gather at 4 ranks | Python's RoCE pairs HCA h of every rank by subnet | 2-rank only, falls back to NCCL | step 3 below |
+| 0003 plan link over RDMA at 4 ranks | the round plan over the RoCE mailbox | `TF_DSV41_PLAN_LINK=rdma` is TCP plus spin-polling (`fabric/tp/config.zig:111-114`), N-way (a 4-rank test on this branch); no RDMA-wire plan mailbox at any world | none needed first; measure |
+| 0003 RoCE all-gather at 4 ranks | Python's RoCE pairs HCA h of every rank by subnet | **ported on this branch** (step 3): 2 to 16 ranks, Python's wiring | hardware check: `scripts/zig-tp4-roce-check.sh` |
 | 0003 memory floor on the tightest follower | | boot check and 4K-workspace check on every rank; the round planner's floor is rank 0 only but off by default (Zig allocates at boot) | none needed as configured; gather every rank's MemAvailable if `TF_DSV41_PIECES_FLOOR=1` is ever used |
 | 0003 candidates past narrow vocab slices (`rank_top`) | wide top_k on uneven slices | not needed at TP=2; Zig caps device top-k at 1,024 and sends wider rows through `wholeRow` (`ds/sampling_pipe.zig:22-25,195-199`) | step 1: pad `wholeRow` to the widest slice |
 | 0003 trimmed draft head (`TF_DSV41_DRAFT_HEAD=q4`) | the DSpark pass reads a 4-bit copy of the head (+2.5% C1 code) | absent: DSpark reuses the backbone head (`ds/dspark_emit.zig:459`) | later; a separate speed feature |
@@ -149,7 +152,7 @@ not misread. Drain-first stop sends `op_stop` to every follower. Notes for TP=4:
    are a missing AOT variant, or a kernel shape check refusing 640/512 widths or 32,384/32,256 head slices.*
 3. **N-way RoCE.** `mailbox.cu`'s `tp_roce` and `roce.zig` from one peer to N-1, with sums in rank order. Without it,
    TP=4 runs every exchange on NCCL. On the Sparks, Python's NCCL vs RoCE gap was large enough that the README warns
-   about the `roce-failed` trap. *3-5 days plus a window.*
+   about the `roce-failed` trap. *Code done on this branch (below); needs the hardware check in a window.*
 4. **Bench** (`bench/zig_vs_python.py`, below) against the live Python TP=4 on the same pack.
 5. Features by measured value: overlapped exchanges at N peers, the prefill pipeline, `EXPERT_ROTATE`, the q4
    draft head, rank-wide memory floor, vLLM metrics and `/v1/model_info`, logprobs.
@@ -166,8 +169,10 @@ Treat these as rough; the engine has no GPU qualification at TP>2 at all.
 - **Uneven slices are new to Zig's kernels.** Hand-written CUDA (`x3ld`, `x3gm`, the epilogue tickets) and the AOT
   Triton variants see 640 and 512 expert widths and 32,384 and 32,256 head widths on different ranks. Each rank needs
   its own AOT fill (assets are already per rank).
-- **NCCL-only until step 3.** A TP=4 Zig run on NCCL vs Python TP=4 on RoCE is not like-for-like on transport.
-  Label it, or compare against Python with `GLM53_TF_COMM_BACKEND=nccl` as well.
+- **RoCE at TP=4 is unrun.** The N-way transport is written and host-tested only. If its setup or probe fails on any
+  rank, every rank falls back to NCCL (`TF_TP_ROCE_FALLBACK=nccl`, logged by rank 0). A TP=4 Zig run on NCCL vs Python
+  TP=4 on RoCE is not like-for-like on transport. Check the rank 0 log line `tp: rank 0 of 4 up (roce, ...)`, or
+  compare against Python with `GLM53_TF_COMM_BACKEND=nccl` as well.
 - **The pack is different from Jay's.** His numbers are q28-v2. Ours would be the first Zig run on the uniform
   2.9 bpw layout. Python's 2.9 bpw path is qualified; Zig's `.stack` path exists but is not.
 - **Memory.** Zig's prepared cache is another weight-sized copy on NVMe a node (`docs/ZIG-SERVE.md`). The planner
@@ -202,7 +207,51 @@ Treat these as rough; the engine has no GPU qualification at TP>2 at all.
 - `config/tp4-zig.env.example` (`d8f86109`).
 - `bench/zig_vs_python.py` (`f11b7db8`).
 
-**Checked on the CPU:**
+**Done (step 3, N-way RoCE; code and host tests written, NOT compiled or run: see below):**
+
+The wiring is Python's (patches/0001's `roce.cpp` / `roce.py` / `roce.cu`, with patches/0003's post order):
+
+- **Region** (`fabric/tp/roce_verbs.zig` `Layout`, one definition for the proxy, the shm wire, the tests and the
+  kernel's arguments): ctrl [4 KiB], flags `[src][2 slots][2 HCAs]` at 128 B, send `[2][slot]`, recv `[src][2][slot]`.
+  At two ranks the send offset is 8 KiB, as before.
+- **Queue pairs:** one RC queue pair a HCA and peer, one completion queue a HCA. The connection record carries
+  `qpn[hca][rank]` (roce.cpp's Blob). Each rank's record is all-gathered over the bootstrap.
+- **HCA pairing:** our HCA i writes the peer's HCA on the same IPv4 /24 (the GID's first three octets), per pair of
+  ranks. Both ends compute it (`pairBoth`), and it must be one-to-one and symmetric, else setup fails on every rank
+  (NCCL fallback). Python's `pair()` keys on the netdev's own prefix and puts every rank in rank 0's HCA order; with
+  one /24 a CX7 function, as on the Sparks, both give the same pairs. **Hardware check:** the preflight of
+  `scripts/zig-tp4-roce-check.sh` prints each rank's GID IPv4 and prefix, and `suite` logs the pairs
+  (`HCA pairs {..}` lines).
+- **Proxy:** posts each op to every peer, starting with the next rank (0003's incast order), striped over the HCAs,
+  each stripe followed by its seq flag on the same queue pair. Completions are counted per (HCA, peer). There are
+  still at most two ops pending (the bound holds at N ranks for the same reason as at two).
+- **Kernel** (`mailbox.cu` `tp_roce`):
+  - it waits for every peer's flag on every HCA; the fast path polls (world-1) x HCAs lanes of one warp (≤ 30 at 16
+    ranks);
+  - a gather places each sender's shard at `out + src x n`, and `lens[world]` applies per rank;
+  - a sum adds every rank's operand in rank order: fp32 one add at a time, bf16 through fp32 rounded after each rank.
+    This is `reference.reduce`'s contract, and at two ranks it gives exactly the old `sum_bytes` bits;
+  - a failed wait also records the source rank (ctrl word 22).
+- **Route** (`hybrid.zig`): exchanges go to NCCL above two ranks (RoCE exchanges are two-rank only). Gathers and
+  sums up to the slot go over RoCE.
+- **Load-time probe** (`tp.zig`): the gather must equal NCCL's bytes, and the RoCE sum must equal the host's rank-order
+  reference. Above two ranks NCCL's own bf16 sum is not compared, because its ring order differs; it is only logged.
+- **Harnesses:**
+  - `roce_host.zig`, `gpu_checks.zig`, `gpu_bench.zig` and `gpu_main.zig` work at any world. `tf-tp-test bench` gives
+    the engine's all-gather sizes on NCCL and RoCE;
+  - `run_hosts.sh` takes `WORLD=4`, and `run_pair.sh` takes `WORLD` GPUs;
+  - `docker/zig/Dockerfile` now ships `tf-tp-test`.
+- `config/tp4-zig.env.example`: `TF_COMM_BACKEND=roce`, `TF_TP_ROCE_HCA` = both CX7 functions, NCCL fallback
+  on.
+- Not ported: Python's `GLM53_TF_ROCE_STRIPE_KB` / `_INLINE` / `_LAZY_CQ` / `_TRACE` (0460), which are off by default
+  there too. There is still no RDMA-wire plan link: `TF_DSV41_PLAN_LINK=rdma` is TCP plus a follower spin, N-way, and
+  now has a 4-rank test.
+
+**Not verified for step 3:** this session could not run `zig` (the permission policy denied every `zig` command,
+`zig version` included) or nvcc. So neither the Zig code nor `mailbox.cu` has been compiled, and the host tests
+written for it have not run. Run `zig build test` (and `zig build test-tp`), then the hardware script in a window.
+
+**Checked on the CPU (step 1, before step 3):**
 
 - Host tests are green (`zig build test`), including the new TP=4 tests:
   - shard bounds;
@@ -228,7 +277,8 @@ Treat these as rough; the engine has no GPU qualification at TP>2 at all.
 
 - The CUDA image (`dsv41-tensorfold:zigtp4-<sha>`) and the per-rank AOT, rope and Engram-host assets. Both need a
   Spark (nvcc, Triton 3.7.1); this session had no ssh or docker access.
-- N-way RoCE (step 3), so TP=4 runs on NCCL.
+- N-way RoCE (step 3) on hardware: `scripts/zig-tp4-roce-check.sh` in a window (until it passes, assume TP=4 may
+  fall back to NCCL).
 - Everything in "Our Python patches" marked absent.
 
 **Not verified at all until a GPU window:** any kernel's numerics at the TP=4 widths, the BMQ-16 `_fused` variant,
@@ -267,6 +317,10 @@ sudo systemctl stop spark-forge-watchdog.timer       # it would relaunch the Pyt
 K=${XDG_STATE_HOME:-$HOME/.local/state}/dsv41-tf4    # keeper4.sh's STATE_DIR (unless its cron line sets another)
 touch "$K/maintenance"                                # keeper4.sh (if in cron) stands down for an hour; re-touch hourly
 bash scripts/serve4.sh stop                           # the live dsv41-tf4-r0..r3 (exact names, the live tooling)
+# the transport first (no model; ~10 min): preflight of the CX7 ports, RoCE wire at world 4, every collective
+# bit-exact on RoCE and NCCL, NCCL-vs-RoCE at the engine's sizes. ALL PASS before booting Zig on RoCE; on a FAIL,
+# boot with TF_COMM_BACKEND=nccl (or leave the fallback on) and keep results/zig-tp4-roce-*/ for the next session
+CONFIG=config/tp4-zig.env WORKERS="$WORKERS" scripts/zig-tp4-roce-check.sh
 # Zig ranks: followers first, then rank 0 (each on its own node, from this checkout, config/tp4-zig.env filled in)
 CONFIG=config/tp4-zig.env scripts/run-zig.sh 3 &    # on rank 3's node; likewise 2 and 1 on theirs
 CONFIG=config/tp4-zig.env scripts/run-zig.sh 0 &    # on forge
