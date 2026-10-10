@@ -13,6 +13,11 @@ repository**: it is the maintained two-Spark recipe.
 > Measured on one cluster (four GB10s, one switch), one boot a configuration. Read [What is not solved](#what-is-not-solved)
 > before relying on it.
 
+Jay's [CUDA Zig serving path](docs/ZIG-SERVE.md) (TensorFold 1.0.2 plus the DeepSeek CUDA port, source in
+[`engine/zig`](engine/zig)) is merged here as he ships it: **two Sparks (TP=2) and his q28-v2 2.8 bpw pack**. It
+does not yet run on four Sparks; [ZIG-TP4-PLAN](docs/ZIG-TP4-PLAN.md) is the port plan. The four-Spark service on this
+page is the Python engine.
+
 ## Results (four Sparks)
 
 Weights: [`dealignai/DeepSeek-V4.1-Flash-UNCENSORED-EXL3-2.9bpw`](https://huggingface.co/dealignai/DeepSeek-V4.1-Flash-UNCENSORED-EXL3-2.9bpw).
@@ -303,6 +308,10 @@ build was also tested on the same wide request: it crashed ranks 2 and 3. All of
 | --- | --- |
 | [FOUR_SPARKS](docs/FOUR_SPARKS.md) | the TP=4 port: what changes, setup, first-boot lessons, results |
 | [PREFILL_SPEED](docs/PREFILL_SPEED.md) | the prompt pipeline, split selections, overlapped exchanges, what did not work |
+| [ZIG-SERVE](docs/ZIG-SERVE.md) / [ZIG-RESULTS](docs/ZIG-RESULTS.md) | Jay's Zig engine: build, TP=2 launch, exact settings, q28-v2 comparisons (two Sparks only) |
+| [ZIG-TP4-PLAN](docs/ZIG-TP4-PLAN.md) | what the Zig engine needs for four Sparks, and the like-for-like bench recipe |
+| [INSTALL](docs/INSTALL.md) | requirements, weights, Engram shards, build, start, watchdog |
+| [API](docs/API.md) / [IMAGES](docs/IMAGES.md) | endpoints, thinking and effort, image input |
 | [OPERATIONS](docs/OPERATIONS.md) | settings, memory gates, turning each lever off |
 | [TWO_SPARKS](docs/TWO_SPARKS.md) | Jay's two-Spark README at the fork point: method, quality tables, strict mode, credits |
 | [ENGINE](docs/ENGINE.md) / [ARCHITECTURE](docs/ARCHITECTURE.md) / [DECODE](docs/DECODE.md) | the patches, the model split, the decode roofline |
