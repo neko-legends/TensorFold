@@ -212,6 +212,12 @@ Treat these as rough; the engine has no GPU qualification at TP>2 at all.
     `vs_choose`'s mirror, plus the 207 Python sampling goldens.
 - The host build and the aarch64 cross-build (`-Dtarget=aarch64-linux-gnu -Dcpu=baseline+sha2+aes -Dsm=121
   -Doptimize=ReleaseSafe`, no CUDA) both build.
+- `tf-dsv41-m1 aot-needs` emits every served program on the host, with `config/tp4-zig.env.example` sourced, for
+  `TF_TP_WORLD=4` and each `TF_TP_RANK` 0..3. Each rank: 147,447 programs, 136 Triton variants, no `Unsupported`
+  and no panics. Jay's TP=2 profile for comparison: 213,222 programs, 143 variants.
+  - The `_fused` attention variants are BMQ 16 at TP=4 (15 of them) and BMQ 32 at TP=2.
+  - Ranks 0 and 1 need the same variant set; ranks 2 and 3 need a different one. So the AOT fill really is per rank.
+  - Sigs come from `triton_fill.py sigs` over the patched Python tree, with Triton 3.7.1.
 - By inspection, the kernel shape checks accept the TP=4 widths:
   - `x3ld`: K % 64 and N % 128, for 640 and 512.
   - `x3gm`: K/16 a multiple of the stage tile (2 or 4).
@@ -240,10 +246,17 @@ touch build/zig/fatbins/.keep
 nice -n 10 docker build -f docker/zig/Dockerfile --build-arg ZIG_COMMIT="$(git rev-parse HEAD)" \
   -t dsv41-tensorfold:zigtp4-$SHA build/zig
 for w in $WORKERS; do docker save dsv41-tensorfold:zigtp4-$SHA | ssh $w docker load; done
-# 2. assets, per rank r = 0..3 (docs/ZIG-SERVE.md "Generate runtime assets", in a zigtp4-assets builder container with
-#    Torch, Triton 3.7.1, ptxas 13.3.73): the AOT needs differ by rank at TP=4 (expert and head widths), so
-#    TF_TP_WORLD=4 TF_TP_RANK=$r with config/tp4-zig.env sourced; ROPE_ROWS=424192 (420,096 + 4K); copy each
-#    rank's directory to that node's ASSETS_DIR. pfdense-table.json and the image bias go into CACHE_DIR.
+# 2. assets (scripts/zig-tp4-assets.sh; env: CONFIG=config/tp4-zig.env, PY_SOURCE = vendor/TensorFold + patches/*.patch
+#    src/, M1 = the build's tf-dsv41-m1, PYTHON with Triton 3.7.1 + torch, PTXAS = ptxas 13.3.73).
+#    AOT, per rank (ranks 0/1 and 2/3 need different sets); the cubins are offline sm_121 code, so any host will do:
+for r in 0 1 2 3; do scripts/zig-tp4-assets.sh aot $r /srv/zigtp4-assets/rank-$r; done
+#    rope.bin + engram-host.bin ON A SPARK, in the Python image's torch (their bits are that host's CPU cos / sin),
+#    in a CPU-only container of our own name, the pack and the checkout mounted read-only:
+docker run --rm --name zigtp4-assets -v "$PWD:/repo:ro" -v "$MODEL:/pack:ro" -v /srv/zigtp4-assets/host:/out \
+  -e PY_SOURCE=/repo/build/python-source/src -e CONFIG=/repo/config/tp4-zig.env -e PYTHON=python \
+  --entrypoint bash dsv41-tensorfold:tp4rot /repo/scripts/zig-tp4-assets.sh host /out /pack
+#    then each node's ASSETS_DIR = its rank's aot/ + those two files; CACHE_DIR gets config/pfdense-table.json and the
+#    image routing bias (the live cache volume's dsv41-bias-vl, copied read-only)
 ```
 
 The window. Depths runs it. The Python engine's own scripts stop and restart the live ranks.
