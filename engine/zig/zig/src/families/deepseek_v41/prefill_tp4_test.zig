@@ -70,26 +70,23 @@ test "TP=4: a 2,048-row segment is on the prefill path on every rank (640- and 5
     }
 }
 
-/// The same Triton specialization, strictly: a tensor's role, dtype and 16-byte alignment (what aot_needs.reduce keys a
-/// pointer by), every other argument (ints, constexprs, floats) equal.
-fn sameArg(x: calls.Arg, y: calls.Arg) bool {
-    if (std.meta.activeTag(x) != std.meta.activeTag(y)) return false;
-    return switch (x) {
-        .t => x.t.dt == y.t.dt and (@mod(x.t.offset, 16) == 0) == (@mod(y.t.offset, 16) == 0) and
-            std.meta.activeTag(x.t.role) == std.meta.activeTag(y.t.role) and std.mem.eql(u8, roleName(x.t.role), roleName(y.t.role)),
-        else => std.meta.eql(x, y),
-    };
+/// The largest `_kv_store` RING of a program (the staging ring of a staged segment; 1 on the compressed ratios).
+fn ringOf(cs: []const calls.Call) i64 {
+    var ring: i64 = -1;
+    for (cs) |c| {
+        if (!std.mem.eql(u8, c.name, "_kv_store")) continue;
+        for (c.args) |x| {
+            if (!std.mem.eql(u8, x.name, "RING")) continue;
+            switch (x.arg) {
+                .i => |v| if (v > ring) { ring = v; },
+                else => {},
+            }
+        }
+    }
+    return ring;
 }
 
-fn roleName(r: calls.Role) []const u8 {
-    return switch (r) {
-        .buf => |b| b,
-        .weight => |w| w,
-        .empty => "",
-    };
-}
-
-test "TP=4: the boot's 2K segments (pf4k off) launch the Triton variants aot-needs listed (pf4k on): no new AOT variant" {
+test "TP=4: under 4K the boot's f.opts (pf4k off, default 2,048 rows) stage at ring 4,096, the workspace's set at 8,192: the fill enumerates both" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const aa = arena.allocator();
@@ -98,27 +95,19 @@ test "TP=4: the boot's 2K segments (pf4k off) launch the Triton variants aot-nee
     var enc: [21]u32 = undefined;
     for (&enc, 0..) |*l, i| l.* = @intCast(i);
     for ([_]u32{ 0, 2 }) |r| {
-        // the boot: kv_state sets prefill_rows to 4,096 under TF_DSV41_PF_4K, f.opts.pf4k stays off; aot-needs: pf4k on
-        var boot = bootOptions(r);
-        boot.prefill_rows = 4096;
-        var aot = boot;
-        aot.pf4k = true;
-        for ([_]u32{ 2048, 17 }) |n| for ([_]i64{ 0, 300000 }) |start| {
+        // the boot under TF_DSV41_PF_4K: prod_knobs.apply leaves f.opts at pf4k off and the default prefill_rows
+        // (the workspace's own options are forward_prefill.k4Options); a fill that enumerated only the pf4k-on set
+        // had no RING 4,096 variant (window 3b's MissingTritonVariant), so aot-needs sweeps both option sets
+        const boot = bootOptions(r);
+        var k4 = boot;
+        k4.pf4k = true;
+        k4.prefill_rows = 4096;
+        for ([_]i64{ 1500, 17 }) |n| for ([_]i64{0, 300000}) |start| {
             const a = try bp.emitReplay(aa, &cfg, &w, boot, &enc, n, start, .encoder);
-            const b = try bp.emitReplay(aa, &cfg, &w, aot, &enc, n, start, .encoder);
-            try testing.expectEqual(a.len, b.len);
-            var tritons: usize = 0;
-            for (a, b) |x, y| {
-                try testing.expectEqualStrings(x.name, y.name);
-                if (!x.triton) continue;
-                tritons += 1;
-                try testing.expectEqual(x.args.len, y.args.len);
-                for (x.args, y.args) |p, q| if (!sameArg(p.arg, q.arg)) {
-                    std.debug.print("rank {d} rows {d}: {s} arg {s} differs: {any} vs {any}\n", .{ r, n, x.name, p.name, p.arg, q.arg });
-                    return error.TestUnexpectedResult;
-                };
-            }
-            try testing.expect(tritons > 0);
+            const b = try bp.emitReplay(aa, &cfg, &w, k4, &enc, n, start, .encoder);
+            // a staged segment (past 2 x window rows) stages at ceilPow2(prefill_rows + window - 1)
+            try testing.expectEqual(@as(i64, if (n > 2 * cfg.window - 1) 4096 else 2 * cfg.window), ringOf(a));
+            try testing.expectEqual(@as(i64, if (n > 2 * cfg.window - 1) 8192 else 2 * cfg.window), ringOf(b));
         };
     }
 }

@@ -16,7 +16,10 @@
 //!   at every context bucket's end;
 //! - row mode (slots > 1): every row bucket up to the cap at every context bucket (row programs are keyed by both);
 //! - prefill segments of 1 .. TF_DSV41_PREFILL_ROWS rows at each start (a multiple of the rows, as a prompt's
-//!   segments start) whose full segment's variant set is new: every row count there;
+//!   segments start) whose full segment's variant set is new: every row count there. Under TF_DSV41_PF_4K the forward's
+//!   own segments (the workspace's 2K fallback among them) still run with pf4k off at the Options default 2,048 rows
+//!   (prod_knobs.apply leaves f.opts so under 4K; forward_prefill.k4Options is the 4,096-row workspace's own set), and
+//!   their variants differ (emitMarked's staging ring, the rowsCap segment cap), so both option sets are enumerated;
 //! - DSpark: the pass, the slots' passes (1 .. group slots), ingests of 1 .. 128 rows (a prompt's tail in one call);
 //! - CED replay (TF_DSV41_PREFILL=replay, ced.zig): the decoder pass over a prompt's tail, 127 rows from any R0 (the
 //!   scan) and every shorter tail from 0 (a prompt of at most 128 tokens); its encoder segments are the prefill
@@ -218,7 +221,8 @@ pub const Served = struct {
         o.limit = try envInt("TF_DSV41_CONTEXT", o.limit);
         o.rope_rows = o.limit + 2048;
         if (try knobs.prefillRows(&knobs.env)) |r| o.prefill_rows = r;
-        // TF_DSV41_PF_4K: 4,096-row segments (their Triton variants at those rows), x3gm v2 as apply has it
+        // TF_DSV41_PF_4K: 4,096-row segments (their Triton variants at those rows), x3gm v2 as apply has it; the
+        // forward's own pf4k-off set at the default 2,048 rows is enumerated beside it (enumerate: the boot's f.opts)
         o.pf4k = try knobs.pf4k(&knobs.env);
         o.gm_v2 = try @import("gm2pf.zig").mode(&knobs.env);
         // TF_DSV41_PF_OVERLAP: its pieces' projections (their own row counts) where the side stream is on
@@ -416,86 +420,101 @@ pub fn enumerate(gpa: std.mem.Allocator, n: *Needs, cfg: *const Config, w: *cons
         try log.print("aot-needs: row mode, {d} programs, {d} variants\n", .{ n.programs, n.keys.count() });
         try log.flush();
     }
-    // prefill: the full segment's regimes, then every row count at each regime's first start
-    const P = sv.o.prefill_rows;
-    {
-        const full: Ctx = .{ .cfg = cfg, .w = w, .o = sv.o, .layers = layers, .rows = P };
-        // a start whose full segment launches a variant set not seen before opens a regime (the set flips back and
-        // forth with the stream's split count and the row blocks' key counts: a set is swept once)
-        var starts: std.ArrayList(i64) = .empty;
-        var seen: std.AutoHashMapUnmanaged(u64, void) = .empty;
-        var s: i64 = 0;
-        while (s + P <= limit) : (s += P) {
-            var pa = std.heap.ArenaAllocator.init(gpa);
-            defer pa.deinit();
-            const f = try n.program(try prefillAt(&full, pa.allocator(), s + P));
-            if (!(try seen.getOrPut(a, f)).found_existing) try starts.append(a, s);
-        }
-        for (starts.items) |s0| {
-            var rows: i64 = 1;
-            while (rows <= P and s0 + rows <= limit) : (rows += 1) {
+    // prefill: the full segment's regimes, then every row count at each regime's first start. Under TF_DSV41_PF_4K the
+    // boot still runs the forward's own segments (the workspace's 2K fallback among them: forward_prefill.wsAgreed)
+    // with pf4k off at the Options default rows — prod_knobs.apply leaves f.opts so under 4K — and those variants
+    // differ from the 4,096-row workspace set (block_prefill.emitMarked's staging ring, the rowsCap segment cap), so
+    // the fill enumerates both option sets (forward_prefill.k4Options is the workspace's).
+    const defaults: block.Options = .{};
+    var pf_sets: [2]block.Options = .{ sv.o, sv.o };
+    const pf_n: usize = if (sv.o.pf4k) pf: {
+        pf_sets[1].pf4k = false;
+        pf_sets[1].prefill_rows = defaults.prefill_rows;
+        break :pf 2;
+    } else 1;
+    for (pf_sets[0..pf_n]) |o| {
+        const P = o.prefill_rows;
+        {
+            const full: Ctx = .{ .cfg = cfg, .w = w, .o = o, .layers = layers, .rows = P };
+            // a start whose full segment launches a variant set not seen before opens a regime (the set flips back and
+            // forth with the stream's split count and the row blocks' key counts: a set is swept once)
+            var starts: std.ArrayList(i64) = .empty;
+            var seen: std.AutoHashMapUnmanaged(u64, void) = .empty;
+            var s: i64 = 0;
+            while (s + P <= limit) : (s += P) {
                 var pa = std.heap.ArenaAllocator.init(gpa);
                 defer pa.deinit();
-                _ = try n.program(try block_prefill.emitPrefill(pa.allocator(), cfg, w, sv.o, layers, rows, s0, true));
+                const f = try n.program(try prefillAt(&full, pa.allocator(), s + P));
+                if (!(try seen.getOrPut(a, f)).found_existing) try starts.append(a, s);
             }
-            try log.print("aot-needs: prefill from {d}, {d} programs, {d} variants\n", .{ s0, n.programs, n.keys.count() });
-            try log.flush();
-        }
-        if (sv.runs) {
-            const enc = layers[0 .. try ced.decoderStart(cfg) + 1];
             for (starts.items) |s0| {
-                var k: i64 = 17;
-                while (k <= 64) : (k += 1) {
-                    try run(n, cfg, w, sv.o, enc, .encoder, &.{ .{ .slot = 0, .start = s0, .n = 17 }, .{ .slot = 1, .start = s0, .n = k } });
-                    try run(n, cfg, w, sv.o, enc, .encoder, &.{ .{ .slot = 0, .start = s0, .n = k }, .{ .slot = 1, .start = s0, .n = 17 } });
+                var rows: i64 = 1;
+                while (rows <= P and s0 + rows <= limit) : (rows += 1) {
+                    var pa = std.heap.ArenaAllocator.init(gpa);
+                    defer pa.deinit();
+                    _ = try n.program(try block_prefill.emitPrefill(pa.allocator(), cfg, w, o, layers, rows, s0, true));
                 }
-                k = 17;
-                while (k <= 48) : (k += 1) {
-                    try run(n, cfg, w, sv.o, enc, .encoder, &.{ .{ .slot = 0, .start = s0, .n = k }, .{ .slot = 1, .start = s0, .n = 100 } });
-                    try run(n, cfg, w, sv.o, enc, .encoder, &.{ .{ .slot = 0, .start = s0, .n = 100 }, .{ .slot = 1, .start = s0, .n = k } });
-                }
-                // a staged segment (past 129 rows: the staging ring) beside short ones, at every residue mod 4
-                k = 17;
-                while (k <= 20) : (k += 1) {
-                    try run(n, cfg, w, sv.o, enc, .encoder, &.{ .{ .slot = 0, .start = s0, .n = k }, .{ .slot = 1, .start = s0, .n = 1500 + k } });
-                    try run(n, cfg, w, sv.o, enc, .encoder, &.{ .{ .slot = 0, .start = s0, .n = 1500 + k }, .{ .slot = 1, .start = s0, .n = k } });
-                }
+                try log.print("aot-needs: prefill from {d} (pf4k {}, {d} rows), {d} programs, {d} variants\n", .{ s0, o.pf4k, P, n.programs, n.keys.count() });
+                try log.flush();
             }
-            try log.print("aot-needs: piece runs, {d} programs, {d} variants\n", .{ n.programs, n.keys.count() });
-            try log.flush();
+            if (sv.runs) {
+                const enc = layers[0 .. try ced.decoderStart(cfg) + 1];
+                for (starts.items) |s0| {
+                    var k: i64 = 17;
+                    while (k <= 64) : (k += 1) {
+                        try run(n, cfg, w, o, enc, .encoder, &.{ .{ .slot = 0, .start = s0, .n = 17 }, .{ .slot = 1, .start = s0, .n = k } });
+                        try run(n, cfg, w, o, enc, .encoder, &.{ .{ .slot = 0, .start = s0, .n = k }, .{ .slot = 1, .start = s0, .n = 17 } });
+                    }
+                    k = 17;
+                    while (k <= 48) : (k += 1) {
+                        try run(n, cfg, w, o, enc, .encoder, &.{ .{ .slot = 0, .start = s0, .n = k }, .{ .slot = 1, .start = s0, .n = 100 } });
+                        try run(n, cfg, w, o, enc, .encoder, &.{ .{ .slot = 0, .start = s0, .n = 100 }, .{ .slot = 1, .start = s0, .n = k } });
+                    }
+                    // a staged segment (past 129 rows: the staging ring) beside short ones, at every residue mod 4
+                    k = 17;
+                    while (k <= 20) : (k += 1) {
+                        try run(n, cfg, w, o, enc, .encoder, &.{ .{ .slot = 0, .start = s0, .n = k }, .{ .slot = 1, .start = s0, .n = 1500 + k } });
+                        try run(n, cfg, w, o, enc, .encoder, &.{ .{ .slot = 0, .start = s0, .n = 1500 + k }, .{ .slot = 1, .start = s0, .n = k } });
+                    }
+                }
+                try log.print("aot-needs: piece runs (pf4k {}, {d} rows), {d} programs, {d} variants\n", .{ o.pf4k, P, n.programs, n.keys.count() });
+                try log.flush();
+            }
         }
     }
     // CED replay's decoder pass (ced.tailOf): a prompt of n > 128 tokens replays 127 rows ending at n - 1 (the scan),
-    // a shorter one its n - 1 rows from 0
-    if (sv.replay) {
-        const dec = layers[try ced.decoderStart(cfg)..];
-        const c: Ctx = .{ .cfg = cfg, .w = w, .o = sv.o, .layers = dec, .rows = ced.keep };
-        try scan(n, .{ .ctx = &c, .emit = decoderAt }, ced.keep, limit - 1);
-        var m: i64 = 1;
-        while (m < ced.keep) : (m += 1) {
-            var pa = std.heap.ArenaAllocator.init(gpa);
-            defer pa.deinit();
-            _ = try n.program(try block_prefill.emitReplay(pa.allocator(), cfg, w, sv.o, dec, m, 0, .decoder));
-        }
-        try log.print("aot-needs: CED decoder, {d} programs, {d} variants\n", .{ n.programs, n.keys.count() });
-        try log.flush();
-        if (sv.replay_runs) {
-            var k: i64 = 33;
-            while (k <= ced.keep) : (k += 1) {
-                try run(n, cfg, w, sv.o, dec, .decoder, &.{ .{ .slot = 0, .start = 0, .n = 33 }, .{ .slot = 1, .start = 0, .n = k } });
-                try run(n, cfg, w, sv.o, dec, .decoder, &.{ .{ .slot = 0, .start = 0, .n = k }, .{ .slot = 1, .start = 0, .n = 33 } });
+    // a shorter one its n - 1 rows from 0; both option sets as the prefill's (the boot's f.opts and the workspace's)
+    for (pf_sets[0..pf_n]) |o| {
+        if (sv.replay) {
+            const dec = layers[try ced.decoderStart(cfg)..];
+            const c: Ctx = .{ .cfg = cfg, .w = w, .o = o, .layers = dec, .rows = ced.keep };
+            try scan(n, .{ .ctx = &c, .emit = decoderAt }, ced.keep, limit - 1);
+            var m: i64 = 1;
+            while (m < ced.keep) : (m += 1) {
+                var pa = std.heap.ArenaAllocator.init(gpa);
+                defer pa.deinit();
+                _ = try n.program(try block_prefill.emitReplay(pa.allocator(), cfg, w, o, dec, m, 0, .decoder));
             }
-            k = 33;
-            while (k <= 48) : (k += 1) {
-                try run(n, cfg, w, sv.o, dec, .decoder, &.{ .{ .slot = 0, .start = 0, .n = k }, .{ .slot = 1, .start = 0, .n = ced.keep } });
-                try run(n, cfg, w, sv.o, dec, .decoder, &.{ .{ .slot = 0, .start = 0, .n = ced.keep }, .{ .slot = 1, .start = 0, .n = k } });
-            }
-            for ([_]bool{ false, true }) |first| {
-                const mc: MultiCtx = .{ .c = c, .first = first };
-                try scan(n, .{ .ctx = &mc, .emit = tailsAt }, ced.keep, limit - 1);
-            }
-            try log.print("aot-needs: replay runs, {d} programs, {d} variants\n", .{ n.programs, n.keys.count() });
+            try log.print("aot-needs: CED decoder (pf4k {}, {d} rows), {d} programs, {d} variants\n", .{ o.pf4k, o.prefill_rows, n.programs, n.keys.count() });
             try log.flush();
+            if (sv.replay_runs) {
+                var k: i64 = 33;
+                while (k <= ced.keep) : (k += 1) {
+                    try run(n, cfg, w, o, dec, .decoder, &.{ .{ .slot = 0, .start = 0, .n = 33 }, .{ .slot = 1, .start = 0, .n = k } });
+                    try run(n, cfg, w, o, dec, .decoder, &.{ .{ .slot = 0, .start = 0, .n = k }, .{ .slot = 1, .start = 0, .n = 33 } });
+                }
+                k = 33;
+                while (k <= 48) : (k += 1) {
+                    try run(n, cfg, w, o, dec, .decoder, &.{ .{ .slot = 0, .start = 0, .n = k }, .{ .slot = 1, .start = 0, .n = ced.keep } });
+                    try run(n, cfg, w, o, dec, .decoder, &.{ .{ .slot = 0, .start = 0, .n = ced.keep }, .{ .slot = 1, .start = 0, .n = k } });
+                }
+                for ([_]bool{ false, true }) |first| {
+                    const mc: MultiCtx = .{ .c = c, .first = first };
+                    try scan(n, .{ .ctx = &mc, .emit = tailsAt }, ced.keep, limit - 1);
+                }
+                try log.print("aot-needs: replay runs (pf4k {}, {d} rows), {d} programs, {d} variants\n", .{ o.pf4k, o.prefill_rows, n.programs, n.keys.count() });
+                try log.flush();
+            }
         }
     }
     // DSpark
