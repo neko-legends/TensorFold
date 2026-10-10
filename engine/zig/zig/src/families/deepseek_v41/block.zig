@@ -12,6 +12,7 @@ const calls = @import("calls.zig");
 const config = @import("config.zig");
 const moe = @import("block_moe.zig");
 const prefill = @import("block_prefill.zig");
+pub const shard = @import("shard.zig");
 const Config = config.Config;
 const Arg = calls.Arg;
 const Named = calls.Named;
@@ -40,8 +41,12 @@ pub const Options = struct {
     /// TF_DSV41_BIAS_VL: the segment's image rows (their MoE call apart, routed with gate.bias_vl); 0: none; < 0: the
     /// buffer plan's (both calls at the segment's rows)
     image_rows: i64 = 0,
-    /// TP ranks (a boot constant): every per-rank width below is the model's / world; the plan checked divisibility
+    /// TP ranks (a boot constant): heads and wo_a groups are the model's / world (the plan checked divisibility); the
+    /// experts' columns and the head's vocabulary are the rank's own whole-block shard (`expertWidth`, `vocabShard`:
+    /// uneven at TP=4)
     world: u32 = 2,
+    /// this rank (a boot constant): which shard of an uneven split it holds
+    rank: u32 = 0,
     /// KV positions a slot holds (pool rows = limit / ratio + 1)
     limit: i64 = 4096,
     /// rope table rows (cos / sin pairs of 32)
@@ -156,6 +161,16 @@ pub const Options = struct {
     /// TF_DSV41_MHC_DEFER_AT(_ROWS): a program of `rows` rows issues its deferred launches at the next exchange.
     pub fn holdsDeferred(o: Options, rows: i64) bool {
         return o.mhc_defer_hold and (o.mhc_defer_hold_rows == 0 or rows <= o.mhc_defer_hold_rows);
+    }
+
+    /// This rank's columns of a routed or shared expert (gate / up N, down K): its whole-block shard of expert_width.
+    pub fn expertWidth(o: Options, cfg: *const Config) i64 {
+        return shard.checked(cfg.expert_width, o.world, o.rank).len;
+    }
+
+    /// This rank's head columns (its logits' width) and their first global token id.
+    pub fn vocabShard(o: Options, cfg: *const Config) shard.Shard {
+        return shard.checked(cfg.vocab, o.world, o.rank);
     }
 };
 
@@ -480,7 +495,7 @@ pub const Emitter = struct {
             },
             .f => {
                 const D: i64 = e.cfg.hidden;
-                const I: i64 = e.cfg.expert_width / e.o.world;
+                const I: i64 = e.o.expertWidth(e.cfg);
                 const ex = e.cfg.expertsOf(L);
                 const sh = try e.fmt("L{d}.moe.shared.0.w1", .{L});
                 const k2: u64 = try e.w.k2(sh);

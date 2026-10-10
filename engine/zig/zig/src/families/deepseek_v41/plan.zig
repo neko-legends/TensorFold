@@ -4,6 +4,7 @@ const std = @import("std");
 const log = std.log.scoped(.dsv41);
 const Config = @import("config.zig").Config;
 const exl3 = @import("exl3.zig");
+const shard = @import("shard.zig");
 const names = @import("names.zig");
 const Pack = @import("pack.zig").Pack;
 const Info = @import("pack.zig").Info;
@@ -261,9 +262,12 @@ const Builder = struct {
     }
 };
 
-/// The rank's plan; heads, groups and the vocabulary must split over `world` (blocks of 128).
+/// The rank's plan; heads and groups must split evenly over `world`, the head's vocabulary and the experts' columns on
+/// whole 128-blocks (shard.zig: uneven at TP=4, the low ranks a block more), the embedding's vocabulary rows evenly.
 pub fn build(gpa: std.mem.Allocator, c: *const Config, pack: *const Pack, o: Options) !Plan {
-    if (o.world == 0 or o.rank >= o.world or c.heads % o.world != 0 or c.o_groups % o.world != 0 or c.vocab % (128 * o.world) != 0) return error.BadWorld;
+    if (o.world == 0 or o.rank >= o.world or c.heads % o.world != 0 or c.o_groups % o.world != 0 or c.vocab % o.world != 0) return error.BadWorld;
+    _ = shard.of(c.vocab, o.world, o.rank) catch return error.BadWorld;
+    _ = shard.of(c.expert_width, o.world, o.rank) catch return error.BadWorld;
     var arena = std.heap.ArenaAllocator.init(gpa);
     errdefer arena.deinit();
     var b: Builder = .{ .a = arena.allocator(), .c = c, .pack = pack, .o = o };

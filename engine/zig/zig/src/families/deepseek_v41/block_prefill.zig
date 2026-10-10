@@ -64,6 +64,12 @@ const mhc_bm: i64 = 64; // TF_DSV41_MHC_BM
 const split_rows: i64 = 32; // TF_DSV41_MHC_SPLIT_ROWS: out-of-place boundaries, a program a stream
 pub const stream_min: i64 = 4096; // TF_DSV41_INDEX_STREAM_MIN (block.zig: a decode window past it would stream)
 const bmq: i64 = 32; // TF_DSV41_PREFILL_ATTN_BMQ
+
+/// `_fused`'s heads a program on a rank with `H` query heads: BMQ 32, clamped to 16 on a rank with 16 heads (TP=4), as
+/// attn_pf.config clamps it (patches/0003): the same kernel, a head tile of 16 (its own AOT variant).
+fn attnBmq(H: i64) i64 {
+    return @min(bmq, H);
+}
 const kt: i64 = 32; // csa2.attn.KT
 const router_chunk: i64 = 2048; // router_gemv.CHUNK: rows a route launch
 const gm_bm: i64 = 64; // x3gm: members a pass of the gate/up (cfg 1) and down (cfg 0) tiles below 3,072 rows
@@ -451,7 +457,7 @@ const Seg = struct {
         try s.siteTriton(x, x, try gathered(e, ""), prev, prev[0], null, part, c, null, 2, false);
         try s.finish(null, prev, try e.weight("norm", .{}, .f32, &.{D}), part, c, 0);
         // the head: the decode path's linear (prefill_mm.fast off), upstream's 128 rows a launch
-        const V: i64 = e.cfg.vocab / e.o.world;
+        const V: i64 = e.o.vocabShard(e.cfg).len;
         var a: i64 = 0;
         while (a < n) : (a += 128) {
             const m = @min(n - a, 128);
@@ -902,7 +908,7 @@ const Seg = struct {
         }
         // the CSA2 steps a segment at a time (blocks.attention's loop over its contexts), into the group-major core output
         const groups: i64 = e.cfg.o_groups / e.o.world;
-        if (@mod(H, bmq) != 0 or @mod(H, groups) != 0) return error.Unsupported;
+        if (@mod(H, attnBmq(H)) != 0 or @mod(H, groups) != 0) return error.Unsupported;
         const hg = @divExact(H, groups);
         const o = try e.buf("L.o", .{}, .bf16, &.{ groups, n, hg * hd });
         if (s.multi) |segs| {
@@ -997,7 +1003,7 @@ const Seg = struct {
                 fpg = try e.paging(e.cfg.compressRatio(src), false);
             }
         }
-        try e.triton("_fused", .{ n, @divExact(H, bmq), 1 }, &.{
+        try e.triton("_fused", .{ n, @divExact(H, attnBmq(H)), 1 }, &.{
             .{ .name = "Q", .arg = try e.view(q.t.role, .bf16, &.{ n, H, hd }, &.{ H * hd, hd, 1 }, e.row0 * H * hd * 2) },
             .{ .name = "CV", .arg = cv },                         .{ .name = "CSC", .arg = cs },
             .{ .name = "cvs", .arg = .{ .i = cv.t.stride[0] } },  .{ .name = "css", .arg = .{ .i = cs.t.stride[0] } },
@@ -1009,7 +1015,7 @@ const Seg = struct {
             .{ .name = "CS", .arg = try e.ropeTable() },          .{ .name = "cs_stride", .arg = .{ .i = 64 } },
             .{ .name = "OUT", .arg = try e.view(o.t.role, .bf16, &.{ groups, n, hg * hd }, &.{ total * hg * hd, hg * hd, 1 }, e.row0 * hg * hd * 2) },
             .{ .name = "H", .arg = .{ .i = H } },
-            .{ .name = "KT", .arg = .{ .i = kt } },               .{ .name = "BMQ", .arg = .{ .i = bmq } },
+            .{ .name = "KT", .arg = .{ .i = kt } },               .{ .name = "BMQ", .arg = .{ .i = attnBmq(H) } },
             // Python's D ** -0.5 (libm pow, correctly rounded): sqrt of the exact 1 / 512 rounds the same way
             .{ .name = "SCALE", .arg = .{ .f = @sqrt(1.0 / @as(f64, @floatFromInt(hd))) } }, .{ .name = "RING", .arg = .{ .i = s.ring } },
             .{ .name = "WINDOW", .arg = .{ .i = W } },            .{ .name = "COMP", .arg = .{ .b = ratio > 0 } },
@@ -1099,7 +1105,7 @@ const Seg = struct {
         const topk: i64 = ex.topk;
         const slots: i64 = topk + 1;
         const Et: i64 = ex.count;
-        const I: i64 = e.cfg.expert_width / e.o.world;
+        const I: i64 = e.o.expertWidth(e.cfg);
         const P = n * topk;
         const pick = try e.buf("L.pick", .{}, .i32, &.{ n, slots });
         const wts = try e.buf("L.wts", .{}, .f32, &.{ n, slots });

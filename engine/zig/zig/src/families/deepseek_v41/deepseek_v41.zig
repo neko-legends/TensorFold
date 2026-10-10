@@ -3,6 +3,7 @@
 pub const config = @import("config.zig");
 pub const Config = config.Config;
 pub const exl3 = @import("exl3.zig");
+pub const shard = @import("shard.zig");
 pub const names = @import("names.zig");
 pub const pack = @import("pack.zig");
 pub const Pack = pack.Pack;
@@ -18,6 +19,7 @@ pub const buffers = @import("buffers.zig");
 test {
     _ = config;
     _ = exl3;
+    _ = shard;
     _ = names;
     _ = pack;
     _ = plan;

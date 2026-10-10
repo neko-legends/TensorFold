@@ -210,7 +210,10 @@ pub const Served = struct {
     /// PF_DENSE's fused kernel is CUDA, so the `_gemm` variants it replaces are listed too).
     pub fn fromEnv() !Served {
         const knobs = @import("prod_knobs.zig");
-        var o: block.Options = .{ .world = @intCast(try envInt("TF_TP_WORLD", 2)), .r1 = knobs.r1(&knobs.env) };
+        // the world AND the rank: at TP=4 a rank's expert and head widths are its own whole-block shard (640 / 512
+        // expert columns, 32,384 / 32,256 head columns), so each rank's Triton variants are its own (one fill a rank)
+        var o: block.Options = .{ .world = @intCast(try envInt("TF_TP_WORLD", 2)), .rank = @intCast(try envInt("TF_TP_RANK", 0)), .r1 = knobs.r1(&knobs.env) };
+        if (o.rank >= o.world) return error.BadRank;
         if (std.c.getenv("TF_DSV41_EXPERT_TOPP")) |v| o.expert_topp = try std.fmt.parseFloat(f64, std.mem.span(v));
         o.limit = try envInt("TF_DSV41_CONTEXT", o.limit);
         o.rope_rows = o.limit + 2048;
@@ -230,10 +233,15 @@ pub const Served = struct {
         o.mhc_pf_rows = try knobs.mhcPfRows(&knobs.env);
         const drafts = envOn("TF_DSV41_DRAFTS", false);
         o.taps = drafts;
+        // a context of whole pages (TP=4's 420K: TF_DSV41_CONTEXT=420096, 1,641 pages)
+        if (@mod(o.limit, block.Pool.page) != 0) {
+            std.log.err("aot-needs: TF_DSV41_CONTEXT={d} is not a multiple of the {d}-token page", .{ o.limit, block.Pool.page });
+            return error.ContextNotPages;
+        }
         const pages = @divExact(o.limit, block.Pool.page);
         const split = envOn("TF_DSV41_KV_SPLIT", false);
         // the pool's tensors' row counts are not launch arguments; its tables' stride (pts) and paging are
-        o.pool = .{ .comp_pages = if (split) @divExact(pages, 2) + 2 else pages + 1, .ik_pages = pages + 1, .pts = pages, .split = split };
+        o.pool = .{ .comp_pages = if (split) @divFloor(pages, @as(i64, o.world)) + 2 else pages + 1, .ik_pages = pages + 1, .pts = pages, .split = split };
         const slots: u32 = @intCast(try envInt("TF_DSV41_SLOTS", 1));
         const rows_mod = @import("dspark_rows.zig");
         return .{

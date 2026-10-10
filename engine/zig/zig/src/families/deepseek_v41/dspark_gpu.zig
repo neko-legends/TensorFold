@@ -133,7 +133,7 @@ pub const GpuPass = struct {
             } else {
                 // every buffer a graphed pass bakes in, at its largest: the embedding's and exchanges' send
                 _ = try x.device(&x.send, 2 * @as(usize, @intCast(n)) * cfg.hidden);
-                x.dev = try dsd.Dev.init(gpa, r.d, f.comm, r.stream, mode, k, cfg.hidden, @intCast(n), conf != null, @intCast(8 * st.len64() + 4 * st.len32()), 1);
+                x.dev = try dsd.Dev.init(gpa, r.d, f.comm, r.stream, mode, k, cfg.hidden, @intCast(n), conf != null, @intCast(8 * st.len64() + 4 * st.len32()), 1, f.vocabShard().lo);
                 // the speculative pass from the device pick (needs TF_DSV41_GREEDY_GPU's pick and ds_stage)
                 if (r.kernels.others(r.stream).f.ds_stage != null) {
                     f.after_pick = .{ .ctx = x, .run = afterPick };
@@ -630,7 +630,8 @@ pub const GpuPass = struct {
         defer gpa.free(packed_);
         const ids = try gpa.alloc(i32, k);
         defer gpa.free(ids);
-        const id0: u32 = @intCast(comm.rank() * V);
+        const id0: u32 = x.f.vocabShard().lo; // this rank's first head column (uneven at TP=4: not rank x V)
+        std.debug.assert(V == x.f.vocabShard().len);
         for (0..n) |i| {
             const row = packed_[i * 2 * k ..][0 .. 2 * k];
             try dspark.candidates(gpa, logits[i * V ..][0..V], id0, ids, row[0..k]);

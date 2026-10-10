@@ -58,6 +58,8 @@ pub const Dev = struct {
     active: Mode,
     k: usize,
     world: usize,
+    /// this rank's first head column (the candidates' global ids)
+    id0: u32,
     hidden: usize,
     /// rows of every pass of a round together (the regions' size)
     rows_max: usize,
@@ -80,7 +82,8 @@ pub const Dev = struct {
     /// TF_DSV41_DRAFT_CHAIN=1: the chain on the device (Chain); null: the host's
     chain: ?*Chain = null,
 
-    pub fn init(gpa: std.mem.Allocator, d: *const cuda.Driver, comm: tp.collective.Collective, stream: cuda.Stream, want: Mode, k: usize, hidden: usize, rows_max: usize, conf: bool, region_bytes: usize, regions: usize) !*Dev {
+    /// `id0`: this rank's first head column (Forward.vocabShard().lo; uneven at TP=4, so not rank x V).
+    pub fn init(gpa: std.mem.Allocator, d: *const cuda.Driver, comm: tp.collective.Collective, stream: cuda.Stream, want: Mode, k: usize, hidden: usize, rows_max: usize, conf: bool, region_bytes: usize, regions: usize, id0: u32) !*Dev {
         const x = try gpa.create(Dev);
         errdefer gpa.destroy(x);
         const W: usize = comm.world();
@@ -96,6 +99,7 @@ pub const Dev = struct {
             .active = .device,
             .k = k,
             .world = W,
+            .id0 = id0,
             .hidden = hidden,
             .rows_max = rows_max,
             .conf = conf,
@@ -156,7 +160,7 @@ pub const Dev = struct {
         const ops = r.kernels.others(r.stream);
         const send = x.send.ptr + at * 2 * k * 4;
         const dst = x.gathered.ptr + at * 2 * k * 4 * x.world;
-        try ops.dsCandidates(try r.tensorAddr(logits_t), V, rows, V, k, @intCast(x.comm.rank() * V), send);
+        try ops.dsCandidates(try r.tensorAddr(logits_t), V, rows, V, k, x.id0, send);
         try x.comm.allGather(send, dst, rows * 2 * k, .f32, r.stream.handle);
         if (x.chain) |ch| try ch.layout(r, x.gathered.ptr, x.world, rows, k, at, try r.tensorAddr(hid_t));
         try r.d.check(r.d.api.cuMemcpyDtoHAsync_v2(x.host.bytes.ptr + at * 2 * k * 4 * x.world, dst, pk * x.world, r.stream.handle), "cuMemcpyDtoHAsync");
@@ -208,7 +212,7 @@ pub const Dev = struct {
         const rank = x.comm.rank();
         const all: []const f32 = @alignCast(std.mem.bytesAsSlice(f32, x.host.bytes[at * 2 * k * 4 * x.world ..][0 .. rows * 2 * k * 4 * x.world]));
         for (0..rows) |i| {
-            try dspark.candidates(x.gpa, host[i * V ..][0..V], @intCast(rank * V), ids, vals);
+            try dspark.candidates(x.gpa, host[i * V ..][0..V], x.id0, ids, vals);
             const got = all[(rank * rows + i) * 2 * k ..][0 .. 2 * k];
             for (0..k) |j| {
                 const gid: i32 = @bitCast(got[k + j]);

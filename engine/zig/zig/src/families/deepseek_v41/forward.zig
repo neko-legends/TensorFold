@@ -148,7 +148,16 @@ pub const Forward = struct {
     calib_marks: std.ArrayList(u64) = .empty,
 
     pub fn init(gpa: std.mem.Allocator, cfg: *const Config, widths: *const block.Widths, opts: block.Options, runner: *run.Runner, comm: tp.collective.Collective) Forward {
-        return .{ .gpa = gpa, .cfg = cfg, .widths = widths, .opts = opts, .runner = runner, .comm = comm, .arena = std.heap.ArenaAllocator.init(gpa) };
+        // the emitters' uneven shards (block.Options.expertWidth / vocabShard) are this communicator's rank's
+        var o = opts;
+        o.rank = @intCast(comm.rank());
+        return .{ .gpa = gpa, .cfg = cfg, .widths = widths, .opts = o, .runner = runner, .comm = comm, .arena = std.heap.ArenaAllocator.init(gpa) };
+    }
+
+    /// This rank's head columns: [lo, lo + len) of the vocabulary on whole 128-blocks (shard.zig; uneven at TP=4), and
+    /// the widest / narrowest rank's len for gathers that must send the same bytes from every rank.
+    pub fn vocabShard(f: *const Forward) block.shard.Shard {
+        return block.shard.checked(f.cfg.vocab, @intCast(f.comm.world()), @intCast(f.comm.rank()));
     }
 
     pub fn deinit(f: *Forward) void {
@@ -303,7 +312,9 @@ pub const Forward = struct {
         const r = f.runner;
         const n = out.len;
         const W: usize = f.comm.world();
-        const V: usize = f.cfg.vocab / W;
+        // this rank's head columns: whole 128-blocks (uneven at TP=4); the pairs carry global ids, one a row a rank
+        const vs = f.vocabShard();
+        const V: usize = vs.len;
         // pinned: the logits [n, V], then the pairs [2n] and every rank's [W][2n] (reused, no allocation a window)
         const lb = std.mem.alignForward(usize, 4 * n * V, 8);
         const need = lb + 16 * n * (W + 1);
@@ -334,7 +345,7 @@ pub const Forward = struct {
                 // the pairs, their exchange and the merge on the device; one copy back (glue.cu pick_*)
                 const ids_dev = cols_dev + 8 * n;
                 const out_dev = ids_dev + 8 * n;
-                try k.pickPack(vals_dev, cols_dev, n, f.comm.rank() * V, dev.ptr);
+                try k.pickPack(vals_dev, cols_dev, n, vs.lo, dev.ptr);
                 try f.comm.allGather(dev.ptr, dev.ptr + 16 * n, 2 * n, .f64, r.stream.handle);
                 const chain = if (f.slot.pending) |p| p.n == n and f.ids.len >= n else false;
                 const start: i64 = if (f.slot.pending) |p| @intCast(p.start) else 0;
@@ -365,7 +376,7 @@ pub const Forward = struct {
             try r.stream.synchronize();
             for (0..n) |row| {
                 pairs[2 * row] = vh[row];
-                pairs[2 * row + 1] = @floatFromInt(@as(usize, @intCast(ch[row])) + f.comm.rank() * V);
+                pairs[2 * row + 1] = @floatFromInt(vs.id(@intCast(ch[row])));
             }
         } else {
             try r.d.check(r.d.api.cuMemcpyDtoHAsync_v2(host.ptr, logits, 4 * n * V, r.stream.handle), "cuMemcpyDtoHAsync");
@@ -374,7 +385,7 @@ pub const Forward = struct {
                 const vals = host[row * V ..][0..V];
                 const best = greedy_host.argmax(vals);
                 pairs[2 * row] = vals[best];
-                pairs[2 * row + 1] = @floatFromInt(best + f.comm.rank() * V);
+                pairs[2 * row + 1] = @floatFromInt(vs.id(best));
             }
         }
         try dev.uploadAsync(0, std.mem.sliceAsBytes(pairs[0 .. 2 * n]), r.stream.handle);

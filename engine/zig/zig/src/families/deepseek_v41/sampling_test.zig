@@ -9,6 +9,7 @@ const tp = @import("tp");
 const json = @import("json");
 const serve = @import("dsv41_serve");
 const pipe = @import("sampling_pipe.zig");
+const shard = @import("shard.zig");
 
 const Case = struct {
     logits: []const f32,
@@ -46,13 +47,15 @@ const Mirror = struct {
 fn rankBody(comm: tp.collective.Collective, me: u32, c: *Case) anyerror!void {
     const a = testing.allocator;
     const vocab = c.logits.len / c.rows;
-    const V = vocab / c.world;
+    // the rank's head columns: whole 128-blocks where they split (uneven at TP=3 / TP=4), else equal parts
+    const vs = try shard.ofOrEven(@intCast(vocab), c.world, me);
+    const V: usize = vs.len;
     const mine = try a.alloc(f32, c.rows * V);
     defer a.free(mine);
-    for (0..c.rows) |r| @memcpy(mine[r * V ..][0..V], c.logits[r * vocab + me * V ..][0..V]);
+    for (0..c.rows) |r| @memcpy(mine[r * V ..][0..V], c.logits[r * vocab + vs.lo ..][0..V]);
     var dev: pipe.HostDevice = .{ .gpa = a };
     defer dev.deinit();
-    var p = try pipe.Pipe.init(a, comm, @intCast(V), c.nucleus);
+    var p = try pipe.Pipe.init(a, comm, @intCast(vocab), c.nucleus);
     defer p.deinit();
     var mh: Mirror = .{ .c = c };
     if (me == 0 and c.mirror != null) p.after_gather = .{ .ctx = &mh, .run = Mirror.run };
@@ -138,7 +141,8 @@ test "a window's rows pick as each row does alone (one call, several positions, 
         .{ .seed = 3, .temperature = 1.3, .top_k = 0, .top_p = 1.0 }, // whole rows (k > max_k)
         .{ .seed = 1 << 63 | 5, .temperature = 0.6, .top_k = 0, .top_p = 0.8 },
     };
-    for (cases) |s| for ([_]u32{ 1, 2 }) |world| {
+    // 3 ranks: 4,096 = 32 blocks as 11 / 11 / 10 (uneven, as TP=4's vocabulary); 4 ranks: 8 each
+    for (cases) |s| for ([_]u32{ 1, 2, 3, 4 }) |world| {
         var all: [n]u32 = undefined;
         var w: [1]usize = .{0};
         var c: Case = .{ .logits = logits, .world = world, .rows = n, .sampling = s, .positions = &positions, .got = &all, .whole = &w };
@@ -217,7 +221,7 @@ test "vs_choose's mirror == the pipeline's picks over top_k x top_p x min_p x te
             const x: f32 = @floatCast(rnd.floatNorm(f64) * spread + @as(f64, if (i % vocab < 3) 4 else 0));
             v.* = if (round == 2) @bitCast(@as(u32, @bitCast(x)) & 0xFFFF_0000) else x;
         }
-        for ([_]u32{ 20, 40, 100 }) |top_k| for ([_]f64{ 0.5, 0.8, 0.95, 1.0 }) |top_p| for ([_]f64{ 0, 0.05 }) |min_p| for ([_]f64{ 0.6, 1.3 }) |t| for ([_]u32{ 1, 2 }) |world| {
+        for ([_]u32{ 20, 40, 100 }) |top_k| for ([_]f64{ 0.5, 0.8, 0.95, 1.0 }) |top_p| for ([_]f64{ 0, 0.05 }) |min_p| for ([_]f64{ 0.6, 1.3 }) |t| for ([_]u32{ 1, 2, 3 }) |world| {
             const s: pipe.Sampling = .{ .seed = rnd.int(u64) >> 1, .temperature = t, .top_k = top_k, .top_p = top_p, .min_p = min_p };
             var got: [n]u32 = undefined;
             var w: [1]usize = .{0};
@@ -230,7 +234,7 @@ test "vs_choose's mirror == the pipeline's picks over top_k x top_p x min_p x te
             }
         };
     }
-    try testing.expectEqual(@as(usize, 3 * 3 * 4 * 2 * 2 * 2 * n), rows);
+    try testing.expectEqual(@as(usize, 3 * 3 * 4 * 2 * 2 * 3 * n), rows);
 }
 
 const SegSpec = struct { row0: u32, n: u32, s: pipe.Sampling, positions: []const u64 };
@@ -279,13 +283,14 @@ const SegMirror = struct {
 fn multiBody(comm: tp.collective.Collective, me: u32, c: *Multi) anyerror!void {
     const a = testing.allocator;
     const vocab = c.logits.len / c.rows;
-    const V = vocab / c.world;
+    const vs = try shard.ofOrEven(@intCast(vocab), c.world, me);
+    const V: usize = vs.len;
     const mine = try a.alloc(f32, c.rows * V);
     defer a.free(mine);
-    for (0..c.rows) |r| @memcpy(mine[r * V ..][0..V], c.logits[r * vocab + me * V ..][0..V]);
+    for (0..c.rows) |r| @memcpy(mine[r * V ..][0..V], c.logits[r * vocab + vs.lo ..][0..V]);
     var dev: pipe.HostDevice = .{ .gpa = a };
     defer dev.deinit();
-    var p = try pipe.Pipe.init(a, comm, @intCast(V), serve.sampling.nucleus_count);
+    var p = try pipe.Pipe.init(a, comm, @intCast(vocab), serve.sampling.nucleus_count);
     defer p.deinit();
     const lg: u64 = @intFromPtr(mine.ptr);
     const out = try a.alloc(u32, c.rows);
@@ -339,7 +344,7 @@ test "a forward's keyed segments in one call (TF_DSV41_SAMP_BATCH) pick the toke
         .{ .row0 = 8, .n = 3, .s = T{ .seed = 1234, .temperature = 0.7, .top_k = 0, .top_p = 0.9 }, .positions = &.{ 70, 71, 72 } },
         .{ .row0 = 11, .n = 1, .s = T{ .seed = 3, .temperature = 0.4, .top_k = 300, .top_p = 0.99 }, .positions = &.{500} },
     };
-    for ([_][]const SegSpec{ &nucleus_segs, &topk_segs }) |segs| for ([_]u32{ 1, 2 }) |world| {
+    for ([_][]const SegSpec{ &nucleus_segs, &topk_segs }) |segs| for ([_]u32{ 1, 2, 3 }) |world| {
         var got: [2][rows]u32 = undefined;
         var whole: [2]usize = undefined;
         var mirror: [rows]i64 = @splat(-2);

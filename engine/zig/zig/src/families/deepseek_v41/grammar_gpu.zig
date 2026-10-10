@@ -88,9 +88,10 @@ pub const Masks = struct {
         const text = try std.Io.Dir.cwd().readFileAlloc(io, path, a, .limited(1 << 30));
         const g = try grammar.Grammars.init(gpa, text, .{ .vocab_size = f.cfg.vocab, .stops = &.{f.cfg.eos}, .tool_tokens = &tool_tokens, .tag_model = .deepseek_v4_1 });
         errdefer g.deinit();
-        const W = f.comm.world();
-        const width: u32 = @intCast(f.cfg.vocab / W);
-        const lo: u32 = @intCast(f.comm.rank() * width);
+        // this rank's head columns (whole 128-blocks: uneven at TP=4, still on 32-token words)
+        const vs = f.vocabShard();
+        const width: u32 = vs.len;
+        const lo: u32 = vs.lo;
         if (lo % 32 != 0 or width % 32 != 0) return error.GrammarHalves; // Python: "vocabulary halves on 32-token words"
         const d = f.runner.d;
         const bytes = 4 * @as(usize, max_rows) * (g.words + 1);

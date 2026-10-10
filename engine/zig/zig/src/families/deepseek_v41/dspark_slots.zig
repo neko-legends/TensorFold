@@ -153,7 +153,7 @@ pub const SlotPass = struct {
         const Rr = n * @max(group, nslots);
         const c: usize = f.comm.world() * one.k;
         const lay = emit.Layout.of(group, @intCast(n), f.cfg.window);
-        const V: usize = f.cfg.vocab / f.comm.world();
+        const V: usize = f.vocabShard().len; // this rank's head columns
         x.* = .{
             .gpa = gpa,
             .f = f,
@@ -188,7 +188,7 @@ pub const SlotPass = struct {
                 std.log.scoped(.dsv41).warn("draft graphs: TF_DSV41_DRAFT_GRAPHS set, but the glue fatbin has no ds_cands kernel: the host step", .{});
             } else {
                 _ = try x.device(&x.send, 2 * R * f.cfg.hidden); // the embedding's and exchanges' send, at its largest
-                x.dev = try dsd.Dev.init(gpa, r.d, f.comm, r.stream, mode, one.k, f.cfg.hidden, n * nslots, one.conf != null, @intCast(8 * lay.len64 + 4 * lay.len32), nslots);
+                x.dev = try dsd.Dev.init(gpa, r.d, f.comm, r.stream, mode, one.k, f.cfg.hidden, n * nslots, one.conf != null, @intCast(8 * lay.len64 + 4 * lay.len32), nslots, f.vocabShard().lo);
                 // the speculative round from the row window's device pick (TF_DSV41_GREEDY_GPU, ds_accept_rows /
                 // ds_stage_rows): this pass takes the forward's hook over from the one-slot pass
                 const ko = r.kernels.others(r.stream).f;
@@ -1080,7 +1080,7 @@ pub const SlotPass = struct {
         try cuda.DeviceBuffer.download(.{ .d = r.d, .ptr = try r.tensorAddr(hid_t), .len = 2 * hid16.len }, 0, std.mem.sliceAsBytes(hid16));
         for (hid16, x.hid[0 .. R * D]) |b, *h| h.* = dspark.bf16(b);
         const packed_ = x.packed_[0 .. R * 2 * k];
-        const id0: u32 = @intCast(comm.rank() * V);
+        const id0: u32 = x.f.vocabShard().lo; // this rank's first head column (uneven at TP=4: not rank x V)
         for (0..R) |i| {
             const row = packed_[i * 2 * k ..][0 .. 2 * k];
             try dspark.candidates(x.gpa, logits[i * V ..][0..V], id0, x.ids, row[0..k]);

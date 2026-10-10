@@ -1,6 +1,7 @@
 //! EXL3 groups as the pack stores them (cuda/weights.py X3 / X3Stack / X3Ragged): trellis geometry, codebooks, a rank's TP slice as byte spans, routed-expert layouts.
 
 const std = @import("std");
+const shard = @import("shard.zig");
 
 /// The codebook a group's trellis decodes with: the `.mul1` / `.mcg` marker's value, else the 3-instruction default.
 pub const Codebook = enum(u8) {
@@ -72,27 +73,34 @@ pub const Group = struct {
         return @as(u64, g.k_tiles) * g.n_tiles * g.tileBytes();
     }
 
-    /// The rank's part of the group; a split that does not fall on 128-value blocks is refused.
+    /// The rank's part of the group: whole 128-value blocks (shard.zig, weights.py block_bounds), the first
+    /// `blocks % world` ranks one block more (TP=4's 2,304 expert columns: 640 / 640 / 512 / 512); a width that is not
+    /// whole blocks, or has fewer blocks than ranks, is refused.
     pub fn part(g: Group, split: Split, rank: u32, world: u32) !Part {
         std.debug.assert(rank < world);
         var p: Part = .{ .group = g, .trellis = .{ .offset = 0, .len = g.trellisBytes() }, .suh = .{ .offset = 0, .len = 2 * @as(u64, g.k()) }, .svh = .{ .offset = 0, .len = 2 * @as(u64, g.n()) } };
+        const tiles_a_block = shard.block / 16;
         switch (split) {
             .whole => {},
             .row => {
-                if (g.k() % (world * 128) != 0) return error.SplitNotOnBlocks;
-                const per = g.k_tiles / world;
+                if (g.k() % shard.block != 0) return error.SplitNotOnBlocks;
+                const b = try shard.blocks(g.k() / shard.block, world, rank);
+                const lo: u64 = b.lo * tiles_a_block;
+                const per: u32 = b.len * tiles_a_block;
                 p.group.k_tiles = per;
                 const row = @as(u64, g.n_tiles) * g.tileBytes();
-                p.trellis = .{ .offset = rank * per * row, .len = per * row };
-                p.suh = .{ .offset = 2 * 16 * @as(u64, rank * per), .len = 2 * 16 * @as(u64, per) };
+                p.trellis = .{ .offset = lo * row, .len = per * row };
+                p.suh = .{ .offset = 2 * 16 * lo, .len = 2 * 16 * @as(u64, per) };
             },
             .col => {
-                if (g.n() % (world * 128) != 0) return error.SplitNotOnBlocks;
-                const per = g.n_tiles / world;
+                if (g.n() % shard.block != 0) return error.SplitNotOnBlocks;
+                const b = try shard.blocks(g.n() / shard.block, world, rank);
+                const lo: u64 = b.lo * tiles_a_block;
+                const per: u32 = b.len * tiles_a_block;
                 p.group.n_tiles = per;
                 // one K-tile row at a time: this rank's N tiles are a run inside each row
-                p.trellis = .{ .offset = rank * per * g.tileBytes(), .len = per * g.tileBytes(), .stride = @as(u64, g.n_tiles) * g.tileBytes(), .count = g.k_tiles };
-                p.svh = .{ .offset = 2 * 16 * @as(u64, rank * per), .len = 2 * 16 * @as(u64, per) };
+                p.trellis = .{ .offset = lo * g.tileBytes(), .len = per * g.tileBytes(), .stride = @as(u64, g.n_tiles) * g.tileBytes(), .count = g.k_tiles };
+                p.svh = .{ .offset = 2 * 16 * lo, .len = 2 * 16 * @as(u64, per) };
             },
         }
         return p;
@@ -228,6 +236,34 @@ test "TP parts: rows contiguous, columns a run a K-tile row" {
     const wk = try Group.fromShape(&.{ 32, 8, 128 });
     try testing.expectError(error.SplitNotOnBlocks, wk.part(.col, 0, 2));
     try testing.expectEqual(wk.trellisBytes(), (try wk.part(.whole, 1, 2)).trellis.bytes());
+}
+
+test "TP=4 parts: the 2,304 expert width as 640 / 640 / 512 / 512, tiling the stored tensor" {
+    const w1 = try Group.fromShape(&.{ 320, 144, 32 }); // gate: 5120 -> 2304 (columns)
+    const w2 = try Group.fromShape(&.{ 144, 320, 48 }); // down: 2304 -> 5120 (rows)
+    const widths = [_]u32{ 640, 640, 512, 512 };
+    var col_at: u64 = 0;
+    var row_at: u64 = 0;
+    for (widths, 0..) |w, r| {
+        const c = try w1.part(.col, @intCast(r), 4);
+        try testing.expectEqual(w, c.group.n());
+        try testing.expectEqual(col_at, c.trellis.offset);
+        try testing.expectEqual(@as(u64, 320), c.trellis.count);
+        try testing.expectEqual(c.group.trellisBytes(), c.trellis.bytes());
+        try testing.expectEqual(Span{ .offset = 2 * (col_at / w1.tileBytes()) * 16, .len = 2 * @as(u64, w) }, c.svh);
+        col_at += c.trellis.len;
+        const p = try w2.part(.row, @intCast(r), 4);
+        try testing.expectEqual(w, p.group.k());
+        try testing.expectEqual(row_at, p.trellis.offset);
+        try testing.expectEqual(@as(u64, 2 * 5120), p.svh.len);
+        row_at += p.trellis.len;
+    }
+    try testing.expectEqual(@as(u64, 144) * w1.tileBytes(), col_at); // one K-tile row's N tiles, all of them
+    try testing.expectEqual(w2.trellisBytes(), row_at);
+    // TP=2 is unchanged by the block bounds: the equal halves
+    try testing.expectEqual(@as(u32, 1152), (try w1.part(.col, 1, 2)).group.n());
+    // a rank past the blocks: 2 blocks over 4 ranks
+    try testing.expectError(error.SplitNotOnBlocks, (try Group.fromShape(&.{ 16, 16, 32 })).part(.col, 0, 4));
 }
 
 test "expert layouts: one width stacks, mixed widths go ragged with aligned offsets" {
