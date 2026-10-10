@@ -146,14 +146,19 @@ not misread. Drain-first stop sends `op_stop` to every follower. Notes for TP=4:
    TP=4 config. Host tests at world 4. *Estimate: 1-2 days of work; this session's status is below.*
 2. **First GPU window: correctness on NCCL.** Build `dsv41-tensorfold:zigtp4-<sha>` with fatbins. Run the AOT fill per
    rank with `TF_TP_WORLD=4 TF_TP_RANK=r`, then the rope and Engram host assets. Write the prepared files (first
-   boot: several minutes a rank, about 50-100 GB of NVMe a node). Boot on NCCL. Then the gates: 17 x 23 = 391,
+   boot: several minutes a rank, about 50-100 GB of NVMe a node). **Boot with `TF_COMM_BACKEND=nccl` explicitly**
+   (the config default is RoCE; NCCL is the qualified transport, so the first window changes one variable — the
+   engine — and not two). Capture rank 0's `world|nccl|roce` line as evidence of what actually ran. Then the gates: 17 x 23 = 391,
    greedy token parity against the live Python TP=4 on the depth bench's prompts, drafted equal to plain,
    concurrent equal to solo, and the code word at 30/60/85 % of 20k/80k/158k. *1-2 windows; most likely failures
    are a missing AOT variant, or a kernel shape check refusing 640/512 widths or 32,384/32,256 head slices.*
 3. **N-way RoCE.** `mailbox.cu`'s `tp_roce` and `roce.zig` from one peer to N-1, with sums in rank order. Without it,
    TP=4 runs every exchange on NCCL. On the Sparks, Python's NCCL vs RoCE gap was large enough that the README warns
    about the `roce-failed` trap. *Code done on this branch (below); needs the hardware check in a window.*
-4. **Bench** (`bench/zig_vs_python.py`, below) against the live Python TP=4 on the same pack.
+4. **Bench** (`bench/zig_vs_python.py`, below) against the live Python TP=4 on the same pack. **Pair the fabrics:**
+   Zig on NCCL against Python with `GLM53_TF_COMM_BACKEND=nccl`, and Zig on RoCE (only after its hardware check)
+   against live Python on RoCE. Never headline a number that changes engine and transport together; publish the
+   transport term beside it.
 5. Features by measured value: overlapped exchanges at N peers, the prefill pipeline, `EXPERT_ROTATE`, the q4
    draft head, rank-wide memory floor, vLLM metrics and `/v1/model_info`, logprobs.
 
