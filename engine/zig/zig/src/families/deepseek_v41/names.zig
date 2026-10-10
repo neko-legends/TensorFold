@@ -87,12 +87,16 @@ pub const Store = enum {
     f32,
     /// fp16 or bf16, rounded to bf16 once (router gate, indexer weights_proj, Markov heads)
     half,
+    /// the router bias: fp32, or fp16 widened exactly to fp32 (the dealignai 2.9 bpw pack stores it fp16;
+    /// every fp16 value is representable in fp32, so the forward sees the same numbers the Python engine does)
+    bias,
 
     pub fn accepts(s: Store, d: DType) bool {
         return switch (s) {
             .norm => d == .bf16 or d == .f32,
             .f32 => d == .f32,
             .half => d == .bf16 or d == .f16,
+            .bias => d == .f32 or d == .f16,
         };
     }
 };
@@ -146,7 +150,7 @@ pub fn blockNatives(c: *const Config, layer: u32) !Natives {
     if (c.isBackbone(layer) and c.isIndexSource(layer)) try n.push(.m("attn.indexer.weights_proj.weight", .half, c.index_heads, c.hidden));
     const ex = c.expertsOf(layer);
     try n.push(.m("ffn.gate.weight", .half, ex.count, c.hidden));
-    try n.push(.v("ffn.gate.bias", .f32, ex.count));
+    try n.push(.v("ffn.gate.bias", .bias, ex.count));
     if (c.isEngram(layer)) {
         try n.push(.m("engram.q_weight", .norm, hc, c.hidden));
         try n.push(.m("engram.k_weight", .norm, hc, c.hidden));
