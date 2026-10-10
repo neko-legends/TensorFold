@@ -71,10 +71,31 @@ pub fn models(srv: *Server, conn: *Conn, a: Allocator) !void {
     routes.sendValue(conn, a, 200, .{ .object = o });
 }
 
+/// ``GET /v1/model_info`` (the four-Spark fork's patches/0003): the request slots and context as vLLM's debug model
+/// info names them, for tools that size their concurrency from it.
+pub fn modelInfo(srv: *Server, conn: *Conn, a: Allocator) !void {
+    routes.sendValue(conn, a, 200, try modelInfoValue(a, srv.info.lanes, srv.info.context_window));
+}
+
+pub fn modelInfoValue(a: Allocator, lanes: anytype, context: anytype) Allocator.Error!Value {
+    const o = try json.newObject(a);
+    try o.put(a, "backend", .{ .string = "tensorfold" });
+    try o.put(a, "max_num_seqs", try json.intValue(a, lanes));
+    if (context > 0) try o.put(a, "max_model_len", try json.intValue(a, context));
+    return .{ .object = o };
+}
+
 /// Prometheus text, version 0.0.4.
 pub fn metrics(srv: *Server, conn: *Conn, a: Allocator) void {
     var out: std.Io.Writer.Allocating = .init(a);
-    if (srv.health) |h| h.metrics(&out.writer, srv.config.served_name) catch return else srv.metrics.render(srv.io, &out.writer, srv.engine, srv.info.context_window) catch return;
+    if (srv.health) |h| {
+        h.metrics(&out.writer, srv.config.served_name) catch return;
+        if (h.vllm_on) {
+            var st: api.Status = .{};
+            srv.engine.status(&st, &.{});
+            h.vllm(&out.writer, srv.config.served_name, st.running) catch return;
+        }
+    } else srv.metrics.render(srv.io, &out.writer, srv.engine, srv.info.context_window) catch return;
     const body = out.written();
     conn.startResponse(200, null) catch return;
     conn.addHeader("Content-Type", if (srv.health != null) "text/plain; version=0.0.4" else "text/plain; version=0.0.4; charset=utf-8") catch return;
@@ -141,4 +162,14 @@ test "stats snapshot exposes counters and omits unknown memory" {
     for ([_][]const u8{ "running", "waiting", "generation_tokens_running", "prompt_tokens_total", "generation_tokens_total", "mtp_drafted_total", "mtp_accepted_total", "decode_rounds_total", "memory" }) |key|
         try std.testing.expect(object.contains(key));
     try std.testing.expectEqual(@as(usize, 0), object.get("memory").?.object.count());
+}
+
+test "model_info names the slots and context as vLLM does (patches/0003)" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const text = try json.stringify(a, try modelInfoValue(a, @as(u32, 4), @as(u32, 420096)), .{});
+    try std.testing.expectEqualStrings("{\"backend\": \"tensorfold\", \"max_num_seqs\": 4, \"max_model_len\": 420096}", text);
+    const none = (try modelInfoValue(a, @as(u32, 1), @as(u32, 0))).object;
+    try std.testing.expect(!none.contains("max_model_len"));
 }

@@ -47,6 +47,9 @@ pub const Settings = struct {
     drain_s: f64 = 20,
     /// TF_DSV41_SSE_KEEPALIVE_S / GLM53_TF_SSE_KEEPALIVE_S: a silent stream's keepalive period (0: none)
     keepalive_s: f64 = 15,
+    /// TF_DSV41_VLLM_METRICS / GLM53_TF_VLLM_METRICS=1 (the four-Spark fork's patches/0003, default off): /metrics adds
+    /// the vLLM-named series fleet dashboards read (`Health.vllm`)
+    vllm_metrics: bool = false,
 
     /// The knobs from ``env``; ``problem`` names a bad one.
     pub fn fromEnv(env: ?*const std.process.Environ.Map, problem: *[]const u8) error{Invalid}!Settings {
@@ -64,6 +67,11 @@ pub const Settings = struct {
         if (knob(m, "STALL_S")) |v| s.stall_s = try nonNegative(v, 0, problem, "GLM53_TF_STALL_S: must be a number >= 0");
         if (knob(m, "SSE_KEEPALIVE_S")) |v| s.keepalive_s = try nonNegative(v, 15, problem, "TF_DSV41_SSE_KEEPALIVE_S / GLM53_TF_SSE_KEEPALIVE_S: seconds, a number >= 0");
         if (knob(m, "DRAIN_S")) |v| s.drain_s = try nonNegative(v, 20, problem, "TF_DSV41_DRAIN_S / GLM53_TF_DRAIN_S: seconds, a number >= 0");
+        if (knob(m, "VLLM_METRICS")) |v| {
+            const t = trimmed(v, "0");
+            if (!std.mem.eql(u8, t, "0") and !std.mem.eql(u8, t, "1")) return bad(problem, "TF_DSV41_VLLM_METRICS / GLM53_TF_VLLM_METRICS: expected 0 or 1");
+            s.vllm_metrics = std.mem.eql(u8, t, "1");
+        }
         if (m.get("GLM53_TF_STALL_PREFILL_TPS")) |v| s.stall_prefill_tps = try nonNegative(v, 200, problem, "GLM53_TF_STALL_PREFILL_TPS: must be a number >= 0");
         if (knob(m, "REQUEST_LOG")) |v| {
             const path = std.mem.trim(u8, v, " \t");
@@ -167,6 +175,8 @@ pub const Health = struct {
     last_done: ?i96 = null,
     c: Counters = .{},
     t: Totals = .{},
+    /// Settings.vllm_metrics: /metrics adds `vllm` after the tensorfold_* rows
+    vllm_on: bool = false,
 
     const Entry = struct { prompt: f64, start: i96, last: i96, tokens: f64 = 0 };
     const Counters = struct { requests: f64 = 0, errors: f64 = 0, rejected: f64 = 0, prompt_tokens: f64 = 0, completion_tokens: f64 = 0, cached_tokens: f64 = 0, decode_rounds: f64 = 0, decode_seconds: f64 = 0, prefill_seconds: f64 = 0 };
@@ -176,7 +186,7 @@ pub const Health = struct {
     pub const End = union(enum) { ok: Outcome, failed: struct { value_error: bool, message: []const u8 } };
 
     pub fn init(gpa: Allocator, io: std.Io, s: Settings) Health {
-        return .{ .gpa = gpa, .io = io, .mode = s.health, .stall_s = s.stall_s, .prefill_tps = s.stall_prefill_tps, .started = now(io) };
+        return .{ .gpa = gpa, .io = io, .mode = s.health, .stall_s = s.stall_s, .prefill_tps = s.stall_prefill_tps, .started = now(io), .vllm_on = s.vllm_metrics };
     }
 
     pub fn deinit(h: *Health) void {
@@ -363,6 +373,39 @@ pub const Health = struct {
                 else => try w.writeByte(ch),
             };
             if (r[3] == @trunc(r[3]) and @abs(r[3]) < 9.0e15) try w.print("\"}} {d}\n", .{@as(i64, @intFromFloat(r[3]))}) else try w.print("\"}} {d:.6}\n", .{r[3]});
+        }
+    }
+
+    /// ``vllm_view`` (the four-Spark fork's patches/0003): the vLLM-named series dashboards and routers built for
+    /// vLLM read, from this server's numbers; `running`: requests in a slot (the engine's prefilling + decoding), the
+    /// rest of the requests in flight waiting. Tokens are finished requests' (Python's also counts running replies').
+    pub fn vllm(h: *Health, w: *std.Io.Writer, served: []const u8, running: u64) std.Io.Writer.Error!void {
+        h.mutex.lockUncancelable(h.io);
+        const c = h.c;
+        const inflight: u64 = h.inflight.count();
+        h.mutex.unlock(h.io);
+        const ok: u64 = @intFromFloat(@max(0, c.requests - c.errors));
+        const Row = struct { []const u8, []const u8, []const u8, ?[]const u8, u64 };
+        const rows = [_]Row{
+            .{ "vllm:num_requests_running", "gauge", "requests in a slot (prefilling or decoding)", null, running },
+            .{ "vllm:num_requests_waiting", "gauge", "requests waiting for a slot", null, inflight -| running },
+            .{ "vllm:prompt_tokens_total", "counter", "prompt tokens", null, @intFromFloat(c.prompt_tokens) },
+            .{ "vllm:generation_tokens_total", "counter", "generated tokens", null, @intFromFloat(c.completion_tokens) },
+            .{ "vllm:prompt_tokens_cached_total", "counter", "prompt tokens resumed from the session cache", null, @intFromFloat(c.cached_tokens) },
+            .{ "vllm:request_success_total", "counter", "finished requests by reason", "finished_reason=\"stop\"", ok },
+            .{ "vllm:request_success_total", "counter", "finished requests by reason", "finished_reason=\"error\"", @intFromFloat(c.errors) },
+        };
+        var last: []const u8 = "";
+        for (rows) |r| {
+            if (!std.mem.eql(u8, r[0], last)) try w.print("# HELP {s} {s}\n# TYPE {s} {s}\n", .{ r[0], r[2], r[0], r[1] });
+            last = r[0];
+            try w.print("{s}{{model_name=\"", .{r[0]});
+            for (served) |ch| switch (ch) {
+                '\\' => try w.writeAll("\\\\"),
+                '"' => try w.writeAll("\\\""),
+                else => try w.writeByte(ch),
+            };
+            if (r[3]) |extra| try w.print("\",{s}}} {d}\n", .{ extra, r[4] }) else try w.print("\"}} {d}\n", .{r[4]});
         }
     }
 };
@@ -745,6 +788,49 @@ pub const RequestLog = struct {
         l.written = 0;
     }
 };
+
+test "vLLM-named series (TF_DSV41_VLLM_METRICS): patches/0003's rows, off by default" {
+    const gpa = std.testing.allocator;
+    var problem: []const u8 = "";
+    try std.testing.expect(!(try Settings.fromEnv(null, &problem)).vllm_metrics);
+    var env = std.process.Environ.Map.init(gpa);
+    defer env.deinit();
+    try env.put("TF_DSV41_VLLM_METRICS", "1");
+    const s = try Settings.fromEnv(&env, &problem);
+    try std.testing.expect(s.vllm_metrics);
+    try env.put("TF_DSV41_VLLM_METRICS", "yes");
+    try std.testing.expectError(error.Invalid, Settings.fromEnv(&env, &problem));
+    var h = Health.init(gpa, std.testing.io, s);
+    defer h.deinit();
+    try std.testing.expect(h.vllm_on);
+    h.c = .{ .requests = 5, .errors = 1, .prompt_tokens = 300, .completion_tokens = 70, .cached_tokens = 128 };
+    _ = h.begin(10);
+    _ = h.begin(20);
+    _ = h.begin(30);
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    try h.vllm(&out.writer, "DeepSeek \"4.1\"", 2);
+    const body = out.written();
+    for ([_][]const u8{
+        "vllm:num_requests_running{model_name=\"DeepSeek \\\"4.1\\\"\"} 2\n",
+        "vllm:num_requests_waiting{model_name=\"DeepSeek \\\"4.1\\\"\"} 1\n",
+        "vllm:prompt_tokens_total{model_name=\"DeepSeek \\\"4.1\\\"\"} 300\n",
+        "vllm:generation_tokens_total{model_name=\"DeepSeek \\\"4.1\\\"\"} 70\n",
+        "vllm:prompt_tokens_cached_total{model_name=\"DeepSeek \\\"4.1\\\"\"} 128\n",
+        "vllm:request_success_total{model_name=\"DeepSeek \\\"4.1\\\"\",finished_reason=\"stop\"} 4\n",
+        "vllm:request_success_total{model_name=\"DeepSeek \\\"4.1\\\"\",finished_reason=\"error\"} 1\n",
+        "# TYPE vllm:request_success_total counter\n",
+    }) |want| if (std.mem.indexOf(u8, body, want) == null) {
+        std.debug.print("missing {s} in:\n{s}", .{ want, body });
+        return error.TestUnexpectedResult;
+    };
+    // one HELP / TYPE a family
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, body, "# TYPE vllm:request_success_total"));
+    // more running than in flight (a request between the engine's count and Health's): waiting floors at 0
+    out.clearRetainingCapacity();
+    try h.vllm(&out.writer, "m", 7);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "vllm:num_requests_waiting{model_name=\"m\"} 0\n") != null);
+}
 
 test "contextMessage is the Python server's" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
