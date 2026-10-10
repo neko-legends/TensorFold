@@ -254,7 +254,12 @@ const Builder = struct {
             const info = try b.pack.need(name);
             var n: u64 = 1;
             for (info.dims()) |d| n *= d;
-            if (info.dtype != .f32 and info.dtype != .bf16 or n != b.c.hidden + b.c.dspark_markov_rank) return error.UnexpectedTensor;
+            // fp16 storage widened exactly to fp32, as the router bias (the 2.9 bpw pack stores this head fp16 too;
+            // Python's Loader.native is a plain .to(float32), so the widened values are the bits it serves)
+            if ((info.dtype != .f32 and info.dtype != .bf16 and info.dtype != .f16) or n != b.c.hidden + b.c.dspark_markov_rank) {
+                log.warn("{s}: {t} {any} ({d} values), expected f32/bf16/f16 storage of {d} values", .{ name, info.dtype, info.dims(), n, b.c.hidden + b.c.dspark_markov_rank });
+                return error.UnexpectedTensor;
+            }
             try b.mark(name);
             confidence = .{ .name = try b.dupe(name), .info = info, .slice = .whole, .bytes = info.nbytes };
         }

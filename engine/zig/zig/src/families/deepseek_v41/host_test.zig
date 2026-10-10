@@ -43,11 +43,11 @@ test "the release config.json: topology, routing and rope" {
 /// Header JSON of a pack for `c`, named as the release packs are (their index, pattern by pattern), header only.
 fn tinyPack(a: std.mem.Allocator, c: *const Config, extra: []const u8, skip: []const u8) ![]u8 {
     var n: u64 = 0;
-    return tinyPackLen(a, c, extra, skip, &n);
+    return tinyPackLen(a, c, extra, skip, &n, "F32");
 }
 
 /// `tinyPack`, and the data bytes its header describes.
-fn tinyPackLen(a: std.mem.Allocator, c: *const Config, extra: []const u8, skip: []const u8, data_len: *u64) ![]u8 {
+fn tinyPackLen(a: std.mem.Allocator, c: *const Config, extra: []const u8, skip: []const u8, data_len: *u64, conf_dtype: []const u8) ![]u8 {
     var w: std.Io.Writer.Allocating = .init(a);
     errdefer w.deinit();
     var at: u64 = 0;
@@ -137,7 +137,7 @@ fn tinyPackLen(a: std.mem.Allocator, c: *const Config, extra: []const u8, skip: 
     try T.group(wr, &at, &first, skip, try std.fmt.bufPrint(&nb, "mtp.{d}.main_proj", .{last}), 3 * D, D, 64);
     inline for (.{ "main_norm", "norm" }) |s| try T.put(wr, &at, &first, skip, try std.fmt.bufPrint(&nb, "mtp.{d}." ++ s ++ ".weight", .{last}), "BF16", &.{D});
     inline for (.{ "embed", "head" }) |s| try T.put(wr, &at, &first, skip, try std.fmt.bufPrint(&nb, "mtp.{d}.markov_head." ++ s ++ ".weight", .{last}), "BF16", &.{ c.vocab, c.dspark_markov_rank });
-    try T.put(wr, &at, &first, skip, try std.fmt.bufPrint(&nb, "mtp.{d}.confidence_head.proj.weight", .{last}), "F32", &.{ 1, D + c.dspark_markov_rank });
+    try T.put(wr, &at, &first, skip, try std.fmt.bufPrint(&nb, "mtp.{d}.confidence_head.proj.weight", .{last}), conf_dtype, &.{ 1, D + c.dspark_markov_rank });
     try T.put(wr, &at, &first, skip, "vision.norm.weight", "BF16", &.{D});
     try T.put(wr, &at, &first, skip, "image_start", "BF16", &.{D});
     if (extra.len > 0) try T.put(wr, &at, &first, skip, extra, "BF16", &.{4});
@@ -266,7 +266,7 @@ test "a synthetic pack on disk: every planned tensor named in the Python loader'
     const io = testing.io;
     const c = config.tiny();
     var n: u64 = 0;
-    const json = try tinyPackLen(a, &c, "", "", &n);
+    const json = try tinyPackLen(a, &c, "", "", &n, "F32");
     defer a.free(json);
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -315,6 +315,43 @@ fn parts(a: std.mem.Allocator, text: []const u8, kn: [2]u32, split: exl3.Split) 
         try out.appendNTimes(a, try g.part(split, 0, 2), n);
     }
     return out.toOwnedSlice(a);
+}
+
+test "a synthetic pack on disk: an fp16 confidence head is accepted and widened exactly (the 2.9 bpw pack)" {
+    // window 2 (image 65ab940e) died in boot with a silent UnexpectedTensor: the dealignai pack stores
+    // mtp.2.confidence_head.proj.weight fp16 [1, D + r] and the plan took f32/bf16 only. Python's loader widens
+    // with a plain .to(float32); the plan must accept fp16, and `named` must hold it as fp32 values.
+    const a = testing.allocator;
+    const io = testing.io;
+    const c = config.tiny();
+    var n: u64 = 0;
+    const json = try tinyPackLen(a, &c, "", "", &n, "F16");
+    defer a.free(json);
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    {
+        var f = try tmp.dir.createFile(io, "model.safetensors", .{});
+        defer f.close(io);
+        var len: [8]u8 = undefined;
+        std.mem.writeInt(u64, &len, json.len, .little);
+        try f.writePositionalAll(io, &len, 0);
+        try f.writePositionalAll(io, json, 8);
+        try f.setLength(io, 8 + json.len + n);
+    }
+    const dir = try tmp.dir.realPathFileAlloc(io, ".", a);
+    defer a.free(dir);
+    var p = try Pack.open(a, io, dir);
+    defer p.deinit();
+    var pl = try plan.build(a, &c, &p, .{ .rank = 0, .world = 2 });
+    defer pl.deinit();
+    try testing.expect(pl.dspark.?.confidence != null);
+    try testing.expectEqual(@as(u64, 2 * (c.hidden + c.dspark_markov_rank)), pl.dspark.?.confidence.?.bytes);
+    var b: named.Builder = .{ .gpa = a, .io = io, .pack = &p };
+    defer b.deinit();
+    try b.all(&pl, c.o_groups);
+    const conf = b.find("dspark.conf").?;
+    try testing.expect(conf.kind == .f32);
+    try testing.expectEqual(@as(usize, 4 * (c.hidden + c.dspark_markov_rank)), conf.bytes.len);
 }
 
 test "the q28 pack: rank 0's routed + shared trellis bytes of every block match the Python loader's listing" {
