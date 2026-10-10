@@ -1,4 +1,4 @@
-//! Tensor parallelism across processes (two DGX Sparks, one GPU each): bootstrap, collectives, fail-fast; `Session.open` brings a rank up.
+//! Tensor parallelism across processes (DGX Sparks, one GPU each: two or four): bootstrap, collectives, fail-fast; `Session.open` brings a rank up.
 const std = @import("std");
 const cuda = @import("cuda");
 
@@ -121,31 +121,46 @@ pub const Session = struct {
         if (s.cfg.rank == 0) std.log.warn("[tensorfold] tp: RoCE unavailable ({t}); every rank uses NCCL (TF_TP_ROCE_FALLBACK=error refuses instead)", .{e});
     }
 
-    /// One 4 KiB all-gather and one bf16 sum through RoCE and through NCCL: the bytes must be equal.
+    /// One 4 KiB all-gather and one bf16 sum through RoCE and through NCCL: the gathers' bytes must be equal, and the
+    /// RoCE sum must equal the host's rank-order reference (every rank's input rebuilt here). At two ranks NCCL's sum
+    /// must equal it too, as before; above two NCCL's ring adds in another order, so its bf16 bits may differ from the
+    /// rank-order sum without any fault (logged, not refused).
     fn probe(s: *Session, d: *const cuda.Driver) !bool {
         const n = 4096;
-        // input [0, n), gathers [n, 3n) and [3n, 5n), sums [5n, 6n) and [6n, 7n)
-        var a = try cuda.DeviceBuffer.alloc(d, 7 * n);
+        const w: usize = s.cfg.world;
+        // input [0, n), gathers [n, (1 + w) n) and [(1 + w) n, (1 + 2w) n), sums [(1 + 2w) n, (2 + 2w) n) and the next n
+        var a = try cuda.DeviceBuffer.alloc(d, (3 + 2 * w) * n);
         defer a.free();
         var stream = try cuda.Stream.init(d, true);
         defer stream.deinit();
+        const seed = 0x7072_6f62;
         var bytes: [n]u8 = undefined;
-        reference.fill(&bytes, .bf16, s.cfg.rank, 0x7072_6f62);
+        reference.fill(&bytes, .bf16, s.cfg.rank, seed);
         try a.uploadAsync(0, &bytes, stream.handle);
         const fast = s.route.iface();
         const slow = s.nccl.iface();
         try fast.allGather(a.ptr, a.ptr + n, n, .u8, stream.handle);
-        try slow.allGather(a.ptr, a.ptr + 3 * n, n, .u8, stream.handle);
-        try fast.allReduce(a.ptr, a.ptr + 5 * n, n / 2, .bf16, .sum, stream.handle);
-        try slow.allReduce(a.ptr, a.ptr + 6 * n, n / 2, .bf16, .sum, stream.handle);
+        try slow.allGather(a.ptr, a.ptr + (1 + w) * n, n, .u8, stream.handle);
+        try fast.allReduce(a.ptr, a.ptr + (1 + 2 * w) * n, n / 2, .bf16, .sum, stream.handle);
+        try slow.allReduce(a.ptr, a.ptr + (2 + 2 * w) * n, n / 2, .bf16, .sum, stream.handle);
         try stream.synchronize();
         try fast.check();
-        var got: [6 * n]u8 = undefined;
-        try a.download(n, &got);
-        const gathers = std.mem.eql(u8, got[0 .. 2 * n], got[2 * n .. 4 * n]);
-        const sums = std.mem.eql(u8, got[4 * n .. 5 * n], got[5 * n .. 6 * n]);
-        if (!gathers or !sums) std.log.warn("[tensorfold] tp roce probe: gather {s}, sum {s} against NCCL", .{ if (gathers) "equal" else "DIFFERS", if (sums) "equal" else "DIFFERS" });
-        return gathers and sums;
+        const got = try std.heap.page_allocator.alloc(u8, (2 + 2 * w) * n);
+        defer std.heap.page_allocator.free(got);
+        try a.download(n, got);
+        var want: [n]u8 = undefined;
+        var next: [n]u8 = undefined;
+        reference.fill(&want, .bf16, 0, seed);
+        for (1..w) |r| {
+            reference.fill(&next, .bf16, @intCast(r), seed);
+            reference.accumulate(&want, &next, .bf16, .sum);
+        }
+        const gathers = std.mem.eql(u8, got[0 .. w * n], got[w * n .. 2 * w * n]);
+        const sums = std.mem.eql(u8, got[2 * w * n ..][0..n], &want);
+        const nccl_sums = std.mem.eql(u8, got[2 * w * n + n ..][0..n], &want);
+        const ok = gathers and sums and (w > 2 or nccl_sums);
+        if (!ok or !nccl_sums) std.log.warn("[tensorfold] tp roce probe ({d} ranks): gather {s} against NCCL, sum {s} against the rank-order reference (NCCL's: {s}{s})", .{ w, if (gathers) "equal" else "DIFFERS", if (sums) "equal" else "DIFFERS", if (nccl_sums) "equal" else "differs", if (w > 2) ", its ring order; not used by the decision" else "" });
+        return ok;
     }
 
     fn mailboxPossible(b: *Bootstrap, image: []const u8) !bool {

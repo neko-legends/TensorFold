@@ -1,8 +1,9 @@
-//! The RoCE backend between two hosts (the Python engine's roce.py / roce.cpp): the tp_roce kernel stages and rings a doorbell, a proxy thread moves the slot over a wire.
+//! The RoCE backend between hosts, two to sixteen ranks (the Python engine's roce.py / roce.cpp): the tp_roce kernel stages and rings a doorbell, a proxy thread moves the slot to every peer over a wire.
 const std = @import("std");
 const cuda = @import("cuda");
 const collective = @import("collective.zig");
-const Bootstrap = @import("bootstrap.zig").Bootstrap;
+const bootstrap = @import("bootstrap.zig");
+const Bootstrap = bootstrap.Bootstrap;
 const sock = @import("sock.zig");
 const rv = @import("roce_verbs.zig");
 const HostRegister = @import("mailbox.zig").HostRegister;
@@ -12,13 +13,14 @@ const DType = collective.DType;
 const Error = collective.Error;
 
 pub const max_blocks = 16;
+/// The largest world (roce.cpp's MAX_PEERS; tp_roce's pollers: one lane per peer and HCA in a warp).
+pub const max_world = rv.max_peers;
 const threads = 512;
 const page = std.heap.page_size_min;
-const flag_stride = 128;
-// region: ctrl [4 KiB], flags [2 slots][2 HCAs] at 128 B, send [2][slot], recv [2][slot] (mailbox.cu's tp_roce)
-const ctrl_off = 0;
-const flag_off = 4096;
-const send_off = 8192;
+/// The region (rv.Layout, mailbox.cu's tp_roce): ctrl [4 KiB], flags [src][2 slots][2 HCAs] at 128 B, send [2][slot],
+/// recv [src][2][slot].
+pub const Layout = rv.Layout;
+const ctrl_off = Layout.ctrl;
 // ctrl words (mailbox.cu): doorbell, padded bytes per slot, completed, abort, proxy failure, a failed wait's record
 const w_seq = 0;
 const w_slot_bytes = 4;
@@ -48,8 +50,11 @@ const RoceArgs = extern struct {
     n_hca: u32,
     /// GLM53_TF_ROCE_FAST (config.roce_fast; 0: the classic path)
     opts: u32 = 0,
-    /// gather only: device int32 [2] of each rank's bytes (0: every shard is `nbytes`)
+    /// gather only: device int32 [world] of each rank's bytes (0: every shard is `nbytes`)
     lens: DevicePtr = 0,
+    /// ranks: recv_slots / flags hold one entry a source rank
+    world: u32 = 2,
+    _pad: u32 = 0,
 };
 
 pub const WireKind = enum {
@@ -73,18 +78,23 @@ pub const Options = struct {
     blocks: u32 = 16,
 };
 
-/// The shm wire: the peer's region is mapped here; a post copies the slot, then stores the flag (x86 / Arm stores
-/// after the copy, release).
+/// The shm wire: every rank's region is mapped here; a post copies the slot into each peer's receive slot for this
+/// rank (the next rank first, as the verbs wire), then stores that flag (x86 / Arm stores after the copy, release).
 const ShmWire = struct {
-    peer: []u8,
-    local: []u8,
-    slot_bytes: usize,
+    /// regions[p]: rank p's region (this rank's own at `me`).
+    regions: [max_world][]u8,
+    me: u32,
+    layout: Layout,
 
     fn post(w: *ShmWire, slot: u32, seq: u32, padded: u32) void {
-        const recv = send_off + 2 * w.slot_bytes;
-        @memcpy(w.peer[recv + slot * w.slot_bytes ..][0..padded], w.local[send_off + slot * w.slot_bytes ..][0..padded]);
-        const flag: *std.atomic.Value(u32) = @ptrCast(@alignCast(w.peer[flag_off + slot * 2 * flag_stride ..].ptr));
-        flag.store(seq, .release);
+        const l = w.layout;
+        const local = w.regions[w.me];
+        for (0..l.world - 1) |k| {
+            const p = rv.peerAt(w.me, l.world, @intCast(k));
+            @memcpy(w.regions[p][l.recvAt(w.me, slot)..][0..padded], local[l.sendAt(slot)..][0..padded]);
+            const flag: *std.atomic.Value(u32) = @ptrCast(@alignCast(w.regions[p][l.flagAt(w.me, slot, 0)..].ptr));
+            flag.store(seq, .release);
+        }
     }
 };
 
@@ -116,13 +126,15 @@ const Wire = union(WireKind) {
 
 pub const Roce = struct {
     me: u32,
+    world: u32,
+    layout: Layout,
     slot_bytes: usize,
     timeout_ns: u64,
     /// GLM53_TF_ROCE_FAST: the kernel's `opts` word
     fast: u32 = 0,
     /// TF_TP_ROCE_BLOCKS: the largest grid
     max_grid: u32 = 16,
-    /// This rank's region (for shm: half of the mapping in `mapping`).
+    /// This rank's region (for shm: its part of the mapping in `mapping`, every rank's region in rank order).
     region: []align(page) u8,
     mapping: []align(page) u8,
     wire: Wire,
@@ -144,19 +156,20 @@ pub const Roce = struct {
     host_epoch: u32 = 0,
     aborted: std.atomic.Value(bool) = .init(false),
 
-    pub fn regionBytes(slot: usize) usize {
-        return send_off + 4 * slot;
+    pub fn regionBytes(world: u32, slot: usize) usize {
+        return Layout.of(world, slot).bytes();
     }
 
-    /// Both ranks call it after the bootstrap (two ranks). Any rank failing makes every rank return
+    /// Every rank calls it after the bootstrap (2 to `max_world` ranks). Any rank failing makes every rank return
     /// `error.RoceUnavailable` (the setup is collective, as in roce.py); `image` empty: host-only (no kernel).
     pub fn init(d: ?*const cuda.Driver, b: *Bootstrap, image: []const u8, o: Options) !*Roce {
-        if (b.world != 2) return error.Unsupported;
+        if (b.world < 2 or b.world > max_world) return error.Unsupported;
         const slot = std.mem.alignForward(usize, o.max_bytes, 4096);
-        const len = regionBytes(slot);
+        const layout = Layout.of(b.world, slot);
+        const len = layout.bytes();
         const r = try std.heap.page_allocator.create(Roce);
         errdefer std.heap.page_allocator.destroy(r);
-        r.* = .{ .me = b.rank, .slot_bytes = slot, .timeout_ns = o.timeout_ns, .fast = o.fast, .max_grid = o.blocks, .region = undefined, .mapping = undefined, .wire = undefined, .cpu = o.cpu };
+        r.* = .{ .me = b.rank, .world = b.world, .layout = layout, .slot_bytes = slot, .timeout_ns = o.timeout_ns, .fast = o.fast, .max_grid = o.blocks, .region = undefined, .mapping = undefined, .wire = undefined, .cpu = o.cpu };
         // 1. the regions and the wire, each rank alone; every rank learns whether all did
         const ok = r.openWire(b, o, len) catch |e| blk: {
             std.log.warn("[tensorfold] tp roce: rank {d} setup failed: {t}", .{ b.rank, e });
@@ -191,10 +204,11 @@ pub const Roce = struct {
     }
 
     fn agreeAll(b: *Bootstrap, ok: bool, _: []const u8) !bool {
-        var blobs: [2][]const u8 = undefined;
-        var buf: [2]u8 = undefined;
+        var blobs: [bootstrap.max_ranks][]const u8 = undefined;
+        var buf: [bootstrap.max_ranks]u8 = undefined;
         const all = try b.allGather(&.{@intFromBool(ok)}, &buf, &blobs);
-        return all[0][0] == 1 and all[1][0] == 1;
+        for (all) |x| if (x.len != 1 or x[0] != 1) return false;
+        return true;
     }
 
     fn openWire(r: *Roce, b: *Bootstrap, o: Options, len: usize) !bool {
@@ -203,12 +217,14 @@ pub const Roce = struct {
                 r.mapping = try posix.mmap(null, len, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0);
                 r.region = r.mapping;
                 errdefer posix.munmap(r.mapping);
-                r.wire = .{ .verbs = try rv.VerbsWire.open(o.hcas, r.region, .{ .send = send_off, .recv = send_off + 2 * r.slot_bytes, .flags = flag_off, .slot = r.slot_bytes }, o.traffic_class) };
+                r.wire = .{ .verbs = try rv.VerbsWire.open(o.hcas, r.region, r.layout, r.me, o.traffic_class) };
             },
             .shm => {
-                r.mapping = try sharedPair(b, len);
+                r.mapping = try sharedAll(b, len);
                 r.region = @alignCast(r.mapping[r.me * len ..][0..len]);
-                r.wire = .{ .shm = .{ .peer = r.mapping[(1 - r.me) * len ..][0..len], .local = r.region, .slot_bytes = r.slot_bytes } };
+                var regions: [max_world][]u8 = undefined; // ranks 0..world-1 only
+                for (0..r.world) |p| regions[p] = r.mapping[p * len ..][0..len];
+                r.wire = .{ .shm = .{ .regions = regions, .me = r.me, .layout = r.layout } };
             },
         }
         return true;
@@ -219,13 +235,15 @@ pub const Roce = struct {
             .shm => return true,
             .verbs => |*v| {
                 const mine = v.record();
-                var blobs: [2][]const u8 = undefined;
-                var buf: [2 * @sizeOf(rv.Record)]u8 = undefined;
+                var blobs: [bootstrap.max_ranks][]const u8 = undefined;
+                var buf: [max_world * @sizeOf(rv.Record)]u8 = undefined;
                 const all = try b.allGather(std.mem.asBytes(&mine), &buf, &blobs);
-                var peer: rv.Record = undefined;
-                if (all[1 - r.me].len != @sizeOf(rv.Record)) return error.BadRecord;
-                @memcpy(std.mem.asBytes(&peer), all[1 - r.me]);
-                try v.connect(peer);
+                var recs: [max_world]rv.Record = undefined;
+                for (all, 0..) |blob, p| {
+                    if (blob.len != @sizeOf(rv.Record)) return error.BadRecord;
+                    @memcpy(std.mem.asBytes(&recs[p]), blob);
+                }
+                try v.connect(recs[0..r.world]);
                 return true;
             },
         }
@@ -327,9 +345,9 @@ pub const Roce = struct {
         var a: RoceArgs = .{
             .in = in,
             .out = out,
-            .send_slots = r.dev + send_off,
-            .recv_slots = r.dev + send_off + 2 * r.slot_bytes,
-            .flags = r.dev + flag_off,
+            .send_slots = r.dev + r.layout.send(),
+            .recv_slots = r.dev + r.layout.recv(),
+            .flags = r.dev + Layout.flags,
             .ctrl = r.dev + ctrl_off,
             .state = r.state.?.ptr,
             .nbytes = n,
@@ -340,6 +358,7 @@ pub const Roce = struct {
             .n_hca = r.wire.hcas(),
             .opts = r.fast,
             .lens = lens,
+            .world = r.world,
         };
         var params = [1]?*anyopaque{@ptrCast(&a)};
         const blocks = @min(@import("mailbox.zig").blocksFor(n), r.max_grid);
@@ -350,17 +369,25 @@ pub const Roce = struct {
         return r.launch(.gather, s, o, n, 0, stream);
     }
 
-    /// `allGatherBytes` of n-byte strides where rank r stages and posts only lens[r] bytes (device int32 [2], the same on both
-    /// ranks; padded to 16, at least 16: the proxy posts no empty op) and the peer copies lens[r] of them to out + r x n.
+    /// `allGatherBytes` of n-byte strides where rank r stages and posts only lens[r] bytes (device int32 [world], the same on
+    /// every rank; padded to 16, at least 16: the proxy posts no empty op) and every peer copies lens[r] of them to out + r x n.
     pub fn allGatherV(r: *Roce, s: DevicePtr, o: DevicePtr, n: usize, lens: DevicePtr, stream: collective.Stream) Error!void {
         if (lens == 0) return error.Invalid;
         return r.launch(.gather, s, o, n, lens, stream);
     }
 
+    /// Whether `exchangeBytes` runs here: two ranks only (each rank's shard goes to every peer; with one peer that is
+    /// the exchange). Above two, the route sends exchanges to NCCL.
+    pub fn exchanges(r: *const Roce) bool {
+        return r.world == 2;
+    }
+
     pub fn exchangeBytes(r: *Roce, s: DevicePtr, o: DevicePtr, n: usize, stream: collective.Stream) Error!void {
+        if (!r.exchanges()) return error.Unsupported;
         return r.launch(.exchange, s, o, n, 0, stream);
     }
 
+    /// recv <- every rank's send added in rank order (bf16: through fp32, rounded after each rank, as `reference.reduce`).
     pub fn sum(r: *Roce, s: DevicePtr, o: DevicePtr, count: usize, t: DType, stream: collective.Stream) Error!void {
         const mode: Mode = switch (t) {
             .f32 => .sum_f32,
@@ -370,7 +397,7 @@ pub const Roce = struct {
         return r.launch(mode, s, o, count * t.size(), 0, stream);
     }
 
-    /// Ends this rank's waits and the proxy (the peer learns through the fate channel and aborts its own).
+    /// Ends this rank's waits and the proxy (the peers learn through the fate channel and abort their own).
     pub fn abort(r: *Roce) void {
         r.aborted.store(true, .release);
         r.word(w_abort).store(1, .release);
@@ -378,15 +405,20 @@ pub const Roce = struct {
 
     pub fn check(r: *Roce) Error!void {
         if (r.word(w_failed).load(.acquire) != 0) {
-            std.log.warn("tp roce: rank {d}'s wait for seq {d} failed ({s} after {d} us; HCA {d}, flag held {d}); doorbell {d}, posted {d}, completed {d}, abort {d}, proxy failed {d}, flags {d} {d}", .{ r.me, r.word(w_failed + 1).load(.acquire), if (r.word(w_failed + 4).load(.acquire) == 1) "aborted" else "timed out", r.word(w_failed + 5).load(.acquire), r.word(w_failed + 3).load(.acquire), r.word(w_failed + 2).load(.acquire), r.word(w_seq).load(.acquire), r.last_seq, r.word(w_completed).load(.acquire), r.word(w_abort).load(.acquire), r.word(w_proxy_failed).load(.acquire), r.flagWord(0), r.flagWord(1) });
+            const src = r.word(w_failed + 6).load(.acquire);
+            const hca = r.word(w_failed + 3).load(.acquire);
+            const slot = r.word(w_failed + 1).load(.acquire) & 1;
+            std.log.warn("tp roce: rank {d}'s wait for seq {d} from rank {d} failed ({s} after {d} us; HCA {d}, flag held {d}, now {d}); doorbell {d}, posted {d}, completed {d}, abort {d}, proxy failed {d}", .{ r.me, r.word(w_failed + 1).load(.acquire), src, if (r.word(w_failed + 4).load(.acquire) == 1) "aborted" else "timed out", r.word(w_failed + 5).load(.acquire), hca, r.word(w_failed + 2).load(.acquire), r.flagWord(src, slot, hca), r.word(w_seq).load(.acquire), r.last_seq, r.word(w_completed).load(.acquire), r.word(w_abort).load(.acquire), r.word(w_proxy_failed).load(.acquire) });
             return error.PeerFailed;
         }
         if (r.word(w_proxy_failed).load(.acquire) != 0) return error.BackendFailed;
         if (r.aborted.load(.acquire) or r.word(w_abort).load(.acquire) != 0) return error.Aborted;
     }
 
-    fn flagWord(r: *const Roce, slot: usize) u32 {
-        const p: *std.atomic.Value(u32) = @ptrCast(@alignCast(r.region[flag_off + slot * 2 * flag_stride ..].ptr));
+    /// The flag rank `src`'s HCA `hca` last wrote for `slot` here (0 out of range).
+    fn flagWord(r: *const Roce, src: u32, slot: usize, hca: usize) u32 {
+        if (src >= r.world or slot >= rv.slots or hca >= rv.max_hcas) return 0;
+        const p: *std.atomic.Value(u32) = @ptrCast(@alignCast(r.region[r.layout.flagAt(src, slot, hca)..].ptr));
         return p.load(.acquire);
     }
 
@@ -395,40 +427,49 @@ pub const Roce = struct {
     }
 
     /// The kernel's side of one op done by the host (tests, and `tf-tp-test roce-host` on hosts without a GPU check):
-    /// out <- [rank 0's in, rank 1's in] (gather) through the same slots, doorbell, wire and flags.
+    /// out <- [rank 0's in, rank 1's in, ...] (gather) through the same slots, doorbell, wire and flags.
     pub fn hostGather(r: *Roce, in: []const u8, out: []u8) Error!void {
         return r.hostGatherV(in, out, null);
     }
 
-    /// `hostGather` with the kernel's variable lengths (`allGatherV`): rank k's first lens[k] bytes of its n land at out + k x n.
-    pub fn hostGatherV(r: *Roce, in: []const u8, out: []u8, lens: ?[2]u32) Error!void {
+    /// `hostGather` with the kernel's variable lengths (`allGatherV`): rank k's first lens[k] bytes of its n land at
+    /// out + k x n (`lens`: one a rank, the same on every rank). The peers in the proxy's order, as tp_roce copies them.
+    pub fn hostGatherV(r: *Roce, in: []const u8, out: []u8, lens: ?[]const u32) Error!void {
         const n = in.len;
-        if (n == 0 or n > r.slot_bytes or out.len < 2 * n) return error.Invalid;
-        if (lens) |l| if (l[0] > n or l[1] > n) return error.Invalid;
-        const mine: usize = if (lens) |l| l[r.me] else n;
-        const theirs: usize = if (lens) |l| l[1 - r.me] else n;
+        if (n == 0 or n > r.slot_bytes or out.len < r.world * n) return error.Invalid;
+        if (lens) |ls| {
+            if (ls.len != r.world) return error.Invalid;
+            for (ls) |x| if (x > n) return error.Invalid;
+        }
+        const l = r.layout;
+        const mine: usize = if (lens) |x| x[r.me] else n;
         const seq = r.host_epoch +% 1;
         const slot: usize = seq & 1;
-        @memcpy(r.region[send_off + slot * r.slot_bytes ..][0..mine], in[0..mine]);
+        @memcpy(r.region[l.sendAt(slot)..][0..mine], in[0..mine]);
         r.word(w_slot_bytes + slot).store(@intCast(@max(16, std.mem.alignForward(usize, mine, 16))), .release);
         r.word(w_seq).store(seq, .release);
         @memcpy(out[r.me * n ..][0..mine], in[0..mine]);
         const t0 = sock.nowNs();
-        for (0..r.wire.hcas()) |h| {
-            const flag: *std.atomic.Value(u32) = @ptrCast(@alignCast(r.region[flag_off + (slot * 2 + h) * flag_stride ..].ptr));
-            while (flag.load(.acquire) != seq) {
-                if (r.word(w_abort).load(.monotonic) != 0) return error.Aborted;
-                if (sock.nowNs() - t0 > r.timeout_ns) return error.Timeout;
-                std.atomic.spinLoopHint();
+        for (0..r.world - 1) |k| {
+            const p = rv.peerAt(r.me, r.world, @intCast(k));
+            for (0..r.wire.hcas()) |h| {
+                const flag: *std.atomic.Value(u32) = @ptrCast(@alignCast(r.region[l.flagAt(p, slot, h)..].ptr));
+                while (flag.load(.acquire) != seq) {
+                    if (r.word(w_abort).load(.monotonic) != 0) return error.Aborted;
+                    if (sock.nowNs() - t0 > r.timeout_ns) return error.Timeout;
+                    std.atomic.spinLoopHint();
+                }
             }
+            const theirs: usize = if (lens) |x| x[p] else n;
+            @memcpy(out[p * n ..][0..theirs], r.region[l.recvAt(p, slot)..][0..theirs]);
         }
-        @memcpy(out[(1 - r.me) * n ..][0..theirs], r.region[send_off + 2 * r.slot_bytes + slot * r.slot_bytes ..][0..theirs]);
         r.host_epoch = seq;
     }
 };
 
-/// One shared mapping holding both ranks' regions (rank 0 creates and sizes the file before anyone learns its name).
-fn sharedPair(b: *Bootstrap, len: usize) ![]align(page) u8 {
+/// One shared mapping holding every rank's region, rank order (rank 0 creates and sizes the file before anyone
+/// learns its name).
+fn sharedAll(b: *Bootstrap, len: usize) ![]align(page) u8 {
     var name: [64]u8 = undefined;
     var name_len: u8 = 0;
     var fd: std.c.fd_t = -1;
@@ -439,9 +480,9 @@ fn sharedPair(b: *Bootstrap, len: usize) ![]align(page) u8 {
         const s = std.fmt.bufPrint(&name, "/dev/shm/tf-tp-roce-{d}-{x}", .{ std.c.getpid(), sock.nowNs() }) catch break :blk;
         name[s.len] = 0;
         fd = std.c.open(name[0..s.len :0], .{ .ACCMODE = .RDWR, .CREAT = true, .EXCL = true, .CLOEXEC = true }, @as(std.c.mode_t, 0o600));
-        if (fd >= 0 and std.c.ftruncate(fd, @intCast(2 * len)) == 0) name_len = @intCast(s.len);
+        if (fd >= 0 and std.c.ftruncate(fd, @intCast(b.world * len)) == 0) name_len = @intCast(s.len);
     }
-    // an empty name tells the other rank that rank 0 failed (it must not wait for a name that never comes)
+    // an empty name tells the other ranks that rank 0 failed (they must not wait for a name that never comes)
     try b.broadcast(std.mem.asBytes(&name_len), std.mem.asBytes(&name_len));
     if (name_len == 0) return error.SharedMemoryUnavailable;
     try b.broadcast(name[0..name_len], name[0..name_len]);
@@ -450,7 +491,7 @@ fn sharedPair(b: *Bootstrap, len: usize) ![]align(page) u8 {
         fd = std.c.open(name[0..name_len :0], .{ .ACCMODE = .RDWR, .CLOEXEC = true }, @as(std.c.mode_t, 0));
         if (fd < 0) return error.SharedMemoryUnavailable;
     }
-    const m = try posix.mmap(null, 2 * len, .{ .READ = true, .WRITE = true }, .{ .TYPE = .SHARED }, fd, 0);
+    const m = try posix.mmap(null, b.world * len, .{ .READ = true, .WRITE = true }, .{ .TYPE = .SHARED }, fd, 0);
     try b.agree("mapped", "RoCE shm wire");
     if (b.rank == 0) _ = std.c.unlink(name[0..name_len :0]);
     return m;
