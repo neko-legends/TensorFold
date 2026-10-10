@@ -140,7 +140,7 @@ EOF
         [[ "$uniq_nets" == "$(wc -l <<< "$nets")" ]] || { ok=0; detail+="rank $r: two HCAs on one /24 (the pairing keeps the listed order: check both nodes list them alike); "; }
         if [[ -z "$ref" ]]; then ref=$nets; elif [[ "$nets" != "$ref" ]]; then ok=0; detail+="rank $r's subnets differ from rank 0's; "; fi
         grep -qE '^memlock unlimited' "$f" || detail+="rank $r: host memlock is not unlimited (the container sets it: --ulimit memlock=-1); "
-        grep -E 'prefix [0-9]+' "$f" | grep -vqE 'prefix 24$' && detail+="rank $r: a netdev prefix is not /24 (Zig pairs by /24, Python by the prefix: compare the pairs logged by suite); "
+        grep -E 'prefix [0-9]+' "$f" | grep -vqE 'prefix 24$' && { ok=0; detail+="rank $r: a netdev prefix is not /24 (Zig pairs by /24, Python by the prefix: the pairing can diverge, so this step fails rather than warns); "; }
     done
     verdict preflight "$ok" "${detail:-every rank: the same subnets $(tr '\n' ' ' <<< "$ref")one a function}"
 fi
