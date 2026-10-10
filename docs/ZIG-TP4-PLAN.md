@@ -90,9 +90,12 @@ session tier's compat id includes the world (`ds/sessions_gpu.zig:209-216`), so 
 not misread. Drain-first stop sends `op_stop` to every follower. Notes for TP=4:
 
 - The round planner's memory floor reads **rank 0's** `/proc/meminfo` only (`ds/kv/sched.zig:166`,
-  `ds/sched_host.zig:9-10`). The boot check runs on every rank (`ds/kv_state.zig:72-120`). Python 0003 checks the
-  tightest follower. At TP=4, ranks 2 and 3 run with different headroom (different expert and head widths), so
-  this matters more than at TP=2.
+  `ds/sched_host.zig:9-10`). It is off by default (`TF_DSV41_PIECES_FLOOR=1` turns it on), because Zig allocates the
+  prefill transient at boot, which Python's floor prices per round. The boot check and the 4K workspace check
+  (`TF_DSV41_PF_WS_FLOOR_GIB`, an all-gathered agreement) run on every rank (`ds/kv_state.zig:72-120`,
+  `ds/forward_prefill.zig:338-355`). So rank 0's view is not a TP=4 problem as configured. At TP=4, ranks 0 and 1
+  hold 25 % more expert columns than ranks 2 and 3, and rank 0 also has the vision tower, so rank 0 is the
+  tightest rank anyway.
 - `CONTEXT=420000` is not a multiple of the 256-token page. `aot-needs` does `@divExact(limit, 256)`
   (`ds/aot_needs.zig:233`) and would panic. Use **`TF_DSV41_CONTEXT=420096`** (1,641 pages), the smallest page
   multiple above 420,000. With `TF_DSV41_POOL_TOKENS=1201152` (4,692 pages, 1,173 a residue), two full 420K slots fit
@@ -115,7 +118,7 @@ not misread. Drain-first stop sends `op_stop` to every follower. Notes for TP=4:
 | 0003 N-way rank agreement, plan link with rank handshake, fail-fast | | has equivalents (`fabric/tp/bootstrap.zig:80,174`, `fabric/tp/fate.zig`) | none |
 | 0003 plan link over RDMA at 4 ranks | the round plan over the RoCE mailbox | `TF_DSV41_PLAN_LINK=rdma` is TCP plus spin-polling (`fabric/tp/config.zig:111-114`) | none needed first; measure |
 | 0003 RoCE all-gather at 4 ranks | Python's RoCE pairs HCA h of every rank by subnet | 2-rank only, falls back to NCCL | step 3 below |
-| 0003 memory floor on the tightest follower | | boot check per rank; round planner rank 0 only | gather every rank's MemAvailable each round (or every N rounds) |
+| 0003 memory floor on the tightest follower | | boot check and 4K-workspace check on every rank; the round planner's floor is rank 0 only but off by default (Zig allocates at boot) | none needed as configured; gather every rank's MemAvailable if `TF_DSV41_PIECES_FLOOR=1` is ever used |
 | 0003 candidates past narrow vocab slices (`rank_top`) | wide top_k on uneven slices | not needed at TP=2; Zig caps device top-k at 1,024 and sends wider rows through `wholeRow` (`ds/sampling_pipe.zig:22-25,195-199`) | step 1: pad `wholeRow` to the widest slice |
 | 0003 trimmed draft head (`TF_DSV41_DRAFT_HEAD=q4`) | the DSpark pass reads a 4-bit copy of the head (+2.5% C1 code) | absent: DSpark reuses the backbone head (`ds/dspark_emit.zig:459`) | later; a separate speed feature |
 | 0003 BMQ 32 → 16 clamp | 16 heads a rank | absent (`Unsupported`) | step 1 |
@@ -174,4 +177,101 @@ Treat these as rough; the engine has no GPU qualification at TP>2 at all.
 
 ## Status on branch `zig-tp4`
 
-Filled in at the end of the session; see the commit list on the branch.
+**Done (step 1, host side), commit `79ce8510`:**
+
+- `ds/shard.zig`: Python's `block_bounds`. TP=2 gives the same equal halves as before; at TP=4 the experts are
+  640/640/512/512 and the vocabulary 32,384/32,384/32,256/32,256.
+- `ds/exl3.zig` `Group.part` uses the block bounds, and `ds/plan.zig` checks whole blocks rather than even splits
+  (TP=4 no longer gets `BadWorld`).
+- `block.Options` has `rank`, `expertWidth()` and `vocabShard()`. Every emitter that sized the experts' I or the
+  head's V as `/ world` now uses the rank's own width: decode, prefill, DSpark, and the L2 prefetch.
+  `Forward.init` takes the rank from the communicator.
+- Greedy, keyed sampling, grammar masks and DSpark candidates take global ids from the rank's `lo`, not `rank * V`.
+  - Sampling keeps k and the path the same on every rank: k comes from the narrowest slice, and a count above it
+    takes whole rows.
+  - The whole-row gather pads to the widest slice through a staged copy (`Device.copy`).
+- The `_fused` prefill attention head tile is `min(32, H)`, so it is 16 at TP=4.
+- `aot-needs` reads `TF_TP_RANK` as well as the world, refuses a context that is not a whole number of pages
+  (instead of panicking), and splits the pool's pages over the world rather than 2.
+- The embedding's vocabulary rows stay an even split (32,320 a rank), independent of the head's split.
+
+**Done (launcher, config, bench):**
+
+- `scripts/run-zig.sh` takes `TP_WORLD` and ranks 0..world-1 (TP=2 is unchanged by default), plus `ZIG_NAME` and an
+  Engram shard check (`d8f86109`).
+- `config/tp4-zig.env.example` (`d8f86109`).
+- `bench/zig_vs_python.py` (`f11b7db8`).
+
+**Checked on the CPU:**
+
+- Host tests are green (`zig build test`), including the new TP=4 tests:
+  - shard bounds;
+  - parts tiling at TP=4;
+  - a synthetic pack planned on four ranks;
+  - the sampling pipeline at 3 and 4 in-process ranks with uneven slices, against the whole-row rule and
+    `vs_choose`'s mirror, plus the 207 Python sampling goldens.
+- The host build and the aarch64 cross-build (`-Dtarget=aarch64-linux-gnu -Dcpu=baseline+sha2+aes -Dsm=121
+  -Doptimize=ReleaseSafe`, no CUDA) both build.
+- By inspection, the kernel shape checks accept the TP=4 widths:
+  - `x3ld`: K % 64 and N % 128, for 640 and 512.
+  - `x3gm`: K/16 a multiple of the stage tile (2 or 4).
+  - The head GEMM: N % 128, for 32,384 and 32,256.
+  - The grammar mask: lo and width on 32-token words.
+
+**Not done:**
+
+- The CUDA image (`dsv41-tensorfold:zigtp4-<sha>`) and the per-rank AOT, rope and Engram-host assets. Both need a
+  Spark (nvcc, Triton 3.7.1); this session had no ssh or docker access.
+- N-way RoCE (step 3), so TP=4 runs on NCCL.
+- Everything in "Our Python patches" marked absent.
+
+**Not verified at all until a GPU window:** any kernel's numerics at the TP=4 widths, the BMQ-16 `_fused` variant,
+uneven head slices in the graphs, and DSpark at 32 candidates a rank.
+
+## Runbook: build (no GPU), then the window
+
+The build steps use CPU and disk only, inside containers named `zigtp4-*`. Run them from a checkout of `zig-tp4` on
+the head (`forge`). Below, `$SHA` is `git rev-parse --short HEAD` and `$WORKERS` lists the three workers.
+
+```bash
+# 1. image (on forge, nice): docker/zig/Dockerfile builds the fatbins with nvcc 13.0.1 and the aarch64 binaries
+mkdir -p build/zig/src build/zig/fatbins && git archive HEAD engine/zig | tar -x --strip-components=2 -C build/zig/src
+touch build/zig/fatbins/.keep
+nice -n 10 docker build -f docker/zig/Dockerfile --build-arg ZIG_COMMIT="$(git rev-parse HEAD)" \
+  -t dsv41-tensorfold:zigtp4-$SHA build/zig
+for w in $WORKERS; do docker save dsv41-tensorfold:zigtp4-$SHA | ssh $w docker load; done
+# 2. assets, per rank r = 0..3 (docs/ZIG-SERVE.md "Generate runtime assets", in a zigtp4-assets builder container with
+#    Torch, Triton 3.7.1, ptxas 13.3.73): the AOT needs differ by rank at TP=4 (expert and head widths), so
+#    TF_TP_WORLD=4 TF_TP_RANK=$r with config/tp4-zig.env sourced; ROPE_ROWS=424192 (420,096 + 4K); copy each
+#    rank's directory to that node's ASSETS_DIR. pfdense-table.json and the image bias go into CACHE_DIR.
+```
+
+The window. Depths runs it. The Python engine's own scripts stop and restart the live ranks.
+
+```bash
+# on forge
+sudo systemctl stop spark-forge-watchdog.timer       # it would relaunch the Python engine
+K=${XDG_STATE_HOME:-$HOME/.local/state}/dsv41-tf4    # keeper4.sh's STATE_DIR (unless its cron line sets another)
+touch "$K/maintenance"                                # keeper4.sh (if in cron) stands down for an hour; re-touch hourly
+bash scripts/serve4.sh stop                           # the live dsv41-tf4-r0..r3 (exact names, the live tooling)
+# Zig ranks: followers first, then rank 0 (each on its own node, from this checkout, config/tp4-zig.env filled in)
+CONFIG=config/tp4-zig.env scripts/run-zig.sh 3 &    # on rank 3's node; likewise 2 and 1 on theirs
+CONFIG=config/tp4-zig.env scripts/run-zig.sh 0 &    # on forge
+# health: the first boot writes prepared files and measures calibration (minutes a rank)
+until curl -fsS localhost:8000/v1/models; do sleep 10; done
+curl -fsS localhost:8000/v1/chat/completions -H 'Content-Type: application/json' \
+  -d '{"messages":[{"role":"user","content":"What is 17 * 23?"}],"temperature":0,"reasoning_effort":"low"}'   # 391
+docker logs zigtp4-r0 2>&1 | grep -iE 'world|nccl|roce|slots|calib|error' | tail -40
+# bench (same salt tag for both engines of a pair; Python's run happens in its own window or before the swap)
+python3 bench/zig_vs_python.py run --url http://127.0.0.1:8000 --label zig-tp4 --out results/zvp/zig-tp4 --salt-tag zvp-<date>
+```
+
+Rollback (any failure, or the end of the window):
+
+```bash
+docker stop -t 80 zigtp4-r0                           # drains, then stops every rank at a round boundary
+for w in $WORKERS; do ssh $w 'docker stop -t 30 zigtp4-r1 zigtp4-r2 zigtp4-r3 2>/dev/null; true'; done   # only our names
+bash scripts/serve4.sh start                          # the live Python TP=4 (dsv41-tensorfold:tp4rot), as before
+curl -fsS localhost:8000/health && rm -f "$K/maintenance"
+sudo systemctl start spark-forge-watchdog.timer
+```
