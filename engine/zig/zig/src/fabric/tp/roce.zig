@@ -454,10 +454,15 @@ pub const Roce = struct {
             const p = rv.peerAt(r.me, r.world, @intCast(k));
             for (0..r.wire.hcas()) |h| {
                 const flag: *std.atomic.Value(u32) = @ptrCast(@alignCast(r.region[l.flagAt(p, slot, h)..].ptr));
+                var polls: u32 = 0;
                 while (flag.load(.acquire) != seq) {
                     if (r.word(w_abort).load(.monotonic) != 0) return error.Aborted;
                     if (sock.nowNs() - t0 > r.timeout_ns) return error.Timeout;
-                    std.atomic.spinLoopHint();
+                    // host threads only (tests run every rank and proxy on one machine): let the others run now and then
+                    polls +%= 1;
+                    if (polls % 1024 == 0) {
+                        std.Thread.yield() catch {};
+                    } else std.atomic.spinLoopHint();
                 }
             }
             const theirs: usize = if (lens) |x| x[p] else n;

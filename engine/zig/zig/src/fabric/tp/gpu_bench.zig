@@ -99,8 +99,8 @@ pub fn engineGathers(c: *Ctx, comm: Collective, label: []const u8) !void {
     }
 }
 
-/// One decode window's exchanges: `n` all-gathers of one row's bf16 partials (`row_bytes` a rank) in one graph.
-pub fn decodeWindow(c: *Ctx, comm: Collective, label: []const u8, n: u32, row_bytes: usize) !void {
-    const per = try graphed(c, comm, .all_gather, row_bytes, n, 20);
-    if (c.rank == 0) std.debug.print("RESULT {{\"backend\":\"{s}\",\"world\":{d},\"op\":\"decode_window\",\"exchanges\":{d},\"bytes\":{d},\"per_exchange_us\":{d:.2},\"window_us\":{d:.1}}}\n", .{ label, c.world, n, row_bytes, per, per * @as(f64, @floatFromInt(n)) });
+/// One decode window's exchanges: `n` all-gathers of one row's bf16 partials (`bytes` a rank) in one graph.
+pub fn decodeWindow(c: *Ctx, comm: Collective, label: []const u8, n: u32, bytes: usize) !void {
+    const per = try graphed(c, comm, .all_gather, bytes, n, 20);
+    if (c.rank == 0) std.debug.print("RESULT {{\"backend\":\"{s}\",\"world\":{d},\"op\":\"decode_window\",\"exchanges\":{d},\"bytes\":{d},\"per_exchange_us\":{d:.2},\"window_us\":{d:.1}}}\n", .{ label, c.world, n, bytes, per, per * @as(f64, @floatFromInt(n)) });
 }

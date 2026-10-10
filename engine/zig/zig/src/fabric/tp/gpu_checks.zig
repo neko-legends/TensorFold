@@ -75,10 +75,12 @@ pub const Ctx = struct {
         return if (p < c.world) p else null;
     }
 
-    /// Whether `comm`'s float sums are promised in rank order (bit-exact against `reference.reduce`): every transport at
-    /// two ranks; above two, the RoCE / mailbox kernels, not NCCL (its ring starts each chunk at another rank).
-    fn rankOrder(c: *const Ctx, comm: Collective) bool {
-        return c.world == 2 or comm.kind() != .nccl;
+    /// Whether a sum of `bytes` of `t` through `comm` is promised in rank order (bit-exact against `reference.reduce`):
+    /// integers and every transport at two ranks; above two, only what the route's kernel adds (hybrid.zig: f32 / bf16
+    /// sums the small path takes, which is `varFits` on RoCE), not NCCL (its ring starts each chunk at another rank).
+    fn sumExact(c: *const Ctx, comm: Collective, t: DType, bytes: usize) bool {
+        if (t == .i32 or t == .i64 or t == .u8 or c.world == 2) return true;
+        return comm.kind() != .nccl and (t == .f32 or t == .bf16) and comm.varFits(bytes);
     }
 
     fn compare(c: *Ctx, comm: Collective, label: []const u8, what: []const u8, t: DType, n: usize, out_off: usize, want: []const u8) !void {
@@ -111,7 +113,7 @@ pub const Ctx = struct {
             const n = n_bytes - n_bytes % t.size();
             const count = n / t.size();
             c.inputs(n, t, seed + ti);
-            const exact = t == .i32 or c.rankOrder(comm);
+            const exact = c.sumExact(comm, t, n);
             reference.reduce(c.want[0..n], c.all(n, &views), t, .sum);
             try c.in.uploadAsync(0, c.mine(n), c.stream.handle);
             try comm.allReduce(c.in.ptr, c.out.ptr, count, t, .sum, c.stream.handle);
@@ -200,7 +202,9 @@ pub const Ctx = struct {
         const want3 = try c.gpa.alloc(u8, w * n);
         defer c.gpa.free(want3);
         var views: [tp.bootstrap.max_ranks][]const u8 = undefined;
-        const exact = c.rankOrder(comm);
+        // each sum is rank order only where the route's kernel adds it (the second is w times larger: NCCL past the slot)
+        const exact1 = c.sumExact(comm, .bf16, n);
+        const exact3 = c.sumExact(comm, .f32, w * n);
         for (0..replays) |k| {
             c.inputs(n, .bf16, 1000 + k);
             try c.in.uploadAsync(0, c.mine(n), c.stream.handle);
@@ -209,15 +213,15 @@ pub const Ctx = struct {
             for (views[0..w]) |*v| v.* = want1[0 .. w * n];
             reference.reduce(want3[0 .. w * n], views[0..w], .f32, .sum);
             try exec.launchOn(c.stream);
-            if (!exact) {
-                // NCCL above two ranks: its bf16 sum within rounding (ring order), then the rest from its own bits
+            if (!exact1) {
+                // NCCL's ring above two ranks: its bf16 sum within rounding, then the rest from its own bits
                 try c.compareWith(comm, label, "graph replay: sum", .bf16, n, 0, want1[0..n], false);
                 @memcpy(want1[0..n], c.got[0..n]);
                 for (1..w) |r| @memcpy(want1[r * n ..][0..n], want1[0..n]);
                 reference.reduce(want3[0 .. w * n], views[0..w], .f32, .sum);
             }
-            try c.compareWith(comm, label, "graph replay: sum, gather, sum", .f32, w * n, n, want3[0 .. w * n], exact);
-            if (peer != null) try c.compareWith(comm, label, "graph replay: exchange of the sum", .f32, w * n, (1 + w) * n, want3[0 .. w * n], exact);
+            try c.compareWith(comm, label, "graph replay: sum, gather, sum", .f32, w * n, n, want3[0 .. w * n], exact3);
+            if (peer != null) try c.compareWith(comm, label, "graph replay: exchange of the sum", .f32, w * n, (1 + w) * n, want3[0 .. w * n], exact3);
             // an eager call between replays
             try c.collectivesQuick(comm, label, k);
         }
@@ -231,7 +235,7 @@ pub const Ctx = struct {
         reference.reduce(c.want[0..n], c.all(n, &views), .bf16, .sum);
         try c.in.uploadAsync(5 * n, c.mine(n), c.stream.handle);
         try comm.allReduce(c.in.ptr + 5 * n, c.out.ptr + 5 * n, n / 2, .bf16, .sum, c.stream.handle);
-        try c.compareWith(comm, label, "eager between replays", .bf16, n, 5 * n, c.want[0..n], c.rankOrder(comm));
+        try c.compareWith(comm, label, "eager between replays", .bf16, n, 5 * n, c.want[0..n], c.sumExact(comm, .bf16, n));
     }
 };
 

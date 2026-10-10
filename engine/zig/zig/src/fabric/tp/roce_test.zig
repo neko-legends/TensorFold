@@ -137,7 +137,8 @@ test "four ranks with variable lengths over the shm wire (allGatherV at TP=4, em
 }
 
 test "four ranks: one rank that stops makes every other rank time out, and abort ends each wait at once" {
-    var run: Run = .{ .port = 0, .world = 4, .wire = .shm, .ops = 50, .stop_after = 20, .timeout_ns = 100 * std.time.ns_per_ms };
+    // 500 ms: eight spinning threads (four ranks, four proxies) may share fewer cores; ops 0..19 must not time out
+    var run: Run = .{ .port = 0, .world = 4, .wire = .shm, .ops = 50, .stop_after = 20, .timeout_ns = 500 * std.time.ns_per_ms };
     try ranks(&run);
     for (0..3) |q| {
         try std.testing.expectEqual(@as(?anyerror, error.Timeout), run.errs[q]);
