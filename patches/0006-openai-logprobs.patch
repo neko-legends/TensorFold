@@ -1,0 +1,1147 @@
+diff --git i/src/tensorfold/families/deepseek_v41/cuda/app.py w/src/tensorfold/families/deepseek_v41/cuda/app.py
+index 076d41e..1cb5da3 100644
+--- i/src/tensorfold/families/deepseek_v41/cuda/app.py
++++ w/src/tensorfold/families/deepseek_v41/cuda/app.py
+@@ -21,6 +21,13 @@ request log, 0210 prompt-token cache) with V4.1's prompt and reply formats.
+   prompt stays a prefix of the session store's entries); ``tool_choice`` ``none`` (no tools offered) / named /
+   ``required`` (held by the grammar when structured output is on); ``parallel_tool_calls: false`` keeps the first
+   call; schema-typed arguments.
++- **Log probabilities** (``logprobs`` + ``top_logprobs`` 0-20): ``choices[0].logprobs.content`` in OpenAI's shape
++  (per token: ``token``, ``logprobs``, ``bytes``, ``top_logprobs``), exact over the whole vocabulary at TP=4
++  (``logprobs.py``: each rank's log-sum-exp slice, gathered with the candidates, combined in rank order -- the
++  uneven 128-block split cannot change a value), read from the verify pass's logits, so a drafted token's
++  probability is the one that accepted it. Nonstreamed text chat only: thinking off, no tools, no stop string, no
++  structured output (each is a 400 that says so; ``cuda/server.py``'s contract). ``logit_bias``,
++  ``prompt_logprobs`` and ``echo`` are not implemented and are refused by name instead of ignored.
+ - **Structured output**: ``structured.py`` (GLM 0610's grammars, the DSML tool tag); the grammar starts after
+   ``</think>``.
+ - ``/tokenize`` renders ``messages`` exactly as a chat request with the same body.
+@@ -52,6 +59,8 @@ from tensorfold.families.glm5_next.spark import server
+ from tensorfold.families.glm5_next.spark.batchplan import is_title_request
+ from tensorfold.families.glm5_next.spark.prompt_tokens import Memo, PromptTokens
+ from tensorfold.server.cancellation import RequestCancelled
++from tensorfold.server.errors import RequestError
++from tensorfold.server.probabilities import TokenBytes, probability_options
+ 
+ from . import dsml, encoding, vision_prep
+ from .structured import Host, schema_for_prompt
+@@ -164,6 +173,48 @@ class ReasoningMemory:
+         return n
+ 
+ 
++def probability_problem(body: dict[str, Any], *, supported: bool, default_thinking: bool, default_effort: int) \
++        -> "server.Problem | None":
++    """Why a probability request cannot run, or None (None: not asked for).
++
++    Mirrors the kit's CUDA server (``tensorfold.cuda.server._prepare``): log probabilities support nonstreamed text
++    chat with thinking off, without tools, stop strings or structured output. The logprobs-family fields this server
++    does not implement (``logit_bias``, ``prompt_logprobs``, ``echo``) are refused by name instead of ignored.
++    """
++
++    for name in ("logit_bias", "prompt_logprobs", "echo"):
++        if body.get(name):
++            return server.Problem(f"{name} is not supported by this server", param=name)
++    try:
++        top = probability_options(body, supported=supported)
++    except RequestError as exc:
++        message = str(exc)
++        param = next((n for n in ("logprobs", "top_logprobs", "n") if n in message), "logprobs")
++        return server.Problem(message, param=param)
++    if top is None:
++        return None
++    try:
++        thinking, _ = options(body, default_thinking, default_effort)
++    except ValueError as exc:
++        return server.Problem(str(exc), param="reasoning_effort")
++    if not isinstance(body.get("messages"), list) or body.get("prompt") is not None:
++        return server.Problem("logprobs support nonstreamed chat completions", param="logprobs")
++    reason = None
++    if body.get("stream"):
++        reason = "a stream"
++    elif thinking:
++        reason = "thinking on (chat_template_kwargs thinking / reasoning_effort must turn it off)"
++    elif body.get("tools"):
++        reason = "tools"
++    elif body.get("stop"):
++        reason = "a stop string"
++    elif body.get("response_format") or body.get("tool_choice") == "required":
++        reason = "structured output"
++    if reason is not None:
++        return server.Problem("logprobs do not support " + reason, param="logprobs")
++    return None
++
++
+ class Dsv41App(server.App):
+     def __init__(self, engine, model_dir, served: str, **kwargs: Any) -> None:
+         alias_knobs()
+@@ -270,6 +321,9 @@ class Dsv41App(server.App):
+ 
+     def check(self, body: dict[str, Any]) -> str | None:
+         problem = super().check(body)
++        if problem:
++            return problem
++        problem = self.probability_problem(body)
+         if problem:
+             return problem
+         chat = "messages" in body
+@@ -300,7 +354,13 @@ class Dsv41App(server.App):
+         asked = body.get("max_tokens") or body.get("max_completion_tokens")
+         return server.context_problem(n, int(asked) if asked else None, limit, chat=chat)
+ 
+-    # -- a reply -------------------------------------------------------------------------------------------------
++    # -- the reply -------------------------------------------------------------------------------------------------
++    def probability_problem(self, body: dict[str, Any]) -> "server.Problem | None":
++        """``probability_problem`` with this server's own settings (``check``)."""
++
++        return probability_problem(body, supported=bool(getattr(self.engine, "supports_logprobs", False)),
++                                   default_thinking=self.default_thinking, default_effort=self.default_effort)
++
+     def run(self, body: dict[str, Any], chat: bool, emit: Callable[[dict[str, Any]], bool], *,
+             cancelled: Callable[[], bool] | None = None) -> dict[str, Any]:
+         log = self.reqlog
+@@ -351,6 +411,11 @@ class Dsv41App(server.App):
+         streaming = bool(body.get("stream"))
+         single = body.get("parallel_tool_calls", True) is False
+         eos = frozenset(self.engine.eos)
++        probabilities = None
++        if body.get("logprobs") and not streaming:      # validated in ``check``: an OpenAI-shaped reply follows
++            from tensorfold.engine.probabilities import Probabilities
++
++            probabilities = Probabilities(int(body.get("top_logprobs") or 0), len(prompt), max_tokens)
+         out: list[int] = []
+         dec = server.StreamDecoder(self.tok, tuple(self.engine.eos))
+         parser = dsml.Stream(thinking=thinking, tools=tools)
+@@ -409,7 +474,8 @@ class Dsv41App(server.App):
+             if cancelled is not None and cancelled():
+                 raise RequestCancelled("the client left before the request started")
+             stats = self.engine.generate(prompt, max_tokens, sampling, on_tokens,
+-                                         **({} if draft else {"draft": False}))
++                                         **({} if draft else {"draft": False}),
++                                         **({} if probabilities is None else {"probabilities": probabilities}))
+         if failed:
+             raise failed[0]
+         if st["client"]:
+@@ -444,6 +510,12 @@ class Dsv41App(server.App):
+             stats = dict(stats or {}, token_ids=[int(t) for t in out[:used]])
+         if omitted:
+             stats = dict(stats or {}, images_omitted=omitted)
++        logprobs = None
++        if probabilities is not None:
++            if not hasattr(self, "_probability_decoder"):
++                self._probability_decoder = TokenBytes(self.tok)
++            logprobs = self._probability_decoder.format(probabilities.emitted(out), eos)
+         return {"final": {}, "calls": None if streaming else (call_dicts or None), "finish": finish,
+                 "content": content, "reasoning": reply.reasoning, "prompt_tokens": len(prompt),
+-                "completion_tokens": used, "stats": stats}, thinking
++                "completion_tokens": used, "stats": stats,
++                **({} if logprobs is None else {"logprobs": logprobs})}, thinking
+diff --git i/src/tensorfold/families/deepseek_v41/cuda/batch.py w/src/tensorfold/families/deepseek_v41/cuda/batch.py
+index 04dffa0..968d135 100644
+--- i/src/tensorfold/families/deepseek_v41/cuda/batch.py
++++ w/src/tensorfold/families/deepseek_v41/cuda/batch.py
+@@ -25,6 +25,9 @@ A round (rank 0, ``step``): plan (``_plan``), share (``Link.send``), execute (``
+   differs (``drafting.accepted``): drafted == serial, batched == alone.
+ - **Structured output**: the request's grammar (GLM 0610 ``Grammars`` / ``Constraint``; DSML tools through
+   ``structured.py``) cuts each window and masks its rows on both ranks.
++- **Log probabilities** (``job.probabilities``, ``logprobs.py``): a round with such a request fetches at least its
++  ``top_logprobs`` candidates and asks the window for the ranks' log-sum-exp parts; ``_sample`` fills the request's
++  collector from the accepted rows of the verify pass (the model that chose the token, never the drafter).
+ - **Cancellation** (GLM 0600): ``on_tokens`` returning True, or ``on_tokens.cancelled()`` turning true while the
+   request waits, prefills or decodes, ends it at the next plan (no snapshot of a cancelled turn).
+ - **Memory** (G16's two holes, fixed): admission prices each prompt's prefill transient (``memory.prefill_price``:
+@@ -55,6 +58,7 @@ import numpy as np
+ from tensorfold.engine.exact_sampling import MARGIN, choose_rows
+ from tensorfold.families.glm5_next.spark.batchplan import Fairness
+ 
++from . import logprobs as LP
+ from . import nucleus as NU
+ from .lookup import Planner, noise_of
+ from .phases import PH
+@@ -86,6 +90,8 @@ class Job:
+     id: int = field(default_factory=lambda: next(_ids))
+     submitted: float = field(default_factory=time.monotonic)
+     stats: dict = field(default_factory=dict)
++    probabilities: Any = None                  # tensorfold.engine.probabilities.Probabilities, or None
++    #                                           # (rank 0 only: ``_sample`` fills it from the verify logits)
+ 
+ 
+ @dataclass
+@@ -217,20 +223,23 @@ class Batcher:
+             self.cv.notify_all()
+ 
+     def generate(self, prompt: list[int], max_tokens: int, sampling, on_tokens: Callable[[list[int]], bool],
+-                 draft: bool = True, *, grammar=None, stop_eos: bool = True, background: bool = False) -> dict:
+-        job = self.submit(Job(list(prompt), int(max_tokens), sampling, stop_eos, draft, grammar, background))
++                 draft: bool = True, *, grammar=None, stop_eos: bool = True, background: bool = False,
++                 probabilities=None) -> dict:
++        job = self.submit(Job(list(prompt), int(max_tokens), sampling, stop_eos, draft, grammar, background,
++                              probabilities=probabilities))
+         return self.collect(job, on_tokens)
+ 
+     def generate_request(self, prompt: list[int], max_tokens: int, sampling, on_tokens, draft: bool = True, *,
+-                         request=None, host=None) -> dict:
++                         request=None, host=None, probabilities=None) -> dict:
+         """The body of the engine's ``generate`` (M1's ``Dsv41Engine``): the app's per-thread fields
+         (``engine.request``: stop_eos, grammar as (spec, compiled), background) applied; ``host``:
+-        ``structured.Host``."""
++        ``structured.Host``; ``probabilities``: the request's log-probability collector (rank 0; ``logprobs.py``)."""
+ 
+         grammar = host.bind(getattr(request, "grammar", None), prompt) if host is not None else None
+         return self.generate(prompt, max_tokens, sampling, on_tokens, draft, grammar=grammar,
+                              stop_eos=getattr(request, "stop_eos", True),
+-                             background=bool(getattr(request, "background", False)))
++                             background=bool(getattr(request, "background", False)),
++                             probabilities=probabilities)
+ 
+     def collect(self, job: Job, on_tokens: Callable[[list[int]], bool]) -> dict:
+         """Tokens to ``on_tokens`` until the job ends; its stats. Raises the job's failure (ValueError: the client's)."""
+@@ -543,8 +552,9 @@ class Batcher:
+             depth, drafts = self.planner.window(s.plan, left, s.job.draft, s.job.stop_eos)
+             sp = s.job.sampling
+             nuc = NU.spec(sp) if self.nucleus else []
++            prob = 1 if s.job.probabilities is not None else 0
+             plan.windows.append(WindowSpec(s.slot, s.pos, s.pending, depth, drafts,
+-                                           noise_of(sp) if depth else [], nuc))
++                                           noise_of(sp) if depth else [], nuc, prob))
+             if sp is None:
+                 k = 1 + MARGIN
+             elif sp.top_k:
+@@ -552,6 +562,8 @@ class Batcher:
+             else:                               # top-p alone: the nucleus' candidates (``nucleus.py``), else all
+                 k = self.nucleus if nuc else self.fwd.vocab
+             count = max(count, min(k, self.fwd.vocab))
++            if prob:                            # a logprobs row needs the top-N of the whole vocabulary as candidates
++                count = max(count, min(int(s.job.probabilities.top), self.fwd.vocab))
+         if self.log_topk:                       # TF_DSV41_DRAFT_LOG: the target's top-K of every row (``draftlog``)
+             count = max(count, min(self.log_topk, self.fwd.vocab))
+         plan.count = count
+@@ -598,6 +610,14 @@ class Batcher:
+             left = s.job.max_tokens - len(s.out)
+             if len(out) >= left:
+                 out, done = out[:left], True
++            if s.job.probabilities is not None:
++                try:                            # the emitted rows' log probabilities, from this window's verify logits
++                    LP.record(s.job.probabilities, positions, out, chosen, c)
++                except Exception as exc:        # noqa: BLE001  a logging extra never changes the reply
++                    traceback.print_exc()
++                    s.job.out.put(RuntimeError(f"log probabilities failed: {type(exc).__name__}: {exc}"))
++                    self._end(s, None, cancelled=True)
++                    continue
+             self.commits.append((r.slot, len(out) - 1, out[-1]))
+             self.planner.observe(s.plan, len(r.tokens), acc, out)
+             s.pos, s.pending = r.start + len(out), out[-1]
+diff --git i/src/tensorfold/families/deepseek_v41/cuda/decode.py w/src/tensorfold/families/deepseek_v41/cuda/decode.py
+index 16b71ab..883e7ea 100644
+--- i/src/tensorfold/families/deepseek_v41/cuda/decode.py
++++ w/src/tensorfold/families/deepseek_v41/cuda/decode.py
+@@ -313,11 +313,13 @@ class DecodeForward(SlotsForward):
+ 
+         return self.spec is not None
+ 
+-    def window(self, windows, *, count: int, masks=None, nucleus=None, spec=None) -> Candidates:
++    def window(self, windows, *, count: int, masks=None, nucleus=None, spec=None, probs=None) -> Candidates:
+         """One verify forward over every window; ``nucleus[i]`` (``nucleus.spec``): window i samples top-p without
+         top-k, so its rows get keep counts (or their full rows) beside the ``count`` candidates. ``spec[i]``: (window
+         i drafted with DSpark, its keyed noise): the next pass may start on the GPU before the host decides
+-        (``spec.py``; not with grammar masks or nucleus rows, whose candidates need more exchanges)."""
++        (``spec.py``; not with grammar masks or nucleus rows, whose candidates need more exchanges). ``probs[i]``:
++        window i's rows also carry the ranks' log-sum-exp parts, so ``Candidates.lse`` holds the whole vocabulary's
++        normalizer (``logprobs.py``)."""
+ 
+         extra = self.tree.extra(windows, masks, nucleus) if self.tree is not None else []
+         if extra:                               # a tree round: the siblings' windows on their shadow slots
+@@ -329,8 +331,9 @@ class DecodeForward(SlotsForward):
+         with PH("forward"):
+             logits = self.graphs.run(segs) if self.graphs is not None else self.run(segs)
+         with PH("candidates"):
+-            g, k = self.cand_gather(logits, sizes, count, masks)
+-            got = self.cand_fetch(g, k, count)          # the candidates' D2H copy is queued before the pass
++            flags_p = ([int(p) for p in probs] + [0] * len(extra)) if probs is not None else None
++            g, k, parts = self.cand_gather(logits, sizes, count, masks, flags_p)
++            got = self.cand_fetch(g, k, count, parts)    # the candidates' D2H copy is queued before the pass
+             if self.spec is not None:
+                 unmasked = not (masks is not None and any(m is not None for m in masks))
+                 nuc = bool(nucleus and any(nucleus))
+diff --git i/src/tensorfold/families/deepseek_v41/cuda/engine.py w/src/tensorfold/families/deepseek_v41/cuda/engine.py
+index 8853c26..608236c 100644
+--- i/src/tensorfold/families/deepseek_v41/cuda/engine.py
++++ w/src/tensorfold/families/deepseek_v41/cuda/engine.py
+@@ -19,6 +19,9 @@
+ - Tokens: each rank's top candidates of its vocabulary half, one gather, then the same rule on both ranks:
+   greedy = the largest logit, ties to the lower id; T > 0 = ``exact_sampling.choose_rows`` (keyed by seed, absolute
+   position and token id), so a reply never depends on timing or on the rank.
++- Log probabilities (``supports_logprobs``, ``probabilities=`` on ``generate``): served by the batcher only
++  (``TF_DSV41_SERVING=1``); the whole vocabulary's log-softmax from the ranks' gathered parts (``logprobs.py``), one
++  row a verify pass's accepted token. The one-slot path refuses it.
+ 
+ Start-up (``fastboot`` timeline): NCCL (``tensorfold.cuda.comm``; our GLM RoCE all-gather for the model's
+ exchanges with the GLM deployment's ``GLM53_TF_COMM_BACKEND=roce``), the settings both ranks must share, the
+@@ -402,11 +405,20 @@ class Dsv41Engine:
+                 "prefill_tok_s": round(len(prompt) / max(t1 - t0, 1e-9), 1),
+                 "decode_tok_s": round((n - 1) / max(t2 - t1, 1e-9), 2) if n > 1 else None}
+ 
++    # -- token probabilities --------------------------------------------------------------------------------------
++    @property
++    def supports_logprobs(self) -> bool:
++        """The serving batcher returns the whole vocabulary's log probabilities (``logprobs.py``); the one-slot path
++        (``TF_DSV41_SERVING=0``) has no candidate exchange to hang them on, so it refuses the request instead."""
++
++        return self.batch is not None
++
+     def generate(self, prompt: list[int], max_tokens: int, sampling, on_tokens, draft: bool = True,
+-                 stop_eos: bool | None = None) -> dict[str, Any]:
++                 stop_eos: bool | None = None, probabilities=None) -> dict[str, Any]:
+         """Rank 0: one request, mirrored by rank 1 (``follow``): through the batcher when serving, else the one-slot
+         serial path (whatever ``draft`` says). The request's images (``request.images``) are encoded first and their
+-        rows held until it ends."""
++        rows held until it ends. ``probabilities`` (``logprobs.py``): the request's collector, filled from the verify
++        pass's logits a token (serving only)."""
+ 
+         from . import vision as vision_mod
+ 
+@@ -414,24 +426,27 @@ class Dsv41Engine:
+         if images is None:
+             if prompt and max(prompt) >= vision_mod.VBASE:
+                 raise ValueError("a prompt with image positions needs its images (TF_DSV41_IMAGES=native)")
+-            return self._generate(prompt, max_tokens, sampling, on_tokens, draft, stop_eos)
++            return self._generate(prompt, max_tokens, sampling, on_tokens, draft, stop_eos, probabilities)
+         if self.vision is None:
+             raise ValueError("images need TF_DSV41_IMAGES=native on rank 0")
+         table = self.vision.table(images)
+         tok = vision_mod.STORE.hold(table)
+         try:
+-            stats = self._generate(prompt, max_tokens, sampling, on_tokens, draft, stop_eos)
++            stats = self._generate(prompt, max_tokens, sampling, on_tokens, draft, stop_eos, probabilities)
+         finally:
+             vision_mod.STORE.release(tok)
+         return dict(stats or {}, vision=dict(self.vision.last))
+ 
+     def _generate(self, prompt: list[int], max_tokens: int, sampling, on_tokens, draft: bool = True,
+-                  stop_eos: bool | None = None) -> dict[str, Any]:
++                  stop_eos: bool | None = None, probabilities=None) -> dict[str, Any]:
+         if self.batch is not None:
+             if stop_eos is not None:
+                 self.request.stop_eos = bool(stop_eos)
+             return self.batch.generate_request(prompt, max_tokens, sampling, on_tokens, draft, request=self.request,
+-                                               host=self.grammar_host)
++                                               host=self.grammar_host, probabilities=probabilities)
++        if probabilities is not None:
++            raise ValueError("logprobs need the serving batcher (TF_DSV41_SERVING=1): the one-slot path has no "
++                             "candidate exchange to read the whole vocabulary from")
+         stop_eos = bool(getattr(self.request, "stop_eos", True)) if stop_eos is None else bool(stop_eos)
+         if not prompt or len(prompt) >= self.limit:
+             raise ValueError(f"prompt of {len(prompt)} tokens: this engine serves contexts up to {self.limit}")
+diff --git i/src/tensorfold/families/deepseek_v41/cuda/logprobs.py w/src/tensorfold/families/deepseek_v41/cuda/logprobs.py
+new file mode 100644
+index 0000000..a513a59
+--- /dev/null
++++ w/src/tensorfold/families/deepseek_v41/cuda/logprobs.py
+@@ -0,0 +1,110 @@
++# SPDX-License-Identifier: MIT
++# Copyright (c) 2026 Jay Leaton. The DeepSeek-V4.1-Flash family of TensorFold (Apache-2.0): see THIRD_PARTY_NOTICES.md.
++"""The whole vocabulary's log-softmax at TP=4 (and TP=1/2): each rank's log-sum-exp parts, one gather, rank 0's rows.
++
++At TP>1 a rank's head holds only its own vocabulary slice -- the uneven whole-128-block split
++(32,384 / 32,384 / 32,256 / 32,256 of 129,280) -- so the normalizer of the full distribution sits on no single rank.
++Each rank reduces its slice to a ``(max, sum of exp(x - max))`` pair a row (the same reduction
++``tensorfold.cuda.logprobs._parts`` runs over one rank's full row), the pairs travel beside the candidates in the
++verify window's all-gather (two extra floats a row, only when a request asks for probabilities), and every rank
++combines them in rank order into ``lse = max + log(sum)``.
++
++The per-token log probabilities then come from the same bf16-valued fp32 logits the sampler reads
++(``pick.kit_logits``: the forward rounds the head to bf16, and vLLM's greedy sampler takes the argmax of those):
++``logprob(t) = logit(t) - lse``, the top-``N`` columns of the merged candidates with the same subtraction. Nothing
++here changes a value the sampler sees; the uneven split cannot change a log probability because the reduction only
++adds the parts, and ``tests/test_dsv41_logprobs.py`` checks that against one rank's own full-row log-softmax.
++
++Where it is used (the serving batcher only; the one-slot path refuses ``logprobs``):
++``slots.SlotsForward.cand_gather`` computes the parts and the combined ``lse``, ``Candidates.lse`` carries it to
++``batch.Batcher._sample``, which fills the request's ``tensorfold.engine.probabilities.Probabilities`` collector.
++Drafted rows are no exception: the logits are the verify pass's (the model that accepted the token), never a
++drafter's own logits -- ``window`` reads the target's rows, and the drafter's proposals never reach this module.
++"""
++
++from __future__ import annotations
++
++from collections.abc import Sequence
++
++import numpy as np
++import torch
++
++__all__ = ["chosen_values", "combine", "parts", "record", "top_rows"]
++
++
++def parts(lg: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
++    """A rank's logits [R, C] (any float dtype) -> per-row (max, sum of exp(x - max)) fp32 [R] each.
++
++    A row with no finite column (fully masked; impossible for a live grammar) reduces to (-inf, 0), as the kit's
++    Triton kernel does, so the combination stays finite-or-zero instead of NaN.
++    """
++
++    mx = lg.max(dim=1).values.to(torch.float32)
++    base = torch.where(torch.isfinite(mx), mx, torch.zeros_like(mx))
++    sm = torch.exp(lg.to(torch.float32) - base[:, None]).sum(dim=1, dtype=torch.float32)
++    return mx, sm
++
++
++def combine(mx: torch.Tensor, sm: torch.Tensor) -> torch.Tensor:
++    """The ranks' parts ([W, R] each, rank order) -> the whole vocabulary's log-sum-exp [R] fp32.
++
++    ``max`` over the ranks' maxima, then the sums scaled to it: the sum is taken in rank order, so every rank that
++    runs this (rank 0 and rank 1 alike) gets the same bits from the same gathered parts.
++    """
++
++    best = mx.max(dim=0).values
++    base = torch.where(torch.isfinite(best), best, torch.zeros_like(best))
++    total = (sm.to(torch.float32) * torch.exp(mx.to(torch.float32) - base[None, :])).sum(dim=0)
++    return base + torch.log(total)
++
++
++def chosen_values(values: np.ndarray, ids: np.ndarray, chosen: Sequence[int]) -> np.ndarray:
++    """Each row's logit for the token the sampler chose (float32 [n]): the merged candidates hold it, because
++    ``batch.Batcher._choose`` picks from them (greedy column 0, sampled / nucleus their kept set)."""
++
++    if len(chosen) > values.shape[0]:
++        raise ValueError(f"{len(chosen)} chosen tokens for {values.shape[0]} candidate rows")
++    out = np.empty(len(chosen), dtype=np.float32)
++    for i, token in enumerate(chosen):
++        at = np.flatnonzero(ids[i] == int(token))
++        if not len(at):
++            raise RuntimeError(f"the chosen token {int(token)} is not among row {i}'s candidates")
++        out[i] = values[i, at[0]]
++    return out
++
++
++def top_rows(values: np.ndarray, ids: np.ndarray, lse: np.ndarray, count: int) -> tuple[list[list[int]],
++                                                                                       list[list[float]]]:
++    """The best ``count`` candidates a row as (token ids, log probabilities): the merged candidates are already in
++    OpenAI's ``top_logprobs`` order (value descending, ties to the lower id), and a column the window masked or the
++    gather padded (``-inf``) is left out rather than reported as a probability of zero."""
++
++    top_ids: list[list[int]] = []
++    top_values: list[list[float]] = []
++    for i in range(values.shape[0]):
++        row_values, row_ids = values[i], ids[i]
++        keep = int(min(count, row_values.shape[0]))
++        finite = np.flatnonzero(np.isfinite(row_values[:keep]))
++        top_ids.append([int(row_ids[j]) for j in finite])
++        top_values.append([float(row_values[j] - lse[i]) for j in finite])
++    return top_ids, top_values
++
++
++def record(probabilities, positions: Sequence[int], out: Sequence[int], chosen: Sequence[int],
++           cand) -> None:
++    """``batch.Batcher._sample``: this window's emitted rows into the request's collector.
++
++    ``out`` is the accepted prefix the round emits (``chosen[:acc + 1]``, then cut at an EOS or ``max_tokens``), so
++    it maps to candidate rows 0..len(out)-1 and to positions ``positions`` likewise. The logits are the verify
++    pass's -- the target's own rows -- never the drafter's: a drafted token's row is the one that accepted it.
++    """
++
++    n = len(out)
++    if n == 0:
++        return
++    if cand.lse is None:
++        raise RuntimeError("the window has no log-sum-exp (the plan did not ask the ranks' parts)")
++    values, ids, lse = cand.values[:n], cand.ids[:n], cand.lse[:n]
++    logprobs = chosen_values(values, ids, list(out)) - lse
++    top_ids, top_values = top_rows(values, ids, lse, int(probabilities.top))
++    probabilities.add(list(positions[:n]), [int(t) for t in out], logprobs.tolist(), top_ids, top_values)
+diff --git i/src/tensorfold/families/deepseek_v41/cuda/plan.py w/src/tensorfold/families/deepseek_v41/cuda/plan.py
+index a127b17..17a37af 100644
+--- i/src/tensorfold/families/deepseek_v41/cuda/plan.py
++++ w/src/tensorfold/families/deepseek_v41/cuda/plan.py
+@@ -15,10 +15,10 @@ Execution order (``rounds.Executor.run``), every step on both ranks:
+ 5. ``pieces``   prefill pieces (slot, start, end) of several slots in one ``Forward.prefill`` (GLM 0560);
+ 6. ``saves``    prompt snapshots at the replay point (the slot sits at it after its piece);
+ 7. ``finals``   ``Forward.finish_prompt`` for slots whose prompt is done (CED replay);
+-8. ``windows``  (slot, start, pending, depth, drafts, noise, nucleus): drafts from ``Forward.draft`` when depth > 0
+-                (DSpark, both ranks, keyed by ``noise``) or the plan's own (host lookup drafts), cut by the slot's
+-                grammar, masks filled, the Engram reads issued (``Forward.prefetch``), one ``Forward.window`` (top-p
+-                rows' specs in ``nucleus``).
++8. ``windows``  (slot, start, pending, depth, drafts, noise, nucleus, probs): drafts from ``Forward.draft`` when
++                depth > 0 (DSpark, both ranks, keyed by ``noise``) or the plan's own (host lookup drafts), cut by the
++                slot's grammar, masks filled, the Engram reads issued (``Forward.prefetch``), one ``Forward.window``
++                (top-p rows' specs in ``nucleus``, the log-probability parts asked with ``probs``).
+ 
+ Encoding: a list of ints for the communicator (GLM ``_share``): [MAGIC, json bytes, *json words (3 bytes an int),
+ prompt count, (slot, n, *ids) ...]. Prompts travel once, at admission, as raw ids.
+@@ -57,6 +57,7 @@ class WindowSpec:
+     drafts: list[int] = field(default_factory=list)    # host drafts (lookup), used when depth == 0
+     noise: list = field(default_factory=list)          # keyed draft noise (lookup.noise_of): [] = greedy drafts
+     nucleus: list = field(default_factory=list)        # [T, top_p, min_p]: top-p rows from candidates (nucleus.py)
++    probs: int = 0                  # 1: this window's rows carry the ranks' log-sum-exp parts (``logprobs.py``)
+ 
+ 
+ @dataclass
+diff --git i/src/tensorfold/families/deepseek_v41/cuda/protocol.py w/src/tensorfold/families/deepseek_v41/cuda/protocol.py
+index d910a93..98789f3 100644
+--- i/src/tensorfold/families/deepseek_v41/cuda/protocol.py
++++ w/src/tensorfold/families/deepseek_v41/cuda/protocol.py
+@@ -79,10 +79,13 @@ class Candidates:
+     ids: np.ndarray
+     values: np.ndarray
+     nucleus: dict | None = None     # row -> ("keep", n) | ("full", ids, values): top-p rows (``nucleus.py``)
++    lse: np.ndarray | None = None   # [R] float32: the whole vocabulary's log-sum-exp a row (``logprobs.py``),
++    #                                 # only on a round whose plan asked for log probabilities (else None)
+ 
+     def rows(self, a: int, b: int) -> Candidates:
+         nuc = None if self.nucleus is None else {r - a: v for r, v in self.nucleus.items() if a <= r < b}
+-        return Candidates(self.ids[a:b], self.values[a:b], nuc or None)
++        return Candidates(self.ids[a:b], self.values[a:b], nuc or None,
++                          None if self.lse is None else self.lse[a:b])
+ 
+ 
+ @dataclass
+diff --git i/src/tensorfold/families/deepseek_v41/cuda/rounds.py w/src/tensorfold/families/deepseek_v41/cuda/rounds.py
+index 9dddb61..bf39646 100644
+--- i/src/tensorfold/families/deepseek_v41/cuda/rounds.py
++++ w/src/tensorfold/families/deepseek_v41/cuda/rounds.py
+@@ -244,6 +244,7 @@ class Executor:
+                                      [w.depth for w in deep], **kw)
+             drafts = {w.slot: [int(t) for t in d][:w.depth] for w, d in zip(deep, got)}
+         rows, masks, nucs, flags, any_mask = [], [], [], [], False
++        prs: list[int] = []
+         for w in specs:
+             tokens = [int(w.pending)] + (drafts.get(w.slot) or [int(t) for t in w.drafts])
+             con = self.cons[w.slot]
+@@ -262,6 +263,7 @@ class Executor:
+             rows.append(r)
+             masks.append(bits)
+             nucs.append(list(getattr(w, "nucleus", None) or []))
++            prs.append(int(getattr(w, "probs", 0) or 0))     # log-probability parts (``logprobs.py``)
+             flags.append((w.slot in drafts, list(w.noise)))     # a DSpark round: the next pass may start early
+         res.rows = rows
+         if rows:
+@@ -270,6 +272,8 @@ class Executor:
+             kw = {"nucleus": nucs} if any(nucs) else {}         # top-p rows' normalizers (``nucleus.py``)
+             if getattr(self.fwd, "speculates", False):
+                 kw["spec"] = flags                              # ``spec.py`` (TF_DSV41_SPEC_DRAFT)
++            if any(prs):
++                kw["probs"] = prs                               # a logprobs row's whole-vocabulary normalizer
+             with PH("window"):
+                 res.cand = self.fwd.window(rows, count=plan.count, masks=masks if any_mask else None, **kw)
+             took = getattr(self.fwd, "took", None)
+diff --git i/src/tensorfold/families/deepseek_v41/cuda/slots.py w/src/tensorfold/families/deepseek_v41/cuda/slots.py
+index 2500c96..6e97d82 100644
+--- i/src/tensorfold/families/deepseek_v41/cuda/slots.py
++++ w/src/tensorfold/families/deepseek_v41/cuda/slots.py
+@@ -39,12 +39,13 @@ LOOKBACK = 3
+ 
+ 
+ class _CandFetch:
+-    """``cand_fetch``'s handle: the pinned host rows, the copy's event (None on the CPU), the width, the device rows."""
++    """``cand_fetch``'s handle: the pinned host rows, the copy's event (None on the CPU), the width, the device rows;
++    ``lse`` 1 when the handle's rows carry a log-sum-exp column (``logprobs.py``), 0 otherwise."""
+ 
+-    __slots__ = ("c", "event", "host", "ids", "vals")
++    __slots__ = ("c", "event", "host", "ids", "lse", "vals")
+ 
+-    def __init__(self, host, event, c, vals, ids) -> None:
+-        self.host, self.event, self.c, self.vals, self.ids = host, event, c, vals, ids
++    def __init__(self, host, event, c, vals, ids, lse: int = 0) -> None:
++        self.host, self.event, self.c, self.vals, self.ids, self.lse = host, event, c, vals, ids, lse
+ 
+ 
+ def _profile_due(pieces) -> bool:
+@@ -247,24 +248,34 @@ class SlotsForward(Forward):
+         return st
+ 
+     # -- verify windows ------------------------------------------------------------------------------------------
+-    def window(self, windows, *, count: int, masks=None) -> Candidates:
++    def window(self, windows, *, count: int, masks=None, probs=None) -> Candidates:
+         segs = [Seg(w.slot, w.start, tuple(w.tokens)) for w in windows]
+         self.cand_reserve(sum(len(w.tokens) for w in windows), count)
+         logits = self.run(segs)
+-        return self.candidates(logits, [len(w.tokens) for w in windows], count, masks)
++        return self.candidates(logits, [len(w.tokens) for w in windows], count, masks, probs)
+ 
+     def commit(self, slot: int, accepted: int) -> None:
+         self.keep(slot, accepted)
+ 
+-    def candidates(self, logits: torch.Tensor, sizes: Sequence[int], count: int, masks=None) -> Candidates:
+-        """Each row's top ``count`` (value desc, id asc) over the whole vocabulary, from the ranks' halves."""
++    def candidates(self, logits: torch.Tensor, sizes: Sequence[int], count: int, masks=None,
++                   probs: Sequence | None = None) -> Candidates:
++        """Each row's top ``count`` (value desc, id asc) over the whole vocabulary, from the ranks' halves.
++        ``probs`` (a flag a row, ``rounds.Executor``): those rows also get the ranks' log-sum-exp parts merged into
++        the same spread (``logprobs.py``), and the returned ``Candidates.lse`` holds the whole vocabulary's
++        log-sum-exp a row."""
+ 
+-        g, k = self.cand_gather(logits, sizes, count, masks)
+-        return self.cand_wait(self.cand_fetch(g, k, count))
++        g, k, parts2 = self.cand_gather(logits, sizes, count, masks, probs)
++        return self.cand_wait(self.cand_fetch(g, k, count, parts2))
+ 
+-    def cand_gather(self, logits: torch.Tensor, sizes: Sequence[int], count: int, masks=None):
++    def cand_gather(self, logits: torch.Tensor, sizes: Sequence[int], count: int, masks=None,
++                    probs: Sequence | None = None):
+         """Each rank's top ``k`` a row (grammar masks applied first), gathered: (fp32 [W, R, 2k] values then int32 ids
+-        as fp32 bits, rank order, on the device; k)."""
++        as fp32 bits, rank order, on the device; k; and, when ``probs`` asks, [W, R, 2] log-sum-exp parts, or None).
++
++        The parts ride the same exchange (two extra floats a row): a second all-gather would add an exchange to a
++        round, and both ranks need every rank's part to combine the log-softmax (``logprobs.combine``)."""
++
++        from . import logprobs as LP
+ 
+         lg = logits.float()
+         R, vl = lg.shape
+@@ -281,13 +292,24 @@ class SlotsForward(Forward):
+                     allowed[a:a + n] = bits.reshape(n, -1)[:, :vl].bool()
+                 a += n
+             lg = lg.masked_fill(~allowed, float("-inf"))
++        want = probs is not None and any(probs)
++        parts = None
++        if want:                            # only a round with a logprobs request pays for the exp/sum over the slice
++            mx, sm = LP.parts(lg)
++            parts = torch.stack([mx, sm], 1).contiguous()               # [R, 2]
+         vals, ids, k = P.rank_top(lg, count, lo, self.vocab_wide)   # ties: the lower id; one k on every rank
+-        packed = torch.cat([vals, ids.view(torch.float32)], 1).contiguous()
++        cols = [vals, ids.view(torch.float32)] + ([parts] if parts is not None else [])
++        packed = torch.cat(cols, 1).contiguous()                    # 2k columns, then the parts' 2
+         if self.world > 1:
+             got = torch.empty((self.world * packed.numel(),), dtype=torch.float32, device=packed.device)
+             fast_gather(self.comm, packed.view(-1), got)
+-            return got.view(self.world, R, 2 * k), k
+-        return packed.view(1, R, 2 * k), k
++            g = got.view(self.world, R, packed.shape[1])
++        else:
++            g = packed.view(1, R, packed.shape[1])
++        if parts is None:
++            return g, k, None
++        merged = g[:, :, :2 * k]                                        # the candidates, the parts' columns cut off
++        return merged, k, g[:, :, 2 * k:2 * k + 2]                      # [W, R, 2], one slice a rank
+ 
+     def cand_warm(self, rows: int = 4) -> None:
+         """Run every candidate width class once at boot (every rank, the same calls), so their kernels are loaded
+@@ -310,7 +332,7 @@ class SlotsForward(Forward):
+         z = torch.zeros((rows,), dtype=torch.int64, device=dev)
+         floats = torch.tensor([[1.0, 0.9, 0.02]] * rows, dtype=torch.float64, device=dev)
+         for count in (1, 9, 64, 520, 4104, 32776, self.vocab):
+-            g, k = self.cand_gather(lg, [rows], count)
++            g, k, _ = self.cand_gather(lg, [rows], count)
+             h = self.cand_fetch(g, k, count)
+             for mode in ((0, 0), (20, 1), (0, 1)):
+                 ints = torch.tensor([list(mode)] * rows, dtype=torch.int64, device=dev)
+@@ -335,27 +357,32 @@ class SlotsForward(Forward):
+         if self.device.type == "cuda" and (buf is None or buf.numel() < need):
+             self.__dict__["_cand_pin"] = torch.empty((need,), dtype=torch.float32, pin_memory=True)
+ 
+-    def cand_fetch(self, g: torch.Tensor, k: int, count: int):
++    def cand_fetch(self, g: torch.Tensor, k: int, count: int, parts: torch.Tensor | None = None):
+         """The merged, sorted candidates (``vsample.merge``: the order ``np.lexsort((ids, -values))`` gave on the
+-        host) copied to pinned memory without blocking: a handle for ``cand_wait``; the device rows are ``.dev``."""
++        host) copied to pinned memory without blocking: a handle for ``cand_wait``; the device rows are ``.dev``.
++        ``parts``: the gathered log-sum-exp parts [W, R, 2]; its combined [R] normalizer is copied with the width."""
+ 
++        from . import logprobs as LP
+         from . import vsample as VS
+ 
++        lse = LP.combine(parts[:, :, 0], parts[:, :, 1]) if parts is not None else None
+         vals, ids = VS.merge(g, k, count)
+         R, c = ids.shape
+         packed = torch.cat([vals, ids.to(torch.int32).view(torch.float32)], 1)
++        if lse is not None:
++            packed = torch.cat([packed, lse.to(torch.float32).view(R, 1)], 1)
+         if packed.is_cuda:
+             buf = self.__dict__.get("_cand_pin")
+             if buf is None or buf.numel() < packed.numel():
+                 buf = self.__dict__["_cand_pin"] = torch.empty((max(packed.numel(), 4096),), dtype=torch.float32,
+                                                                pin_memory=True)
+-            host = buf[:packed.numel()].view(R, 2 * c)
++            host = buf[:packed.numel()].view(R, packed.shape[1])
+             host.copy_(packed, non_blocking=True)
+             ev = torch.cuda.Event()
+             ev.record()
+         else:
+             host, ev = packed, None
+-        return _CandFetch(host, ev, c, vals, ids)
++        return _CandFetch(host, ev, c, vals, ids, R if lse is not None else 0)
+ 
+     @staticmethod
+     def cand_wait(h) -> Candidates:
+@@ -364,8 +391,9 @@ class SlotsForward(Forward):
+         a = h.host.numpy()
+         c = h.c
+         values = np.array(a[:, :c], dtype=np.float32)
+-        tokens = a[:, c:].view(np.int32).astype(np.int64)
+-        return Candidates(tokens, values)
++        tokens = a[:, c:2 * c].view(np.int32).astype(np.int64)
++        lse = np.array(a[:, 2 * c], dtype=np.float32) if h.lse else None
++        return Candidates(tokens, values, lse=lse)
+ 
+     # -- snapshots -----------------------------------------------------------------------------------------------
+     def _ring_rows(self, pos: int) -> torch.Tensor:
+diff --git i/src/tensorfold/families/glm5_next/spark/server.py w/src/tensorfold/families/glm5_next/spark/server.py
+index 5928880..25e6a56 100644
+--- i/src/tensorfold/families/glm5_next/spark/server.py
++++ w/src/tensorfold/families/glm5_next/spark/server.py
+@@ -1061,8 +1061,11 @@ def make_handler(app: App):
+                     message.update(reasoning_fields(result["reasoning"]))      # patches/0160
+                 if result["calls"]:
+                     message["tool_calls"] = result["calls"]
++                choice: dict[str, Any] = {"index": 0, "message": message, "finish_reason": result["finish"]}
++                if result.get("logprobs") is not None:      # a family's app (V4.1: ``dsv41/cuda/app.py``)
++                    choice["logprobs"] = result["logprobs"]
+                 payload = {"id": rid, "object": "chat.completion", "created": created, "model": app.served,
+-                           "choices": [{"index": 0, "message": message, "finish_reason": result["finish"]}],
++                           "choices": [choice],
+                            "usage": usage, "tensorfold": result["stats"]}
+             else:
+                 payload = {"id": rid, "object": "text_completion", "created": created, "model": app.served,
+diff --git i/tests/cuda/test_dsv41_host_gpu.py w/tests/cuda/test_dsv41_host_gpu.py
+index 16cc8d6..33f0fab 100644
+--- i/tests/cuda/test_dsv41_host_gpu.py
++++ w/tests/cuda/test_dsv41_host_gpu.py
+@@ -140,10 +140,17 @@ def test_candidates_gpu_is_old_merge(ck):
+ 
+     logits = fw.run([Seg(0, len(p) - 1, (p[-1], 5, 6, 7))])
+     for count in (9, 28, 300):
+-        g, k = fw.cand_gather(logits, [4], count)
++        g, k, parts2 = fw.cand_gather(logits, [4], count)
++        assert parts2 is None                       # no logprobs requested: no parts, no extra columns
+         c = fw.cand_wait(fw.cand_fetch(g, k, count))
++        assert c.lse is None
+         want_ids, want_vals = _old_merge(g, k, count)
+         assert np.array_equal(c.ids, want_ids) and np.array_equal(c.values, want_vals)
++    g, k, parts2 = fw.cand_gather(logits, [4], count, probs=[1])       # logprobs: parts ride the same gather
++    c = fw.cand_wait(fw.cand_fetch(g, k, count, parts2))
++    assert c.lse is not None and c.lse.shape == (4,)
++    lse = torch.logsumexp(logits.float(), dim=1).cpu().numpy()
++    assert np.allclose(c.lse, lse, rtol=1e-5, atol=1e-5)
+ 
+ 
+ @pytest.mark.parametrize("live", [(0, 2), (1, 2, 0)])
+diff --git i/tests/dsv41_serving_fakes.py w/tests/dsv41_serving_fakes.py
+index 36134c5..8969452 100644
+--- i/tests/dsv41_serving_fakes.py
++++ w/tests/dsv41_serving_fakes.py
+@@ -99,6 +99,8 @@ class FakeForward:
+         self.calls: list[tuple] = []               # what was asked, for rank agreement checks
+         self.win_carry: dict[int, list[tuple[float, list[int]]]] = {}
+         self.win_start: dict[int, tuple[int, list[int]]] = {}
++        self.rows_full: dict[tuple[int, int], np.ndarray] = {}   # (slot, position) -> the row's whole logits
++        self.win_probs: list[int] = []             # the windows' ``probs`` flags, as the executor passed them
+         self.mode = "full"
+ 
+     def bind(self, slots) -> None:
+@@ -181,9 +183,11 @@ class FakeForward:
+                 b3 = np.frombuffer(np.uint64(_h(t, q, 25)).tobytes(), dtype=np.uint8)
+                 st.swa_values[DEC, q % RING, :8] = torch.from_numpy(b3.copy())
+ 
+-    def window(self, windows, *, count: int, masks=None) -> Candidates:
++    def window(self, windows, *, count: int, masks=None, probs=None) -> Candidates:
+         self.calls.append(("window", tuple((w.slot, w.start, w.tokens) for w in windows), count))
+-        ids, vals = [], []
++        self.win_probs = list(probs) if probs is not None else []
++        want = probs is not None and any(probs)
++        ids, vals, lses = [], [], []
+         for wi, w in enumerate(windows):
+             st = self.st[w.slot]
+             assert st.pos == w.start, (w.slot, st.pos, w.start)
+@@ -197,12 +201,17 @@ class FakeForward:
+                     allowed = ((bits[np.arange(self.vocab) // 32].astype(np.int64) >> (np.arange(self.vocab) % 32))
+                                & 1).astype(bool)
+                     v = np.where(allowed, v, -np.inf).astype(np.float32)
++                if want:                                # a logprobs round: every row gets a normalizer, as the
++                    lses.append(float(np.logaddexp.reduce(v.astype(np.float64))))     # real gather's parts are
++                    if probs[wi]:                       # this row belongs to the request that asked
++                        self.rows_full[(w.slot, w.start + 1 + i)] = v.copy()
+                 order = np.lexsort((np.arange(self.vocab), -v))[:count]
+                 ids.append(order.astype(np.int64))
+                 vals.append(v[order])
+             self.win_carry[w.slot] = carries
+             self.win_start[w.slot] = (w.start, look0, list(w.tokens))
+-        return Candidates(np.stack(ids), np.stack(vals))
++        return Candidates(np.stack(ids), np.stack(vals), None,
++                          np.array(lses, dtype=np.float32) if lses else None)
+ 
+     def commit(self, slot: int, accepted: int) -> None:
+         self.calls.append(("commit", slot, accepted))
+diff --git i/tests/test_dsv41_logprobs.py w/tests/test_dsv41_logprobs.py
+new file mode 100644
+index 0000000..0dd2898
+--- /dev/null
++++ w/tests/test_dsv41_logprobs.py
+@@ -0,0 +1,364 @@
++# SPDX-License-Identifier: MIT
++# Copyright (c) 2026 Jay Leaton. The DeepSeek-V4.1-Flash family of TensorFold (Apache-2.0): see THIRD_PARTY_NOTICES.md.
++"""Log probabilities on the V4.1 server (``logprobs.py``): the whole vocabulary's log-softmax over four uneven
++
++slices, the OpenAI reply shape, the batcher's plumbing, and every request the server must refuse by name.
++
++- ``logprobs.parts`` / ``combine``: the ranks' (max, sum of exp) parts of the uneven 128-block split
++  (256 / 128 / 128 / 128 of 640 here; the real model's 32,384 / 32,384 / 32,256 / 32,256) combine to the same
++  log-sum-exp one rank's full row gives, and the mass over the whole vocabulary sums to 1 (the 5/5/4/4 block-split
++  bug class: a normalizer computed per slice would not);
++- the real forward on four CPU threads (``cand_gather`` with ``probs``): ``Candidates.lse`` matches one rank's
++  ``logsumexp``, every rank's is bit-identical, and without ``probs`` there is no normalizer (and no extra columns);
++- the batcher on the fake forward: an emitted token's log probability is its verify row's logit minus that
++  normalizer, ``top_logprobs`` is the row's top N in the merged candidates' order, a masked (-inf) column never
++  appears, and a request that did not ask is decoded token for token as before;
++- refusals: malformed ``logprobs`` / ``top_logprobs`` / ``n``, and the modes the server does not implement
++  (streaming, thinking on, tools, stop strings, structured output, ``logit_bias`` / ``prompt_logprobs`` / ``echo``).
++"""
++
++from __future__ import annotations
++
++import numpy as np
++import pytest
++
++torch = pytest.importorskip("torch")
++pytestmark = pytest.mark.torch
++
++import dsv41_dspark_fakes as DF  # noqa: E402
++import dsv41_fakes as FK  # noqa: E402
++from dsv41_serving_fakes import FakeForward, model_dir_fixture, topo_fixture  # noqa: E402, F401  (fixtures)
++
++from tensorfold.engine.probabilities import Probabilities  # noqa: E402
++from tensorfold.families.deepseek_v41.cuda import logprobs as LP  # noqa: E402
++from tensorfold.families.deepseek_v41.cuda import numerics as N  # noqa: E402
++from tensorfold.families.deepseek_v41.cuda.app import probability_problem  # noqa: E402
++from tensorfold.families.deepseek_v41.cuda.batch import Job  # noqa: E402
++from tensorfold.families.deepseek_v41.cuda.forward import Seg  # noqa: E402
++from tensorfold.families.deepseek_v41.cuda.plan import Plan, WindowSpec  # noqa: E402
++from tensorfold.families.deepseek_v41.cuda.weights import block_bounds  # noqa: E402
++from tensorfold.server.errors import RequestError  # noqa: E402
++from tensorfold.server.probabilities import probability_options  # noqa: E402
++
++V4 = {"vocab_size": 640, "o_groups": 4, "moe_intermediate_size": 640}      # slices 256 / 128 / 128 / 128
++PROMPT = [int(t) for t in np.random.default_rng(70).integers(3, 600, size=20)]
++HI = [{"role": "user", "content": "hi"}]
++OFF = {"chat_template_kwargs": {"thinking": False}}
++VOCAB = 4096                                    # the fake forward's vocabulary (``dsv41_serving_fakes``)
++
++
++def slices(vocab: int, world: int):
++    return [block_bounds(vocab, world, r) for r in range(world)]
++
++
++# -- the reduction over uneven slices ----------------------------------------------------------------------------------
++def test_parts_and_combine_match_one_ranks_logsumexp():
++    """Every rank's slice reduced, then combined: the whole vocabulary's log-softmax, mass 1, uneven widths."""
++
++    V, W = 640, 4
++    g = torch.Generator().manual_seed(11)
++    lg = torch.randn((5, V), generator=g).to(torch.bfloat16).float()
++    assert [hi - lo for lo, hi in slices(V, W)] == [256, 128, 128, 128]      # uneven: 5 whole 128-blocks
++    lg[1, 300:400] = float("-inf")                                           # a masked stretch
++    lg[3, :] = float("-inf")
++    lg[3, 5] = 2.5                                                           # one live column a row
++    assert lg[3].max().item() == 2.5
++    mx, sm = [], []
++    for lo, hi in slices(V, W):
++        a, b = LP.parts(lg[:, lo:hi])
++        mx.append(a)
++        sm.append(b)
++    lse = LP.combine(torch.stack(mx), torch.stack(sm))
++    want = torch.logsumexp(lg, dim=1)
++    assert torch.allclose(lse, want, rtol=1e-5, atol=1e-5)
++    assert float(lse[3]) == pytest.approx(2.5, abs=1e-6)
++    mass = torch.exp(lg - lse[:, None]).sum(dim=1)                           # sums to 1 over the whole vocabulary
++    assert torch.allclose(mass, torch.ones(5), rtol=1e-5, atol=1e-5)
++
++
++def test_one_rank_parts_are_the_reference():
++    """A single rank (world 1) is the same path: its own full row's parts combine to its logsumexp."""
++
++    g = torch.Generator().manual_seed(3)
++    lg = torch.randn((4, 300), generator=g).float()
++    mx, sm = LP.parts(lg)
++    assert torch.allclose(LP.combine(mx[None], sm[None]), torch.logsumexp(lg, dim=1), rtol=1e-6, atol=1e-6)
++
++
++def test_top_rows_keeps_the_merged_order_and_drops_masked_columns():
++    values = np.array([[-0.1, -1.0, -2.0, -np.inf]], dtype=np.float32)
++    ids = np.array([[7, 3, 9, 11]], dtype=np.int64)
++    lse = np.array([0.5], dtype=np.float32)
++    top_ids, top_values = LP.top_rows(values, ids, lse, 4)
++    assert top_ids == [[7, 3, 9]] and top_values[0] == pytest.approx([-0.6, -1.5, -2.5], abs=1e-6)
++    empty_ids, empty_values = LP.top_rows(values, ids, lse, 0)
++    assert empty_ids == [[]] and empty_values == [[]]                         # count 0: an empty top list a row
++
++
++def test_chosen_values_finds_the_sampled_column():
++    values = np.array([[-0.1, -1.0, -2.0, -np.inf], [-3.0, -4.0, -5.0, -6.0]], dtype=np.float32)
++    ids = np.array([[7, 3, 9, 11], [7, 3, 9, 11]], dtype=np.int64)
++    assert LP.chosen_values(values, ids, [3, 11]).tolist() == pytest.approx([-1.0, -6.0])
++    with pytest.raises(RuntimeError):                                         # a token outside the candidates
++        LP.chosen_values(values, ids, [3, 123])
++    with pytest.raises(ValueError):
++        LP.chosen_values(values, ids, [1, 2, 3])
++
++
++# -- the real forward, four ranks (threads) ---------------------------------------------------------------------------
++@pytest.fixture(scope="module")
++def ck4(tmp_path_factory):
++    return DF.ckpt(tmp_path_factory.mktemp("dsv41lp"), **V4)
++
++
++def test_four_rank_log_softmax_matches_one_rank(ck4):
++    pair = FK.ThreadPair(4)
++    comms = pair.comms()
++
++    def go(r):
++        f = DF.forward(ck4, rank=r, world=4, comm=comms[r], dspark=False)
++        lg = f.run([Seg(0, 0, tuple(PROMPT))])
++        return f.candidates(lg, [len(PROMPT)], 24, None, [1] * len(PROMPT))
++
++    with N.exact():
++        got = pair.run([lambda r=r: go(r) for r in range(4)])
++        one = DF.forward(ck4, dspark=False)
++        lg1 = one.run([Seg(0, 0, tuple(PROMPT))])
++        plain = one.candidates(lg1, [len(PROMPT)], 24)
++    assert plain.lse is None                                                  # not asked: no normalizer
++    want = torch.logsumexp(lg1.float(), dim=1).numpy()
++    for c in got:
++        assert c.lse is not None and c.lse.shape == (len(PROMPT),)
++        assert np.allclose(c.lse, want, rtol=1e-5, atol=1e-5)
++    for r in range(1, 4):                                                     # the combination is rank-order exact
++        assert np.array_equal(got[r].lse, got[0].lse)
++    logprobs = got[0].values - got[0].lse[:, None]
++    assert np.all(np.diff(logprobs, axis=1) <= 1e-6)                          # the order the sampler reads
++    assert np.exp(logprobs[:, :24].astype(np.float64)).sum(axis=1).max() <= 1.0
++
++
++def test_four_rank_rows_agree_with_one_rank(ck4):
++    """The candidates the logprobs index into are still one rank's: the extra parts column changes nothing."""
++
++    pair = FK.ThreadPair(4)
++    comms = pair.comms()
++
++    def go(r):
++        f = DF.forward(ck4, rank=r, world=4, comm=comms[r], dspark=False)
++        lg = f.run([Seg(0, 0, tuple(PROMPT))])
++        return f.candidates(lg, [len(PROMPT)], 24, None, [1] * len(PROMPT))
++
++    with N.exact():
++        got = pair.run([lambda r=r: go(r) for r in range(4)])
++        one = DF.forward(ck4, dspark=False)
++        lg1 = one.run([Seg(0, 0, tuple(PROMPT))])
++        want = one.candidates(lg1, [len(PROMPT)], 24)
++    for c in got:
++        assert np.array_equal(c.ids, want.ids) and np.array_equal(c.values, want.values)
++
++
++# -- the app and the route (needs the V4.1 tokenizer: ``TF_DSV41_TOKENIZER_DIR``) ------------------------------------
++class _NoGrammar:
++    """A grammar host that binds nothing (logprobs refuse structured output anyway)."""
++
++    def check(self, body):
++        return None
++
++    def for_request(self, body):
++        return None
++
++    def bind(self, spec, prompt):
++        return None
++
++
++class BatchEngine:
++    """What ``Dsv41Engine`` does with the serving batcher (``MiniEngine`` in the app tests, plus probabilities)."""
++
++    eos = (1,)
++
++    def __init__(self, batch, limit: int = 4000) -> None:
++        import threading
++
++        self.batch, self.limit = batch, limit
++        self.grammar_host = _NoGrammar()
++        self.request = threading.local()
++
++    @property
++    def supports_logprobs(self) -> bool:
++        return self.batch is not None
++
++    def generate(self, prompt, max_tokens, sampling, on_tokens, draft=True, probabilities=None):
++        return self.batch.generate_request(prompt, max_tokens, sampling, on_tokens, draft, request=self.request,
++                                           host=self.grammar_host, probabilities=probabilities)
++
++
++@pytest.fixture(scope="module")
++def prob_app(model_dir, topo):
++    from tensorfold.families.deepseek_v41.cuda.app import Dsv41App
++    from tensorfold.families.deepseek_v41.cuda.batch import Batcher
++    from tensorfold.families.deepseek_v41.cuda.pool import Pool
++
++    pool = Pool(topo, 8192)
++    fwd = FakeForward(topo, pool, 1, VOCAB)
++    # ``start`` on: the batcher's own round thread serves the request while the app waits on its queue
++    b = Batcher(fwd, pool, n_slots=1, capacity=4096, session_min=16, prefill_rows=64)
++    app = Dsv41App(BatchEngine(b), model_dir, "dsv41")
++    yield app, b, fwd
++    b.stop()
++
++
++BODY = {"messages": HI, "max_tokens": 6, "temperature": 0, "return_token_ids": True,
++        "chat_template_kwargs": {"thinking": False}}
++
++
++def test_the_app_reply_carries_openai_logprobs(prob_app):
++    app, _b, fwd = prob_app
++    body = {**BODY, "logprobs": True, "top_logprobs": 4}
++    assert app.check(dict(body)) is None                          # the request is accepted as it stands
++    res = app.run(dict(body), True, lambda delta: True)
++    content = res["logprobs"]["content"]
++    ids = res["stats"]["token_ids"]
++    assert len(content) == len([t for t in ids if t != 1])        # the EOS itself is not an item (OpenAI)
++    at = 0
++    for pos, token in enumerate(ids):
++        if token == 1:
++            continue
++        entry = content[at]
++        at += 1
++        assert set(entry) == {"token", "bytes", "logprob", "top_logprobs"}
++        v = fwd.rows_full[(0, res["prompt_tokens"] + pos)]       # the verify row that produced this token
++        ref = v.astype(np.float64) - np.logaddexp.reduce(v.astype(np.float64))
++        assert entry["logprob"] == pytest.approx(float(ref[token]), abs=1e-4)
++        tops = entry["top_logprobs"]
++        want = np.lexsort((np.arange(VOCAB), -v))[:4]
++        assert len(tops) == 4 and all(set(t) == {"token", "bytes", "logprob"} for t in tops)
++        assert [t["logprob"] for t in tops] == pytest.approx([float(ref[t]) for t in want], abs=1e-4)
++        assert tops[0]["logprob"] == entry["logprob"]            # greedy: the emitted token is the top one
++
++
++def test_the_route_returns_them_and_refuses_a_stream(prob_app):
++    import json
++    import threading
++    import urllib.error
++    import urllib.request
++    from http.server import ThreadingHTTPServer
++
++    from tensorfold.families.glm5_next.spark.server import make_handler
++
++    app, _b, _fwd = prob_app
++    srv = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(app))
++    threading.Thread(target=srv.serve_forever, daemon=True).start()
++
++    def post(payload):
++        req = urllib.request.Request(f"http://127.0.0.1:{srv.server_address[1]}/v1/chat/completions",
++                                     json.dumps(payload).encode(), {"Content-Type": "application/json"})
++        try:
++            with urllib.request.urlopen(req, timeout=60) as got:
++                return got.status, json.loads(got.read())
++        except urllib.error.HTTPError as exc:
++            return exc.code, json.loads(exc.read())
++
++    try:
++        status, payload = post({"model": "dsv41", **BODY, "logprobs": True, "top_logprobs": 2})
++        assert status == 200, payload
++        choice = payload["choices"][0]
++        assert "logprobs" in choice and len(choice["logprobs"]["content"]) >= 1
++        status, payload = post({"model": "dsv41", **BODY, "logprobs": True, "stream": True})
++        assert status == 400 and "logprobs" in payload["error"]["message"]
++    finally:
++        srv.shutdown()
++
++
++# -- the batcher's plumbing -------------------------------------------------------------------------------------------
++def serving_batcher(topo, **kw):
++    from test_dsv41_serving_batch import make
++
++    return make(topo, **kw)
++
++
++def test_batcher_reports_the_verify_rows_log_probs(topo):
++    from test_dsv41_serving_batch import run
++
++    b = serving_batcher(topo, n=1)
++    fwd = b.fwd
++    prompt = [int(t) for t in np.random.default_rng(5).integers(2, VOCAB, size=60)]
++    probs = Probabilities(5, len(prompt), 12)
++    toks = run(b, [Job(list(prompt), 8, None, probabilities=probs)])[0]
++    assert 1 <= len(toks) <= 8 and fwd.win_probs == [1]
++    rows = probs.emitted(toks)                       # ids match the emitted tokens, positions start at len(prompt)
++    assert sorted(probs.rows) == list(range(len(prompt), len(prompt) + len(toks)))
++    for i, row in enumerate(rows):
++        v = fwd.rows_full[(0, len(prompt) + i)]
++        ref = v.astype(np.float64) - np.logaddexp.reduce(v.astype(np.float64))
++        assert row["logprob"] == pytest.approx(float(ref[row["id"]]), abs=1e-4)
++        top_ids = [t for t, _ in row["top"]]
++        top_lp = [p for _, p in row["top"]]
++        want_ids = np.lexsort((np.arange(VOCAB), -v))[:5]
++        assert top_ids == [int(t) for t in want_ids]
++        assert top_lp == pytest.approx([float(ref[t]) for t in want_ids], abs=1e-4)
++        assert top_ids[0] == row["id"] and len(row["top"]) == 5                 # greedy: the chosen is the top one
++
++
++def test_a_request_without_logprobs_is_decoded_the_same(topo):
++    from test_dsv41_serving_batch import run
++
++    prompt = [int(t) for t in np.random.default_rng(6).integers(2, VOCAB, size=60)]
++    plain = run(serving_batcher(topo, n=1), [Job(list(prompt), 8, None)])[0]
++    b = serving_batcher(topo, n=1)
++    probs = Probabilities(3, len(prompt), 8)
++    got = run(b, [Job(list(prompt), 8, None, probabilities=probs)])[0]
++    assert got == plain and b.fwd.win_probs == [1]      # the same reply, and only that round carried the parts
++    assert len(probs.rows) == len(got)
++
++
++def test_plan_codec_carries_the_probs_flag():
++    plan = Plan(round=4, count=24, windows=[WindowSpec(0, 5, 9, 0, [], [], [], 1)],
++                commits=[(0, 1, 2)])
++    back = Plan.decode(plan.encode())
++    assert back.count == 24 and back.windows[0].probs == 1
++    old = Plan.decode(Plan(round=5, windows=[WindowSpec(0, 5, 9)]).encode())
++    assert old.windows[0].probs == 0                    # a window from before the field defaults to no parts
++
++
++# -- what the server refuses ------------------------------------------------------------------------------------------
++def test_probability_options_refuse_malformed_fields():
++    assert probability_options({"logprobs": False}, supported=True) is None
++    assert probability_options({"logprobs": True}, supported=True) == 0
++    assert probability_options({"logprobs": True, "top_logprobs": 20}, supported=True) == 20
++    for body, name in (({"logprobs": "true"}, "logprobs"), ({"logprobs": True, "top_logprobs": 21}, "top_logprobs"),
++                       ({"logprobs": True, "top_logprobs": -1}, "top_logprobs"),
++                       ({"top_logprobs": 5}, "top_logprobs"), ({"n": 2, "logprobs": True}, "n")):
++        with pytest.raises(RequestError) as exc:
++            probability_options(body, supported=True)
++        assert name in str(exc.value)
++    with pytest.raises(RequestError) as exc:
++        probability_options({"logprobs": True}, supported=False)
++    assert "not supported" in str(exc.value)
++
++
++def test_the_app_refuses_what_it_does_not_implement():
++    def problem(body, **kw):
++        return probability_problem(body, supported=True, default_thinking=True, default_effort=75, **kw)
++
++    assert problem({"messages": HI, "logprobs": True, **OFF}) is None
++    assert problem({"messages": HI, "logprobs": True, "top_logprobs": 20, **OFF}) is None
++    assert problem({"messages": HI, **OFF}) is None                     # no logprobs at all: untouched
++    refusals = ({"messages": HI, "logprobs": True},                                     # thinking on by default
++                {"messages": HI, "logprobs": True, "stream": True, **OFF},
++                {"messages": HI, "logprobs": True, "stop": ["x"], **OFF},
++                {"messages": HI, "logprobs": True, "tools": [{"type": "function"}], **OFF},
++                {"messages": HI, "logprobs": True, "response_format": {"type": "json_object"}, **OFF},
++                {"messages": HI, "logprobs": True, "tool_choice": "required", **OFF},
++                {"messages": HI, "logprobs": True, "logit_bias": {"1": 5}, **OFF},
++                {"messages": HI, "logprobs": True, "prompt_logprobs": 3, **OFF},
++                {"messages": HI, "logprobs": True, "echo": True, **OFF},
++                {"messages": HI, "logprobs": "true", **OFF},
++                {"messages": HI, "logprobs": True, "top_logprobs": 21, **OFF},
++                {"messages": HI, "logprobs": True, "chat_template_kwargs": {"thinking": "yes"}},
++                {"prompt": "x", "logprobs": True})
++    for body in refusals:
++        got = problem(body)
++        assert got is not None and got.param, body
++        assert "logprobs" in str(got) or "not supported" in str(got) or "thinking" in str(got)
++    assert probability_problem({"messages": HI, "logprobs": True, **OFF}, supported=False,
++                               default_thinking=True, default_effort=75) is not None
+diff --git i/tests/test_dsv41_serving_app.py w/tests/test_dsv41_serving_app.py
+index 8363fa6..959d601 100644
+--- i/tests/test_dsv41_serving_app.py
++++ w/tests/test_dsv41_serving_app.py
+@@ -195,9 +195,9 @@ class MiniEngine:
+         self.batch, self.grammar_host, self.limit = batch, host, limit
+         self.request = threading.local()
+ 
+-    def generate(self, prompt, max_tokens, sampling, on_tokens, draft=True):
++    def generate(self, prompt, max_tokens, sampling, on_tokens, draft=True, probabilities=None):
+         return self.batch.generate_request(prompt, max_tokens, sampling, on_tokens, draft, request=self.request,
+-                                           host=self.grammar_host)
++                                           host=self.grammar_host, probabilities=probabilities)
+ 
+ 
+ @pytest.fixture(scope="module")

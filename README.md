@@ -169,7 +169,10 @@ OpenAI-compatible on `HOST:PORT` (`127.0.0.1:8000` by default: put your own prox
 `/v1/chat/completions` (streaming, tool calls, `response_format`), `/v1/completions` (text or token ids),
 `/tokenize`, `/v1/models`, `/health`, `/metrics` (TensorFold's own series and, from `0003`, the vLLM-named ones
 fleet dashboards read), `/v1/model_info` (`max_num_seqs`: the request slots). Thinking follows DeepSeek-V4.1's encoding and is on by default
-(`TF_DSV41_THINKING=0` turns it off); `reasoning_effort` `none` / `low` / `medium` / `high` / `max` or 1-100. The
+(`TF_DSV41_THINKING=0` turns it off); `reasoning_effort` `none` / `low` / `medium` / `high` / `max` or 1-100, or
+`chat_template_kwargs: {"thinking": false}` for one request. `logprobs` + `top_logprobs` (0-20) return OpenAI's
+`choices[0].logprobs.content` for non-streamed text chat with thinking off (from `patches/0006`; a request in any
+other mode gets a 400 that names the field, as do `logit_bias` / `prompt_logprobs` / `echo`). The
 full table: [docs/TWO_SPARKS.md#api](docs/TWO_SPARKS.md#api) (unchanged at four Sparks).
 
 ## The engine
@@ -183,6 +186,7 @@ full table: [docs/TWO_SPARKS.md#api](docs/TWO_SPARKS.md#api) (unchanged at four 
 | [`0003-four-sparks.patch`](patches/0003-four-sparks.patch) | this fork | four ranks (TP=4): whole-block uneven splits, `--tp 4 --rank 0..3`, N-way rank agreement, plan link (TCP and RDMA), fail-fast and memory floor; the fixes from Jay's review; pipelined prompt reading, split selections and overlapped exchanges (opt-in, on in `tp4.env.example`); `/health` draft counters; sync-free expert counts; vLLM-named `/metrics` series and `/v1/model_info` |
 | [`0004-expert-rotate.patch`](patches/0004-expert-rotate.patch) | this fork | `TF_DSV41_EXPERT_ROTATE=1`: each expert's wide 128-column slices rotate round the four ranks by expert id instead of always landing on ranks 0 and 1 (`x3ld` reads an expert's own width); exact, +1-1.5% at four streams |
 | [`0005-drafter-fidelity.patch`](patches/0005-drafter-fidelity.patch) | this fork | drafter-training tools: the capture logs each pass's candidates and noise flag; the trainer's drafter reads the engine's q4 head and bf16 mHC weights (port agreement 0.72 -> 0.90); `m2bench` / `draftcap --world` |
+| [`0006-openai-logprobs.patch`](patches/0006-openai-logprobs.patch) | this fork | `logprobs` + `top_logprobs` (0-20) on `/v1/chat/completions`, non-streamed: OpenAI's `choices[0].logprobs.content`, exact over the whole vocabulary at TP=4 (each rank's log-sum-exp parts ride the candidates' all-gather); unsupported fields (`logit_bias`, `prompt_logprobs`, `echo`, streaming, thinking on, tools, stop, structured output) are 400s that name the field. Tests, rollout and rollback: [`docs/LOGPROBS-ROLLOUT.md`](docs/LOGPROBS-ROLLOUT.md) |
 
 Until 2026-10-07 the fork ran on G13 with these as patches 0003-0006 (branch `four-sparks-g13`). Jay's PR #6 asks for
 a smaller `0003` (four ranks and the review's fixes only, two-Spark output unchanged): that version is the `four-sparks`
