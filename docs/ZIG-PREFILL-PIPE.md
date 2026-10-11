@@ -58,7 +58,8 @@ expert columns. Entry and exit:
 **Proof obligation, as a host test:** the stage programs, concatenated, equal the world-1 encoder program
 `emitReplay(o1, layers 0..20, .encoder)` call for call. Only the `pipe_in` / `pipe_out` glue and the first stage's
 embed are different. So the pipelined arithmetic is "one rank computing the encoder", Python's claim, checked
-structurally.
+structurally, at the served boot's options and at sampled segments (not every row count and start): see "What the
+tests prove" below.
 
 ### 2. Only the sharded tensors are loaded twice
 
@@ -208,16 +209,67 @@ clear it. The window's first check is that boot and the decode cells' numbers.
   pipelined prompt), and the drain's state hand-off.
 - **Memory**: +~25 GiB a rank. If ranks 0/1 do not fit, the bounds knob moves layers to ranks 2/3
   (`TF_DSV41_PREFILL_PIPE_BOUNDS=0,4,9,14,21`).
-- **AOT**: the stage programs add world-1 variants. aot-needs enumerates the rank's own stage at every row count and
-  regime, and a host test checks that the boot's stage programs are a subset of that list.
+- **AOT**: the stage programs add world-1 variants. aot-needs enumerates the rank's own stage at every row count at
+  each regime's first start, plus the boot's planned programs. A host test checks the planned programs and sampled
+  segments against the regimes alone (see "What the tests prove"); any (rows, start) beyond those is covered by the
+  regime argument, not by a test.
+
+## What the tests prove, and what they sample
+
+The equivalence (`pipe_emit_test.zig`): the four stages' programs minus their hand-off glue equal the one-rank
+encoder pass minus its embedding, call for call. Every call's name, kind, grid, stream flags and every argument
+(tensor role, dtype, shape, stride, offset) must match.
+
+- **Options.** Proven at the served boot's options (`servedOptions`). These are every emitter switch
+  `config/tp4-zig.env.example` puts on the forward through `prod_knobs.apply` / `branches.install`: R1, BRANCHES,
+  MHC_DEFER with MHC_DEFER_AT=exchange, GM_V2, EXPERT_TOPP 0.85, INDEX_BUDGET 64 MiB, INDEX_BOUND, MHC_PFDEC=17,
+  KV_NORM_STORE, ROUTER_GROUP_ROT, PF_DENSE=fused, and DRAFTS' taps, which `stageOptions` clears. The bare pipeline
+  set (`bootOptions`) is checked too.
+  - PF_DENSE (the fused dense GEMMs) is the only served switch that changes a stage program. The test asserts this
+    (served ≠ bare at 2,048 rows on every stage). The bare set, which the first version of the test used, therefore
+    never ran the served dense path.
+  - INDEX_BOUND, MHC_PFDEC, KV_NORM_STORE, ROUTER_GROUP_ROT and MHC_DEFER_AT emit no stage call of their own at
+    33-2,048 rows (probed 2026-10-11). They are decode-window switches.
+  - PF_DENSE is checked with its default table. The served `/cache/pfdense-table.json` picks other tile
+    configurations for the same calls, on both sides of the comparison.
+- **Segments, 2,048-row line.**
+  - Served options: rows {2048, 2047, 1500, 1000, 100, 64, 34, 33} × starts {0, 16, 4112, 154176, 300000, the line's
+    last start limit − n}.
+  - Bare set: rows {2048, 1000, 33} × starts {0, 300000}.
+- **Segments, 4,096-row line** (`TF_DSV41_PIPE_ROWS=4096`). Call for call, both option sets, rows {4096, 2049, 33} ×
+  starts {0, 8192, 300000, limit − n}.
+- **Sampled, not swept.** Other row counts in 34..4095 and other starts are not compared. A full sweep is about 4,000 row
+  counts × 205 starts of the line's rows × 5 programs, which is not a unit test. The samples
+  cover the regime edges the emitter branches on: ≤ 64 rows (the decode-sized paths), ragged and odd counts, a
+  16-grid start, the first page, and the last start.
+- **Separately pinned.** The hand-off tensors (byte-equal, `HandoffLayout`). The renamed program's views against
+  TP=4's, on every rank. The equivalence is on the pre-rename program; the two are not diffed end to end.
+
+The AOT coverage (`pipe_aot_test.zig`): on every rank at CONTEXT=420096, every Triton launch of the boot's planned
+programs and of sampled segments reduces to a variant in `aot_needs.enumerateRegimes`' list.
+
+- **Not circular.** That list is the regime sweep without the planned loop. Neither leg is in it by construction:
+  the planned 33-row program at 420,063 is not on the 16-row grid, and it is covered by the regimes.
+  - The fill itself (`enumerateStage`) lists the planned programs too.
+  - A mutation that drops the regimes' row sweep fails the test (`build/pipe-proofs-red2.log`: `_site` at 33 rows).
+- **The plan is frozen.** `pipe.planned` at this config is frozen in the test: (2048, 0), (2048, 418048), (33, 0),
+  (33, 420063), every rank. A change to the plan or to `lastEnd` fails the test until the constant is updated
+  deliberately.
+- **Sampled.** Rows {2048, 2047, 1500, 1000, 100, 64, 34, 33} × starts {0, 16, 2048, 4112, 37984, 154176, 300000,
+  417984, limit − n}. "Any segment at any start" is the regime argument: a start's variant set depends only on the
+  regime the dedup sweep finds. It is not a test.
+- **Not tested.**
+  - A shorter context: a 420096 fill holds every start a shorter one has, by the sweep's design.
+  - `lastEnd`'s assumption that a stage's emission limit is monotone in the rows. It probes only 2,048 and 33 rows,
+    which hold at the served config: `lastEnd` = limit on every rank, tested.
 
 ## Implementation map
 
 | piece | where | host test |
 | --- | --- | --- |
 | knobs, stages, schedule, rows / hand-off / drain layouts, a call's route, page runs, stage options, the P. renaming | `pipe.zig`, `pipe_names.zig` | `pipe_test.zig` |
-| a stage as a world-1 encoder program (`pipe_in` / `pipe_out`, the entered first block) | `block_prefill.emitStage` | `pipe_emit_test.zig`: the four stages are the one-rank encoder pass call for call |
-| the AOT fill's stage variants | `aot_needs.enumerateStage` | `pipe_aot_test.zig`: at CONTEXT=420096 on every rank, boot ⊆ AOT through the served Triton signatures |
+| a stage as a world-1 encoder program (`pipe_in` / `pipe_out`, the entered first block) | `block_prefill.emitStage` | `pipe_emit_test.zig`: the four stages are the one-rank encoder pass call for call, at the served options, 2,048- and 4,096-row lines, sampled segments |
+| the AOT fill's stage variants | `aot_needs.enumerateStage` (`enumerateRegimes` + the planned programs) | `pipe_aot_test.zig`: at CONTEXT=420096 on every rank, the frozen planned programs and sampled segments ⊆ the regimes, through the served Triton signatures |
 | the stage copies | `pipe_load.zig`, `prepared.zig` (key variant) | `host_test.zig` (a synthetic pack at world 1), `prepared.zig` |
 | the shift | `Collective.sendRecv` (NCCL group) | `fabric/tp/host_test.zig` |
 | rounds, exchange, drain, fail-fast | `pipe_run.zig` | none possible on the host (device code); the route / layouts above are its decisions |
@@ -265,8 +317,9 @@ against the Python baseline on the same transport.
    - the code word at 30 / 60 / 85 % of 20k / 80k / 158k (Python's needle check: 3/3);
    - one long salted prompt re-sent after a short wait (a session hit of a pipelined prompt) must reply the same.
 4. **Bench**: the same `zig_vs_python.py run` with a fresh salt tag. The cells that matter are `long 32768` and
-   `long 131072` (prompt tok/s, TTFT), every decode cell, `mix` and `mixwin`. Keep the `pipeline rank r: ... a round:
-   pre / stage / exchange` lines for every drain.
+   `long 131072` (prompt tok/s, TTFT), every decode cell, `mix` and `mixwin`. Keep every rank's log, including every
+   `pipeline rank r: S segments, R rounds; …` trace line and the request log's prompt tokens. Together they are the
+   "line ran" gate below.
 5. **Optional A/B, time permitting**:
    1. `TF_DSV41_PREFILL_PIPE_BOUNDS`. If the trace shows one stage slower than the others by more than 10 %, move a layer
       away from it (Python's slowest stage held layer 14). If ranks 0/1 run short of memory, try `0,4,9,14,21`.
@@ -274,8 +327,37 @@ against the Python baseline on the same transport.
       it gains.
    3. `TF_DSV41_PIPE_ROWS=4096`, with its own AOT fill: `aot-needs` under that knob.
 
-**Pass criteria**
+**Pass criteria.** Two verdicts, judged separately. **NOT RUN**: any "the line ran" gate fails. The pipeline did not
+execute, and the tok/s cells say nothing about it. **NO GAIN**: the line ran, but a prefill gate fails. Judge "the line
+ran" first; a NOT RUN boot is not scored on gain.
 
+- **The line ran** (any miss is NOT RUN). These are read from every rank's log, so they need `TF_DSV41_PIPE_TRACE=1`
+  on the pipeline boot.
+  - Control boot: no line containing `pipeline` on any rank. This proves the control really ran with the pipeline off.
+  - Pipeline boot, at boot:
+    - each rank r = 0..3: `pipeline: rank r's stage copies (layers a-b at world 1, sharded tensors only): X GiB`,
+      X about 23 on every rank (5 layers each: layer 20 is capped out of rank 3's copies);
+    - rank 0: `pipeline: prompts of 1024+ rows through stages … (2048 rows a segment)`;
+    - the boot check's MemAvailable about 23 GiB a rank below the control boot's (the copies load before the check;
+      the roles and buffers are priced in it).
+  - Per cold long prompt. Cold means salted, with no session or lookup hit; a warm repeat may legitimately read under
+    1,024 new rows and never open the line. Each rank logs, between the request's arrival and its first token:
+    - first line: `pipeline: rank r: slot s's prompt from P through the stages … (line k)`. It is printed for lines
+      1-4 and every 64th, so judge it on the first long prompts only;
+    - then one or more trace lines `pipeline rank r: S segments, R rounds; a round: pre … ms, stage X ms, exchange …
+      ms; drain … ms`.
+  - Each trace line must have R = S + 3 and X > 0, and all four ranks must print the same S and R for it.
+  - For a prompt of T tokens (the request log's prompt tokens), the line reads the T − 1 prefill rows. The expected
+    segments are E = ⌊(T − 1) / 2048⌋, plus one if (T − 1) mod 2048 ≥ 33 (a shorter tail runs tensor parallel).
+    - `long 32768` (T = 32,768): S = 16, R = 19.
+    - `long 131072` (T = 131,072): S = 64, R = 67.
+    - Recompute E from the logged T if the template or salt changes it.
+    - A snapshot drain inside the prompt splits it into several trace lines. Their S must then sum to at least
+      E − (lines − 1).
+    - A trace line right after a `… line abandoned …` line also counts the abandoned segments; that is still R = S + 3.
+  - Fail as NOT RUN if a cold long prompt has no trace line on some rank, or ΣS falls short. Fail it too if any
+    `pipeline: rank r: segments end by …` line shows an agreed end below the context; then rows past it ran tensor
+    parallel.
 - Boot: all four ranks up, the boot check passes on every rank, no Triton variant missing, and the transport line names
   the intended backend.
 - Prefill: `long 32768` ≥ 4,084 prompt tok/s and `long 131072` ≥ 4,354 (Python pipelined, RoCE; NCCL pair: 4,084 /

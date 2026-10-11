@@ -2,7 +2,10 @@
 //! - the four stages' programs, end to end, ARE the one-rank encoder pass (`emitReplay` at world 1, `.encoder`): call
 //!   for call, argument for argument, but for the stages' own hand-off glue (`pipe_in` / `pipe_out`) and the encoder
 //!   pass's embedding (the line's round embeds the segment before stage 0). So a pipelined prompt's arithmetic is one
-//!   rank computing the encoder (Python's claim for pipe.py, here checked on the emitted programs);
+//!   rank computing the encoder (Python's claim for pipe.py, here checked on the emitted programs). Checked at the
+//!   served boot's options (`servedOptions`: every emitter switch config/tp4-zig.env.example sets) and at the bare
+//!   pipeline set (`bootOptions`), for the sampled (rows, start) of the tests below, at 2,048- and 4,096-row segments:
+//!   samples, not a sweep of every row count and start (docs/ZIG-PREFILL-PIPE.md, "What the tests prove");
 //! - what a stage hands on is what the next one takes (the same tensors, byte for byte);
 //! - a stage program in its namespace with the stage weights' names reads every replicated tensor, form and slot
 //!   state exactly as the TP=4 program of its layers does, and has its own copy of every name whose layout differs.
@@ -35,9 +38,34 @@ fn bootOptions(rank: u32) block.Options {
     return .{ .world = 4, .rank = rank, .gm_v2 = .one, .r1 = true, .branches = true, .mhc_defer = true, .expert_topp = 0.85, .limit = limit, .rope_rows = limit + 2048, .prefill_rows = 2048, .index_budget = 64 << 20, .pool = .{ .comp_pages = pages + 1, .ik_pages = pages + 1, .pts = pages } };
 }
 
+const pfd_table: @import("prod_knobs.zig").PfDense = .{};
+
+/// The served boot's prefill options on TP=4 rank `rank`: `bootOptions` plus every other switch of
+/// config/tp4-zig.env.example that prod_knobs.apply / branches.install put on the forward's options and pipe.stageOptions
+/// passes through to a stage (TF_DSV41_INDEX_BOUND=1, MHC_PFDEC=17, KV_NORM_STORE=1, ROUTER_GROUP_ROT=1,
+/// MHC_DEFER_AT=exchange, PF_DENSE=fused: its default table; the served table picks other tile configs, the same calls)
+/// and DRAFTS' taps, which stageOptions clears. PF_4K leaves the forward's own segment rows at 2,048 (prod_knobs.apply).
+fn servedOptions(rank: u32) block.Options {
+    var o = bootOptions(rank);
+    o.index_bound = true;
+    o.mhc_pf_rows = 17;
+    o.kv_norm_store = true;
+    o.router_group_rot = true;
+    o.mhc_defer_hold = true;
+    o.pfd = &pfd_table;
+    o.taps = true;
+    return o;
+}
+
 fn settings() !pipe.Settings {
+    return settingsAt("2048");
+}
+
+/// TF_DSV41_PREFILL_PIPE=1024 with TF_DSV41_PIPE_ROWS=`rows`.
+fn settingsAt(comptime rows: []const u8) !pipe.Settings {
     const F = struct {
         fn get(name: []const u8) ?[]const u8 {
+            if (std.mem.eql(u8, name, "TF_DSV41_PIPE_ROWS")) return rows;
             return if (std.mem.eql(u8, name, "TF_DSV41_PREFILL_PIPE")) "1024" else null;
         }
     };
@@ -109,6 +137,43 @@ fn isGlue(c: calls.Call, step: []const u8) bool {
     return c.glue and std.mem.eql(u8, c.name["glue.".len..], step);
 }
 
+/// The four stages' programs of an `n`-row segment from `start` at the stage options `o1`, minus their hand-off glue,
+/// against the one-rank encoder pass minus its embedding: call for call (`sameCall`). Returns the calls compared.
+fn expectLine(aa: std.mem.Allocator, cfg: *const Config, w: *const block.Widths, s: *const pipe.Settings, o1: block.Options, n: i64, start: i64) !usize {
+    var enc: [21]u32 = undefined;
+    for (&enc, 0..) |*l, i| l.* = @intCast(i);
+    const whole = try bp.emitReplay(aa, cfg, w, o1, &enc, n, start, .encoder);
+    var line: std.ArrayList(calls.Call) = .empty;
+    var buf: [64]u32 = undefined;
+    for (0..4) |r| {
+        const st = s.stage(@intCast(r));
+        const cs = try bp.emitStage(aa, cfg, w, o1, st.layers(&buf), n, start, stageIo(cfg, s, @intCast(r)));
+        // a stage: its positions, its input, its layers, its output (the last: the encoder's end, the stash)
+        try testing.expect(isGlue(cs[0], "positions") and isGlue(cs[1], "pipe_in"));
+        try testing.expect(if (st.last) isGlue(cs[cs.len - 1], "ced_stash") else isGlue(cs[cs.len - 1], "pipe_out"));
+        for (cs, 0..) |c, i| {
+            if (isGlue(c, "pipe_in") or isGlue(c, "pipe_out")) continue;
+            if (r > 0 and i == 0) continue; // every stage's positions: the encoder pass's one
+            try line.append(aa, c);
+        }
+    }
+    var j: usize = 0;
+    for (whole) |c| {
+        if (isGlue(c, "embed")) continue; // the round's embedding, before stage 0
+        if (j >= line.items.len) {
+            std.debug.print("{d} rows at {d}: the encoder pass has calls past the stages' end ({s})\n", .{ n, start, c.name });
+            return error.TestUnexpectedResult;
+        }
+        sameCall(c, line.items[j]) catch |e| {
+            std.debug.print("{d} rows at {d}: call {d} differs (encoder pass {s}, stages {s})\n", .{ n, start, j, c.name, line.items[j].name });
+            return e;
+        };
+        j += 1;
+    }
+    try testing.expectEqual(line.items.len, j);
+    return j;
+}
+
 test "the four stages' programs are the one-rank encoder pass, call for call (2,048 / 1,000 / 33 rows, two starts)" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -116,59 +181,62 @@ test "the four stages' programs are the one-rank encoder pass, call for call (2,
     const cfg: Config = .{};
     const w = try widths(aa);
     const s = try settings();
-    var enc: [21]u32 = undefined;
-    for (&enc, 0..) |*l, i| l.* = @intCast(i);
+    const o1 = pipe.stageOptions(bootOptions(0), s.rows);
     for ([_]i64{ 2048, 1000, 33 }) |n| for ([_]i64{ 0, 300000 }) |start| {
-        const o1 = pipe.stageOptions(bootOptions(0), s.rows);
-        const whole = try bp.emitReplay(aa, &cfg, &w, o1, &enc, n, start, .encoder);
-        var line: std.ArrayList(calls.Call) = .empty;
-        var buf: [64]u32 = undefined;
-        for (0..4) |r| {
-            const st = s.stage(@intCast(r));
-            const cs = try bp.emitStage(aa, &cfg, &w, o1, st.layers(&buf), n, start, stageIo(&cfg, &s, @intCast(r)));
-            // a stage: its positions, its input, its layers, its output (the last: the encoder's end, the stash)
-            try testing.expect(isGlue(cs[0], "positions") and isGlue(cs[1], "pipe_in"));
-            try testing.expect(if (st.last) isGlue(cs[cs.len - 1], "ced_stash") else isGlue(cs[cs.len - 1], "pipe_out"));
-            for (cs, 0..) |c, i| {
-                if (isGlue(c, "pipe_in") or isGlue(c, "pipe_out")) continue;
-                if (r > 0 and i == 0) continue; // every stage's positions: the encoder pass's one
-                try line.append(aa, c);
-            }
-        }
-        var j: usize = 0;
-        for (whole) |c| {
-            if (isGlue(c, "embed")) continue; // the round's embedding, before stage 0
-            try testing.expect(j < line.items.len);
-            try sameCall(c, line.items[j]);
-            j += 1;
-        }
-        try testing.expectEqual(line.items.len, j);
+        _ = try expectLine(aa, &cfg, &w, &s, o1, n, start);
     };
 }
 
-test "4,096-row stages (TF_DSV41_PIPE_ROWS=4096) are the 4K encoder pass too" {
+test "at the served boot's options (INDEX_BOUND, MHC_PFDEC=17, KV_NORM_STORE, ...) the stages are the encoder pass, call for call" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const aa = arena.allocator();
     const cfg: Config = .{};
     const w = try widths(aa);
     const s = try settings();
-    var enc: [21]u32 = undefined;
-    for (&enc, 0..) |*l, i| l.* = @intCast(i);
-    const o1 = pipe.stageOptions(bootOptions(0), 4096);
-    const whole = try bp.emitReplay(aa, &cfg, &w, o1, &enc, 4096, 8192, .encoder);
-    var n_line: usize = 0;
+    // every rank's stage options are the same (stageOptions: world 1, rank 0)
+    const o1 = pipe.stageOptions(servedOptions(0), s.rows);
+    for (1..4) |r| try testing.expectEqualDeep(o1, pipe.stageOptions(servedOptions(@intCast(r)), s.rows));
+    try testing.expect(o1.index_bound and o1.mhc_pf_rows == 17 and o1.kv_norm_store and o1.router_group_rot and o1.mhc_defer_hold and o1.pfd != null and !o1.taps);
+    // not the bare set's programs: the fused dense GEMMs (PF_DENSE) reach every stage (the decode-window switches,
+    // INDEX_BOUND / MHC_PFDEC / KV_NORM_STORE / ROUTER_GROUP_ROT / MHC_DEFER_AT, emit no stage call of their own at
+    // 33-2,048 rows: checked 2026-10-11, the served set's identity stands for them anyway)
     var buf: [64]u32 = undefined;
+    const bare = pipe.stageOptions(bootOptions(0), s.rows);
     for (0..4) |r| {
-        const cs = try bp.emitStage(aa, &cfg, &w, o1, s.stage(@intCast(r)).layers(&buf), 4096, 8192, stageIo(&cfg, &s, @intCast(r)));
-        for (cs, 0..) |c, i| {
-            if (isGlue(c, "pipe_in") or isGlue(c, "pipe_out") or (r > 0 and i == 0)) continue;
-            n_line += 1;
-        }
+        const x = try bp.emitStage(aa, &cfg, &w, o1, s.stage(@intCast(r)).layers(&buf), 2048, 300000, stageIo(&cfg, &s, @intCast(r)));
+        const y = try bp.emitStage(aa, &cfg, &w, bare, s.stage(@intCast(r)).layers(&buf), 2048, 300000, stageIo(&cfg, &s, @intCast(r)));
+        var differs = x.len != y.len;
+        if (!differs) for (x, y) |c, d| {
+            sameCall(c, d) catch {
+                differs = true;
+                break;
+            };
+        };
+        try testing.expect(differs);
     }
-    var n_whole: usize = 0;
-    for (whole) |c| n_whole += @intFromBool(!isGlue(c, "embed"));
-    try testing.expectEqual(n_whole, n_line);
+    // whole segments, a piece's or a resumed prompt's ragged ones, the shortest; at the first page, 16-grid starts,
+    // deep in the context and at the line's last start (pipe_aot_test: lastEnd is the limit at this config)
+    for ([_]i64{ 2048, 2047, 1500, 1000, 100, 64, 34, 33 }) |n| for ([_]i64{ 0, 16, 4112, 154176, 300000, limit - n }) |start| {
+        _ = try expectLine(aa, &cfg, &w, &s, o1, n, start);
+    };
+}
+
+test "4,096-row stages (TF_DSV41_PIPE_ROWS=4096) are the 4K encoder pass, call for call (both option sets)" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const aa = arena.allocator();
+    const cfg: Config = .{};
+    const w = try widths(aa);
+    const s = try settingsAt("4096");
+    try testing.expectEqual(@as(u32, 4096), s.rows);
+    for ([_]block.Options{ bootOptions(0), servedOptions(0) }) |o| {
+        const o1 = pipe.stageOptions(o, s.rows);
+        try testing.expect(o1.pf4k and o1.prefill_rows == 4096);
+        for ([_]i64{ 4096, 2049, 33 }) |n| for ([_]i64{ 0, 8192, 300000, limit - n }) |start| {
+            _ = try expectLine(aa, &cfg, &w, &s, o1, n, start);
+        };
+    }
 }
 
 test "a stage hands on exactly what the next takes: pipe_out's tensors are the next pipe_in's, byte for byte" {

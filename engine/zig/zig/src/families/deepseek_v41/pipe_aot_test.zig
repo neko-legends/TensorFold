@@ -1,9 +1,14 @@
 //! Host test of the AOT fill's coverage of the pipeline's stage programs (TF_DSV41_PREFILL_PIPE, aot_needs.enumerateStage):
-//! at TP=4's served config (TF_DSV41_CONTEXT=420096: 1,641 pages), on every rank, every Triton launch of every stage
-//! program the boot plans (pipe.planned) and of the stage programs prompts run (any segment past pipe.min_seg rows at
-//! any 16-row-grid start, as the prompt pieces and snapshots fall) reduces, through the served Triton signatures
-//! (fixtures/triton-sigs.json: `triton_fill.py sigs` of the Python tree the fill compiles), to a variant aot-needs
-//! lists. A boot-requested variant the host pass did not list cost a window (2026-10-10); this pins the stage set.
+//! at TP=4's served config (TF_DSV41_CONTEXT=420096: 1,641 pages), on every rank, every Triton launch of the stage
+//! programs the boot plans (pipe.planned) and of sampled prompt segments (pipe.min_seg .. 2,048 rows at 16-grid starts,
+//! ragged ends and the line's last start, as the prompt pieces and snapshots fall) reduces, through the served Triton
+//! signatures (fixtures/triton-sigs.json: `triton_fill.py sigs` of the Python tree the fill compiles), to a variant
+//! the fill's regimes list (aot_needs.enumerateRegimes: the regime sweep WITHOUT the planned loop, so neither leg is in
+//! the list by construction). The fill itself lists the planned programs too (enumerateStage); what this test proves
+//! is the regime argument at these points, not at every (rows, start): the rest is the argument
+//! (docs/ZIG-PREFILL-PIPE.md, "What the tests prove"). The boot's plan at this config is frozen below, so a change to
+//! pipe.planned / lastEnd shows here, deliberately. A boot-requested variant the host pass did not list cost a window
+//! (2026-10-10).
 const std = @import("std");
 const testing = std.testing;
 const calls = @import("calls.zig");
@@ -23,6 +28,10 @@ fn served(rank: u32) block.Options {
     return .{ .world = 4, .rank = rank, .r1 = true, .expert_topp = 0.85, .limit = limit, .rope_rows = limit + 2048, .prefill_rows = 4096, .pf4k = true, .gm_v2 = .one, .index_bound = true, .index_budget = 64 << 20, .mhc_pf_rows = 17, .taps = true, .pool = .{ .comp_pages = pages + 1, .ik_pages = pages + 1, .pts = pages } };
 }
 
+/// pipe.planned at this config, every rank (frozen 2026-10-11 from pipe.planned; update deliberately, never re-derived
+/// in the test): the whole segment and the shortest, at 0 and at their last start (lastEnd: the limit)
+const frozen_planned = [_][2]i64{ .{ 2048, 0 }, .{ 2048, 418048 }, .{ 33, 0 }, .{ 33, 420063 } };
+
 fn settings() !pipe.Settings {
     const F = struct {
         fn get(name: []const u8) ?[]const u8 {
@@ -33,7 +42,7 @@ fn settings() !pipe.Settings {
     return (try pipe.settings(&F.get, &cfg, 4)).?;
 }
 
-test "TP=4 (CONTEXT=420096): the boot's and the prompts' stage programs are in the AOT fill's list, every rank" {
+test "TP=4 (CONTEXT=420096): the boot's planned and sampled prompt stage programs are in the fill's regimes (planned loop excluded), every rank" {
     const gpa = testing.allocator;
     const parsed = try std.json.parseFromSlice(struct { kernels: aot.Sigs }, gpa, @embedFile("fixtures/triton-sigs.json"), .{ .ignore_unknown_fields = true, .allocate = .alloc_always });
     defer parsed.deinit();
@@ -52,7 +61,8 @@ test "TP=4 (CONTEXT=420096): the boot's and the prompts' stage programs are in t
         const o1 = pipe.stageOptions(served(@intCast(r)), s.rows);
         var needs: aot.Needs = .{ .gpa = gpa, .sigs = &parsed.value.kernels };
         defer needs.deinit();
-        try aot.enumerateStage(gpa, &needs, &cfg, &w, o1, s, @intCast(r), &discard.writer);
+        // the regimes alone: the planned programs are not in this list by construction
+        try aot.enumerateRegimes(gpa, &needs, &cfg, &w, o1, s, @intCast(r), &discard.writer);
         try testing.expect(needs.keys.count() > 0);
         // every stage emits up to the context's end at the served config (the boot's agreed end is the limit)
         try testing.expectEqual(@as(u64, limit), try pipe.lastEnd(&cfg, &w, o1, &s, @intCast(r)));
@@ -60,8 +70,11 @@ test "TP=4 (CONTEXT=420096): the boot's and the prompts' stage programs are in t
         const io: bp.StageIo = .{ .entered = r > 0, .last = st.last, .sel_in = st.selIn(&cfg), .sel_out = st.selOut(&cfg, s.boundsSlice()) };
         // the boot's plan, then prompt segments: whole ones, a piece's or a resumed prompt's ragged ones, the shortest
         var cases: std.ArrayList([2]i64) = .empty;
-        for (try pipe.planned(aa, &cfg, &w, o1, s, @intCast(r))) |p| try cases.append(aa, p);
-        for ([_]i64{ 2048, 2047, 1500, 1000, 100, 33 }) |n| for ([_]i64{ 0, 16, 2048, 4112, 37984, 154176, 300000, 417984 }) |start| {
+        const plan = try pipe.planned(aa, &cfg, &w, o1, s, @intCast(r));
+        try testing.expectEqual(frozen_planned.len, plan.len);
+        for (frozen_planned, plan) |f, p| try testing.expectEqual(f, p);
+        for (plan) |p| try cases.append(aa, p);
+        for ([_]i64{ 2048, 2047, 1500, 1000, 100, 64, 34, 33 }) |n| for ([_]i64{ 0, 16, 2048, 4112, 37984, 154176, 300000, 417984, limit - n }) |start| {
             if (start + n <= limit) try cases.append(aa, .{ n, start });
         };
         for (cases.items) |p| {

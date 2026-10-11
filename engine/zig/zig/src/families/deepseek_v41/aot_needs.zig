@@ -560,6 +560,17 @@ pub fn enumerate(gpa: std.mem.Allocator, n: *Needs, cfg: *const Config, w: *cons
 /// programs (pipe.planned: the last start is not a multiple of the rows), then every row count a stage takes
 /// (pipe.min_seg .. the line's rows) at each regime's first start.
 pub fn enumerateStage(gpa: std.mem.Allocator, n: *Needs, cfg: *const Config, w: *const block.Widths, o1: block.Options, ps: pipe.Settings, rank: u32, log: *std.Io.Writer) !void {
+    try stagePrograms(gpa, n, cfg, w, o1, ps, rank, log, true);
+}
+
+/// enumerateStage without the boot's planned programs: the regimes alone. That they cover any segment at any start is
+/// the claim that lets the fill list a finite set; pipe_aot_test checks it against this list (not one that holds the
+/// planned programs by construction) at the planned programs and at sampled segments.
+pub fn enumerateRegimes(gpa: std.mem.Allocator, n: *Needs, cfg: *const Config, w: *const block.Widths, o1: block.Options, ps: pipe.Settings, rank: u32, log: *std.Io.Writer) !void {
+    try stagePrograms(gpa, n, cfg, w, o1, ps, rank, log, false);
+}
+
+fn stagePrograms(gpa: std.mem.Allocator, n: *Needs, cfg: *const Config, w: *const block.Widths, o1: block.Options, ps: pipe.Settings, rank: u32, log: *std.Io.Writer, with_planned: bool) !void {
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
     const a = arena.allocator();
@@ -573,11 +584,11 @@ pub fn enumerateStage(gpa: std.mem.Allocator, n: *Needs, cfg: *const Config, w: 
         const f = try n.program(try pipe.emit(pa.allocator(), cfg, w, o1, &ps, rank, P, s));
         if (!(try seen.getOrPut(a, f)).found_existing) try starts.append(a, s);
     }
-    for (try pipe.planned(a, cfg, w, o1, ps, rank)) |p| {
+    if (with_planned) for (try pipe.planned(a, cfg, w, o1, ps, rank)) |p| {
         var pa = std.heap.ArenaAllocator.init(gpa);
         defer pa.deinit();
         _ = try n.program(try pipe.emit(pa.allocator(), cfg, w, o1, &ps, rank, p[0], p[1]));
-    }
+    };
     for (starts.items) |s0| {
         var rows: i64 = pipe.min_seg;
         while (rows <= P and s0 + rows <= o1.limit) : (rows += 1) {
