@@ -106,6 +106,10 @@ Every rank runs the same rounds from the same op stream. The leader sends the pr
   - at least 17 rows;
   - either this slot's line is open, or the segment has at least `TF_DSV41_PREFILL_PIPE` rows and no line is open.
 
+  At least 17 rows is the minimum in principle. The implementation asks for `min_seg` = 33, past the mHC split
+  programs' 32. A stage then always enters at streams buffer 0 and coefficient set 0, exactly where the one-process
+  encoder pass is at that layer.
+
   Its host state advances at entry: the position, the Engram tail, the stash ids and the session commit. Its pages are
   reserved on every rank. Device state completes at drain.
 - **Round t:**
@@ -124,11 +128,12 @@ Every rank runs the same rounds from the same op stream. The leader sends the pr
   only the decoder replay reads it, and it holds the last 127 positions.
 - **Drain points**, run on every rank at the same op:
   - the line slot's CED finish (`op_ced_finish`, `op_ced_multi`);
-  - `op_sess_prompt` and `op_sess_save` snapshots;
-  - a window or keep on the line slot (defensive);
-  - a short segment (16 rows or fewer) or an image segment of the line slot.
+  - `op_sess_prompt` and `op_sess_save` snapshots, right after the op is sent;
+  - a segment of the line slot under `min_seg` rows, or one with image rows.
 
-  Release, reset, restore and stop **abandon** the line. A long segment of another slot while a line is open runs
+  The line slot's windows only come after its CED finish (the verify tail), which drains it first.
+  Release **abandons** the line. A restore needs an empty slot, so a release precedes it. A slot found at another
+  position than its line's next is abandoned by the route. A long segment of another slot while a line is open runs
   tensor parallel; it does not open a second line, unlike Python, which drains and switches. That keeps every round on
   the active slot's views, and "long prefills 1 at a time" already holds that case off. Multi-slot piece runs
   (`pf.runnable`) leave the line slot out.
