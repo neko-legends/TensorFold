@@ -16,6 +16,8 @@ const prefix = @import("prefix.zig");
 const Digest = prefix.Digest;
 const disk_mod = @import("disk.zig");
 const Disk = disk_mod.Disk;
+const format = @import("format.zig");
+const up = @import("lanes.zig").up;
 const jobs = @import("jobs.zig");
 const Job = jobs.Job;
 
@@ -30,6 +32,8 @@ pub const Bounded = struct {
         nbytes: *const fn (ptr: *anyopaque) u64,
         /// host copies of its pieces for a park (owned by the caller: name and bytes allocated with gpa)
         blobs: *const fn (ptr: *anyopaque, gpa: std.mem.Allocator) anyerror![]disk_mod.Blob,
+        /// how many pieces blobs() returns (a park writes one segment a piece): the tier's price needs the count without the copies
+        pieces: *const fn (ptr: *anyopaque) u32,
         release: *const fn (ptr: *anyopaque) void,
     };
 };
@@ -568,14 +572,29 @@ pub const Store = struct {
         return avail >= need;
     }
 
-    /// The bytes a park of `id` asks of the tier: the entry's ids segment, this rank's pages of every
-    /// family (split families sharded as beginPark's familyLists) and its bounded state. A whole-entry
-    /// count (a delta's base pages ride along as slack): an overestimate only ever refuses earlier.
-    pub fn parkBytes(s: *Store, id: u32) u64 {
-        const e = s.index.get(id);
+    /// A segment's file span as format.zig's Layout.build places it: the whole chunks at their 4 KiB
+    /// stride, the last at its own padded tail; its chunks join the header's digest slots.
+    fn segSpan(nbytes: u64, chunk: u64, ndigest: *u64) u64 {
+        if (nbytes == 0) return 0;
+        const n = (nbytes + chunk - 1) / chunk;
+        ndigest.* += n;
+        return (n - 1) * up(chunk) + up(nbytes - (n - 1) * chunk);
+    }
+
+    /// The file-price formula over an entry's numbers: the file as Disk.plan and format.zig's
+    /// Layout.build place it — the padded header (a Head, a Seg a segment, a digest slot a chunk),
+    /// the ids segment, this rank's pages of every family (split families sharded as beginPark's
+    /// familyLists, their chunk a whole number of pages as Disk.plan's) and one segment a bounded
+    /// piece. A whole-entry count (a delta's base pages ride along as slack), the pieces' own sizes
+    /// known only in sum (each priced a full tail pad: Σceil(piece/chunk) ≤ ceil(Σ/chunk) + pieces − 1).
+    fn parkPrice(s: *Store, d: *const Disk, pos: u64, bounded_nb: u64, bounded_pieces: u64) u64 {
         const w = s.pool.world;
-        const npages = pool_mod.pagesFor(e.pos, s.pool.page);
-        var n: u64 = 4 * e.pos;
+        const cap: u64 = d.opts.chunk;
+        const page = s.pool.page;
+        const npages = pool_mod.pagesFor(pos, page);
+        var ndigest: u64 = 0;
+        var nseg: u64 = 1;
+        var total = segSpan(4 * pos, cap, &ndigest);
         for (s.pool.layout.families) |f| {
             var k: u64 = npages;
             if (f.split and w > 1) {
@@ -583,24 +602,125 @@ pub const Store = struct {
                 pool_mod.span(0, npages, w, &by);
                 k = by[s.pool.rank];
             }
-            n += k * f.pageBytes(s.pool.page);
+            const pb = f.pageBytes(page);
+            total += segSpan(k * pb, @max(1, cap / pb) * pb, &ndigest);
+            nseg += 1;
         }
-        if (e.extra.bounded) |b| n += b.vtable.nbytes(b.ptr);
-        return n;
+        if (bounded_pieces > 0) {
+            const chunks: u64 = if (bounded_nb == 0) 0 else (bounded_nb + cap - 1) / cap + bounded_pieces -| 1;
+            total += bounded_nb + (up(1) - 1) * chunks;
+            ndigest += chunks;
+            nseg += bounded_pieces;
+        }
+        return up(@sizeOf(format.Head) + nseg * @sizeOf(format.Seg) + ndigest * @sizeOf(format.Digest32)) + total;
     }
 
-    /// The admission's spills must fit the tier's real free space: a park that meets a full tier on a
+    /// The bytes a park of `id` asks of the tier (parkPrice over the entry): an overestimate only ever
+    /// refuses earlier, and the boundary the gate pins (free == price) fits the write — a payload-only
+    /// sum let free == payload through to the write's ENOSPC.
+    pub fn parkBytes(s: *Store, id: u32) u64 {
+        const d = s.disk orelse return 0;
+        const e = s.index.get(id);
+        var nb: u64 = 0;
+        var pieces: u64 = 0;
+        if (e.extra.bounded) |b| {
+            nb = b.vtable.nbytes(b.ptr);
+            pieces = b.vtable.pieces(b.ptr);
+        }
+        return s.parkPrice(d, e.pos, nb, pieces);
+    }
+
+    /// Would an evict of `id` write a file (true), or let go of the entry without one (a covered or
+    /// too-short drop, an entry the tier already holds, a running job)? planSaveParks prices the writes.
+    fn wouldPark(s: *Store, id: u32) bool {
+        const d = s.disk orelse return false;
+        const e = s.index.get(id);
+        if (e.extra.job != null) return false;
+        if (s.policy.skip_covered and (e.extra.covered_by or s.index.covered(id, .any))) return false;
+        if (!d.accepts(e.pos)) return false;
+        if (e.extra.file and d.get(e.key) != null) return false;
+        return true;
+    }
+
+    /// The entries a save of `new_pos` tokens carrying `new_bounded` bytes of bounded state (in
+    /// `new_pieces` pieces) would park, in the order the save's own trims evict them: trimRam's walk
+    /// with the entry already counted (oldest first, the same would-park filter as evict — a drop asks
+    /// nothing of the tier), then enforce's residency trims (budgets off in serving: none). `incoming`
+    /// joins the price with the incoming entry's own file: the real walk's last eviction can be that
+    /// entry itself (it is linked newest) when every older entry's park is still in flight and the
+    /// budget stays crossed. Rank 0 prices these before broadcasting the save (kv/sess.zig's
+    /// saveAdmits); the followers' replayed saves run the same trims over the same store, so the price
+    /// is what every rank's parks ask of its tier. Slack, never less: an entry trimRam's walk and
+    /// enforce's list both name is priced twice (the real enforce never sees it — it left RAM), a
+    /// resident-bytes budget is measured against the pool's current entry bytes (the evictions' are
+    /// not subtracted), and park_prefixes' members are priced past the branch-point break. The walk
+    /// mirrors the synchronous settle (async_io off in serving): an async park leaves the entry in RAM
+    /// and the real walk evicts on, parking more than priced — the park's own error stays the guard.
+    pub fn planSaveParks(s: *Store, new_pos: u64, new_bounded: u64, new_pieces: u32, out: *std.ArrayList(u32), incoming: *u64) !void {
+        out.clearRetainingCapacity();
+        incoming.* = 0;
+        // trimRam (Store.save's first trim), the entry's bytes already in: the walk's own condition
+        var total = s.bounded_total + new_bounded;
+        var count = s.ram_count + 1;
+        var id = s.oldest;
+        while (total > s.policy.ram_bytes and count > 1 and id != none) {
+            const next = s.index.get(id).extra.newer;
+            const e = s.index.get(id);
+            if (e.extra.job == null) {
+                if (s.wouldPark(id)) try out.append(s.gpa, id);
+                total -= e.extra.bounded.?.vtable.nbytes(e.extra.bounded.?.ptr);
+                count -= 1;
+            }
+            id = next;
+        }
+        // the walk's last eviction can be the incoming entry itself (the newest): only when every
+        // older entry is held by a park still in flight and the budget stays crossed
+        if (total > s.policy.ram_bytes and count > 1) if (s.disk) |d| {
+            if (d.accepts(new_pos)) incoming.* = s.parkPrice(d, new_pos, new_bounded, new_pieces);
+        };
+        // enforce (the residency budgets): the idle chats coldest first, the leaf's park priced; the
+        // members go with it (dropped by default — park_prefixes prices their parks too)
+        const pol = s.policy;
+        if (pol.chats == 0 and pol.resident_bytes == 0) return;
+        var chats: std.ArrayList(Chat) = .empty;
+        defer chats.deinit(s.gpa);
+        var members: std.ArrayList(u32) = .empty;
+        defer members.deinit(s.gpa);
+        id = s.oldest;
+        while (id != none) : (id = s.index.get(id).extra.newer) {
+            if (!s.idleLeaf(id)) continue;
+            members.clearRetainingCapacity();
+            try chats.append(s.gpa, .{ .leaf = id, .recency = try s.index.members(id, &members, usedOf) });
+        }
+        std.mem.sort(Chat, chats.items, {}, chatLess);
+        var idle: u32 = @intCast(chats.items.len);
+        for (chats.items) |c| {
+            const over_n = pol.chats > 0 and idle > pol.chats;
+            const over_b = pol.resident_bytes > 0 and s.pool.entryOnlyBytes() > pol.resident_bytes;
+            if (!over_n and !over_b) break;
+            if (s.wouldPark(c.leaf)) try out.append(s.gpa, c.leaf);
+            if (pol.park_prefixes) {
+                members.clearRetainingCapacity();
+                _ = try s.index.members(c.leaf, &members, usedOf);
+                for (members.items) |m| if (s.wouldPark(m)) try out.append(s.gpa, m);
+            }
+            idle -= 1;
+        }
+    }
+
+    /// The priced parks must fit the tier's real free space: a park that meets a full tier on a
     /// follower is the process-fatal ParkFailed (settle's arm: the pools diverged by construction), and
-    /// a tier full on every rank turns one admission into a fleet crash loop — the restart's empty
-    /// start frees nothing (boots never scan the tier), so the next spill meets the same wall. Rank 0's
-    /// planner calls this before anything is broadcast and refuses the request instead (kv/sess.zig's
-    /// admit): every rank's store untouched, the failure request-level. A probe failure refuses
-    /// nothing: the park's own error stays the guard.
-    pub fn tierAdmits(s: *Store, spills: []const u32) !void {
+    /// a tier full on every rank turns one admission or save into a fleet crash loop — the restart's
+    /// empty start frees nothing (boots never scan the tier), so the next park meets the same wall.
+    /// Rank 0 calls this before anything is broadcast and refuses instead (kv/sess.zig's admit for the
+    /// admission's spills, its saveAdmits for a save's trims): every rank's store untouched, the
+    /// failure request-level. `extra` rides along already priced (the save's incoming entry's own
+    /// file). A probe failure refuses nothing: the park's own error stays the guard.
+    pub fn tierAdmits(s: *Store, spills: []const u32, extra: u64) !void {
         const d = s.disk orelse return;
-        if (spills.len == 0) return;
+        if (spills.len == 0 and extra == 0) return;
         const free = d.freeBytes() catch return;
-        var need: u64 = 0;
+        var need: u64 = extra;
         for (spills) |id| need += s.parkBytes(id);
         if (free >= need) return;
         std.log.warn("sessions: the tier's {d} free bytes cannot hold this admission's {d} spill file(s) ({d} bytes); the request is refused, not parked into a fleet crash loop", .{ free, spills.len, need });

@@ -16,9 +16,9 @@ const std = @import("std");
 /// (ParkFailed) IS the tier's I/O, yet it is not classed request-level — a park cannot be mirrored or rolled
 /// back locally (where the write landed the entry's pages were freed and the reservation taken), so a failure
 /// there cannot be recovered consistently; it joins the pool-divergence fatal class, and the fate channel's
-/// restart is the recovery. (Its prevention: rank 0's planner refuses an admission whose spills the tier
-/// cannot hold — kv/sess.zig's tier gate, TierFull — so a full tier on every rank degrades to refusals
-/// instead of a ParkFailed crash loop.)
+/// restart is the recovery. (Its prevention: rank 0 refuses the operations whose parks its tier cannot
+/// hold — kv/sess.zig's tier gate, TierFull, for an admission's spills and a save's trims alike — so a
+/// full tier on every rank degrades to refusals instead of a ParkFailed crash loop.)
 pub fn processFatal(err: anyerror) bool {
     return switch (err) {
         // the process itself cannot mirror rank 0's work

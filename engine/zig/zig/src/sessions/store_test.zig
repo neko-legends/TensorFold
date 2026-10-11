@@ -31,7 +31,10 @@ const HostBounded = struct {
         for (h.bytes, 0..) |*b, i| b.* = @truncate(i +% chat *% 17 +% pos);
         return .{ .ptr = h, .vtable = &vt };
     }
-    const vt: Bounded.VTable = .{ .nbytes = nbytes, .blobs = blobs, .release = release };
+    const vt: Bounded.VTable = .{ .nbytes = nbytes, .blobs = blobs, .pieces = pieces, .release = release };
+    fn pieces(_: *anyopaque) u32 {
+        return 1;
+    }
     fn nbytes(p: *anyopaque) u64 {
         const h: *HostBounded = @ptrCast(@alignCast(p));
         return h.bytes.len;

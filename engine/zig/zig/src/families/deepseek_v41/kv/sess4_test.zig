@@ -73,7 +73,10 @@ const HostBounded = struct {
     stash_from: u64,
     measure: u64,
 
-    const vt: Bounded.VTable = .{ .nbytes = nbytes, .blobs = blobs, .release = release };
+    const vt: Bounded.VTable = .{ .nbytes = nbytes, .blobs = blobs, .pieces = pieces, .release = release };
+    fn pieces(_: *anyopaque) u32 {
+        return 1;
+    }
 
     fn make(gpa: std.mem.Allocator, b: HostBounded) !Bounded {
         const h = try gpa.create(HostBounded);
@@ -393,5 +396,233 @@ test "a full NVMe tier refuses the admission pre-broadcast (the ParkFailed crash
     try testing.expect(!small.wait);
     try testing.expectEqual(@as(usize, 0), spills.items.len);
     // an empty spill list never refuses, probed or not
-    try store.tierAdmits(&.{});
+    try store.tierAdmits(&.{}, 0);
+}
+
+test "a park's price covers the file it writes (the free == payload boundary the payload sum let through)" {
+    // the 2026-10-10 re-review's F2: parkBytes summed the payload only, but the file adds the padded
+    // header (its per-chunk digest slots) and every segment's 4 KiB chunk strides and tails
+    // (sessions/format.zig's Layout.build), so the gate's pinned boundary (free == price) could still
+    // ENOSPC at write time — the fatal ParkFailed loop for exactly that slice. The price is the file
+    // now: free == payload refuses, free == price fits the write.
+    const gpa = testing.allocator;
+    const page = 64;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(testing.io, "tier");
+    const root = try tmp.dir.realPathFileAlloc(testing.io, "tier", gpa);
+    defer gpa.free(root);
+    var pool = try Pool.init(gpa, .{ .families = &fams, .page = page }, 128 * page, 1, 0);
+    defer pool.deinit();
+    var host = try sessions.HostPool.init(gpa, &pool);
+    defer host.deinit();
+    const disk = try sessions.Disk.open(gpa, testing.io, .{ .root = root, .compat = @splat(9), .min_tokens = 1, .chunk = 64 << 10, .staging = 4, .lanes = 2, .direct = false });
+    defer disk.close();
+    var store = try Store.init(gpa, testing.io, &pool, host.store(), disk, .{});
+    defer store.deinit();
+    const s = try pool.newSlot(128 * page);
+    const ids = try gpa.alloc(i32, 80 * page);
+    defer gpa.free(ids);
+    chatIds(ids, 1, 0);
+    try s.ensure(ids.len);
+    const id = (try store.save(s, try HostBounded.make(gpa, .{ .gpa = undefined, .pos = 5120, .ds_rows = 0, .stash_from = 0, .measure = 24 }), ids, 1, 0)).?;
+    _ = try s.releaseAll();
+    // the payload sum the price used to be: the ids, this rank's pages of every family, the bounded state
+    var payload: u64 = 4 * @as(u64, ids.len) + 24;
+    for (fams) |f| payload += 80 * f.pageBytes(page);
+    const price = store.parkBytes(id);
+    try testing.expect(price > payload);
+    // the boundary that escaped: free space the payload sum called enough, the file does not fit
+    var spills: std.ArrayList(u32) = .empty;
+    defer spills.deinit(gpa);
+    const held: []const u32 = &.{};
+    disk.opts.free_bytes = payload;
+    try testing.expectError(error.TierFull, sess.admit(&store, null, 60 * page, 0, 128 * page, held, 0, &spills));
+    // the boundary that holds: the price itself fits — and the write below proves it does
+    disk.opts.free_bytes = price;
+    _ = try sess.admit(&store, null, 60 * page, 0, 128 * page, held, 0, &spills);
+    try testing.expectEqualSlices(u32, &.{id}, spills.items);
+    // the file a real park writes: bigger than the payload, no bigger than the price, and close to it
+    disk.opts.free_bytes = null;
+    _ = try store.evict(id);
+    try testing.expect(store.entry(id).extra.file);
+    const real = disk.used;
+    try testing.expect(real > payload);
+    try testing.expect(price >= real);
+    try testing.expect(price - real < 2 * 4096);
+}
+
+test "a save's RAM-budget trims meet the tier gate pre-broadcast (the save-path crash loop's gate)" {
+    // the 2026-10-10 re-review's F1: the tier gate priced admission spills only. A save's own trims
+    // (Store.save's trimRam/enforce) park ungated, and the save op replays on every follower, so a
+    // tier full on every rank crash-looped through the save path with the admission gate green (the
+    // probe's own TF_DSV41_SESSION_RAM_MIB knob drives exactly that path). Rank 0 now prices the
+    // save's parks through the same predicate (kv/sess.zig's saveAdmits over Store.planSaveParks +
+    // tierAdmits) before the op is broadcast and ends the request instead; a follower never gates
+    // (its probe is its own tier's — a follower-local full tier keeps its clean ParkFailed restart).
+    const gpa = testing.allocator;
+    const page = 64;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(testing.io, "tier");
+    const root = try tmp.dir.realPathFileAlloc(testing.io, "tier", gpa);
+    defer gpa.free(root);
+    var pool = try Pool.init(gpa, .{ .families = &fams, .page = page }, 128 * page, 1, 0);
+    defer pool.deinit();
+    var host = try sessions.HostPool.init(gpa, &pool);
+    defer host.deinit();
+    const disk = try sessions.Disk.open(gpa, testing.io, .{ .root = root, .compat = @splat(9), .min_tokens = 1, .chunk = 64 << 10, .staging = 4, .lanes = 2, .direct = false });
+    defer disk.close();
+    // the RAM budget two entries of 100 bytes cross: the second save trims the first
+    var store = try Store.init(gpa, testing.io, &pool, host.store(), disk, .{ .ram_bytes = 150, .skip_covered = false, .delta = false });
+    defer store.deinit();
+    const idsA = try gpa.alloc(i32, 40 * page);
+    defer gpa.free(idsA);
+    chatIds(idsA, 1, 0);
+    const idsB = try gpa.alloc(i32, 40 * page);
+    defer gpa.free(idsB);
+    chatIds(idsB, 2, 0);
+    const sa = try pool.newSlot(128 * page);
+    try sa.ensure(idsA.len);
+    const idA = (try store.save(sa, try HostBounded.make(gpa, .{ .gpa = undefined, .pos = 2560, .ds_rows = 0, .stash_from = 0, .measure = 100 }), idsA, 1, 0)).?;
+    _ = try sa.releaseAll();
+    var priced: std.ArrayList(u32) = .empty;
+    defer priced.deinit(gpa);
+    // a save that trims nothing parks nothing and never refuses, full tier or not
+    disk.opts.free_bytes = 0;
+    try sess.saveAdmits(&store, 0, 0, 1, &priced);
+    try testing.expectEqual(@as(usize, 0), priced.items.len);
+    // ample space: the gate passes and names the entry the save's trim would park
+    disk.opts.free_bytes = 1 << 40;
+    try sess.saveAdmits(&store, 40 * page, 100, 1, &priced);
+    try testing.expectEqualSlices(u32, &.{idA}, priced.items);
+    // a full tier on every rank: the request is refused, not parked into a fleet crash loop
+    disk.opts.free_bytes = 0;
+    try testing.expectError(error.TierFull, sess.saveAdmits(&store, 40 * page, 100, 1, &priced));
+    // the refusal decided nothing: the entry still holds its pages in RAM, the tier untouched
+    try testing.expect(store.entry(idA).ram);
+    try testing.expectEqual(@as(u64, 0), disk.used);
+    // the boundary: exactly the park's price fits; one byte less refuses
+    const need = store.parkBytes(idA);
+    disk.opts.free_bytes = need;
+    try sess.saveAdmits(&store, 40 * page, 100, 1, &priced);
+    disk.opts.free_bytes = need - 1;
+    try testing.expectError(error.TierFull, sess.saveAdmits(&store, 40 * page, 100, 1, &priced));
+    // the plan is what the save parks: ample space, the second save, and the priced entry is the parked one
+    disk.opts.free_bytes = 1 << 40;
+    const sb = try pool.newSlot(128 * page);
+    try sb.ensure(idsB.len);
+    const idB = (try store.save(sb, try HostBounded.make(gpa, .{ .gpa = undefined, .pos = 2560, .ds_rows = 0, .stash_from = 0, .measure = 100 }), idsB, 1, 0)).?;
+    _ = try sb.releaseAll();
+    try testing.expect(store.entry(idA).extra.file);
+    try testing.expect(!store.entry(idA).ram);
+    try testing.expectEqual(@as(u64, 1), store.stats.parks);
+    try testing.expect(store.entry(idB).ram);
+}
+
+test "a save's residency-budget trims meet the tier gate too" {
+    // the same gate for Store.save's enforce (idle chats past the residency budget parked): the plan
+    // names the coldest idle chat's leaf, a full tier refuses, and the plan is what enforce parks.
+    const gpa = testing.allocator;
+    const page = 64;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(testing.io, "tier");
+    const root = try tmp.dir.realPathFileAlloc(testing.io, "tier", gpa);
+    defer gpa.free(root);
+    var pool = try Pool.init(gpa, .{ .families = &fams, .page = page }, 128 * page, 1, 0);
+    defer pool.deinit();
+    var host = try sessions.HostPool.init(gpa, &pool);
+    defer host.deinit();
+    const disk = try sessions.Disk.open(gpa, testing.io, .{ .root = root, .compat = @splat(9), .min_tokens = 1, .chunk = 64 << 10, .staging = 4, .lanes = 2, .direct = false });
+    defer disk.close();
+    var store = try Store.init(gpa, testing.io, &pool, host.store(), disk, .{ .chats = 1, .skip_covered = false, .delta = false });
+    defer store.deinit();
+    var ids: [2][]i32 = undefined;
+    for (&ids, 0..) |*buf, c| {
+        buf.* = try gpa.alloc(i32, 40 * page);
+        chatIds(buf.*, @intCast(c + 1), 0);
+    }
+    defer for (ids) |buf| gpa.free(buf);
+    var leaves: [2]u32 = undefined;
+    for (&leaves, 0..) |*leaf, c| {
+        const sl = try pool.newSlot(128 * page);
+        try sl.ensure(ids[c].len);
+        leaf.* = (try store.save(sl, try HostBounded.make(gpa, .{ .gpa = undefined, .pos = 2560, .ds_rows = 0, .stash_from = 0, .measure = 24 }), ids[c], 1, 0)).?;
+        _ = try sl.releaseAll();
+    }
+    // two idle chats over a budget of one: the coldest leaf is the save's park
+    var priced: std.ArrayList(u32) = .empty;
+    defer priced.deinit(gpa);
+    disk.opts.free_bytes = 1 << 40;
+    try sess.saveAdmits(&store, 40 * page, 24, 1, &priced);
+    try testing.expectEqualSlices(u32, &.{leaves[0]}, priced.items);
+    disk.opts.free_bytes = 0;
+    try testing.expectError(error.TierFull, sess.saveAdmits(&store, 40 * page, 24, 1, &priced));
+    try testing.expect(store.entry(leaves[0]).ram);
+    try testing.expectEqual(@as(u64, 0), disk.used);
+    // the plan is what the trim parks
+    disk.opts.free_bytes = 1 << 40;
+    try testing.expectEqual(@as(u32, 1), try store.enforce());
+    try testing.expect(store.entry(leaves[0]).extra.file);
+    try testing.expect(!store.entry(leaves[0]).ram);
+    try testing.expectEqual(@as(u64, 1), store.stats.parks);
+    try testing.expect(store.entry(leaves[1]).ram);
+}
+
+test "the save gate prices the incoming entry itself when the trims' walk would reach it" {
+    // trimRam's walk ends at the newest entry — the one being saved: when every older entry's park is
+    // still in flight (its job holds it) and the budget stays crossed, the real walk evicts the
+    // incoming entry too, so its file rides along in the gate's price (planSaveParks' `incoming`).
+    const gpa = testing.allocator;
+    const page = 64;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(testing.io, "tier");
+    const root = try tmp.dir.realPathFileAlloc(testing.io, "tier", gpa);
+    defer gpa.free(root);
+    var pool = try Pool.init(gpa, .{ .families = &fams, .page = page }, 128 * page, 1, 0);
+    defer pool.deinit();
+    var host = try sessions.HostPool.init(gpa, &pool);
+    defer host.deinit();
+    const disk = try sessions.Disk.open(gpa, testing.io, .{ .root = root, .compat = @splat(9), .min_tokens = 1, .chunk = 64 << 10, .staging = 4, .lanes = 2, .direct = false });
+    defer disk.close();
+    // async parks: a job in flight holds its entry in RAM, so the next save's walk passes over it
+    var store = try Store.init(gpa, testing.io, &pool, host.store(), disk, .{ .ram_bytes = 100, .skip_covered = false, .delta = false, .async_io = true });
+    defer store.deinit();
+    const idsA = try gpa.alloc(i32, 40 * page);
+    defer gpa.free(idsA);
+    chatIds(idsA, 1, 0);
+    const idsB = try gpa.alloc(i32, 40 * page);
+    defer gpa.free(idsB);
+    chatIds(idsB, 2, 0);
+    const sa = try pool.newSlot(128 * page);
+    try sa.ensure(idsA.len);
+    const idA = (try store.save(sa, try HostBounded.make(gpa, .{ .gpa = undefined, .pos = 2560, .ds_rows = 0, .stash_from = 0, .measure = 60 }), idsA, 1, 0)).?;
+    _ = try sa.releaseAll();
+    // a park of A still in flight: the next save's trim walk skips it, the budget stays crossed
+    _ = (try store.beginPark(idA)).?;
+    var priced: std.ArrayList(u32) = .empty;
+    defer priced.deinit(gpa);
+    var incoming: u64 = 0;
+    try store.planSaveParks(40 * page, 60, 1, &priced, &incoming);
+    try testing.expectEqual(@as(usize, 0), priced.items.len); // A's park is in flight — priced when it was admitted
+    try testing.expect(incoming > 0); // the incoming entry's own file is the walk's last eviction
+    disk.opts.free_bytes = incoming;
+    try sess.saveAdmits(&store, 40 * page, 60, 1, &priced);
+    disk.opts.free_bytes = incoming - 1;
+    try testing.expectError(error.TierFull, sess.saveAdmits(&store, 40 * page, 60, 1, &priced));
+    // the plan is what the save parks: the walk reaches the incoming entry itself, nothing else
+    disk.opts.free_bytes = 1 << 40;
+    const sb = try pool.newSlot(128 * page);
+    try sb.ensure(idsB.len);
+    const idB = (try store.save(sb, try HostBounded.make(gpa, .{ .gpa = undefined, .pos = 2560, .ds_rows = 0, .stash_from = 0, .measure = 60 }), idsB, 1, 0)).?;
+    _ = try sb.releaseAll();
+    try store.settleAll();
+    try testing.expectEqual(@as(u64, 2), store.stats.parks);
+    try testing.expect(store.entry(idA).extra.file and !store.entry(idA).ram);
+    try testing.expect(store.entry(idB).extra.file and !store.entry(idB).ram);
+    // both files written: the price of the second covered the incoming entry's own
+    const sizeB = disk.used - disk.get(store.entry(idA).key).?.size;
+    try testing.expect(sizeB > 0 and sizeB <= incoming);
 }

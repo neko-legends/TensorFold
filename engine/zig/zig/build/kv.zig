@@ -35,6 +35,17 @@ pub fn add(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builti
     step.dependOn(&k.step);
     test_step.dependOn(&s.step);
     test_step.dependOn(&k.step);
+    // sessions_gpu.zig's save gate is host logic wired GPU-side: keep the wiring analyzable on any host
+    const sg_cuda = runtime(b, host, .debug);
+    const sgcheck = b.createModule(.{ .root_source_file = b.path("zig/src/families/deepseek_v41/sessions_gpu_check.zig"), .target = host, .optimize = .debug, .link_libc = true });
+    const sg_tp = tp_module(b, host, .debug, sg_cuda);
+    sgcheck.addImport("cuda", sg_cuda);
+    sgcheck.addImport("tp", sg_tp);
+    sgcheck.addImport("dsv41_kernels", @import("cuda.zig").dsv41Kernels(b, host, .debug, sg_cuda, &.{}));
+    sgcheck.addImport("kv", module(b, host, .debug, sg_cuda, sg_tp));
+    const sgcheck_run = b.addRunArtifact(b.addTest(.{ .root_module = sgcheck }));
+    step.dependOn(&sgcheck_run.step);
+    test_step.dependOn(&sgcheck_run.step);
     const bench = b.createModule(.{ .root_source_file = b.path("zig/src/families/deepseek_v41/kv/bench.zig"), .target = target, .optimize = .ReleaseFast, .link_libc = true });
     bench.addImport("sessions", sessions(b, target, .ReleaseFast));
     const exe = b.addExecutable(.{ .name = "tf-kv-bench", .root_module = bench });

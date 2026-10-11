@@ -43,8 +43,22 @@ pub fn admit(store: *sessions.Store, hit: ?sessions.store.Hit, prompt: u64, max_
     // follower at once — a fleet crash loop (boots start empty and never scan the tier, so the
     // restart frees nothing and the next spill meets the same wall). Rank 0's plan refuses the
     // request instead, before anything is broadcast: every rank's store untouched, request-level.
-    try store.tierAdmits(spills.items);
+    try store.tierAdmits(spills.items, 0);
     return .{ .need = need, .want = want };
+}
+
+/// The save op's tier gate (rank 0, before the op is broadcast — sessions_gpu's save/savePrompt): a
+/// save's trims park on every rank alike (Store.save's trimRam/enforce, replayed with the op), and a
+/// tier too full to hold them turns the save into the same process-fatal ParkFailed on every follower
+/// at once — the admission gate's crash loop through the save path, the restart's empty start freeing
+/// nothing. Rank 0 prices the parks through the same predicate first (Store.planSaveParks, then
+/// tierAdmits) and ends the request instead: nothing broadcast, every rank's store untouched. A
+/// follower never gates — its probe is its own tier's, and a follower-local full tier keeps its clean
+/// ParkFailed restart. The incoming entry's own numbers ride along: the trims' walk can reach it too.
+pub fn saveAdmits(store: *sessions.Store, new_pos: u64, new_bounded: u64, new_pieces: u32, scratch: *std.ArrayList(u32)) !void {
+    var incoming: u64 = 0;
+    try store.planSaveParks(new_pos, new_bounded, new_pieces, scratch, &incoming);
+    try store.tierAdmits(scratch.items, incoming);
 }
 
 /// batch.py `_admit`'s `save_at`: a prompt of n tokens resumed at `cached` is snapshotted at its replay point

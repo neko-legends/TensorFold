@@ -24,7 +24,10 @@ fn word(k: u64, fam: u64, i: u64) u64 {
 
 const Bounded = struct {
     gpa: std.mem.Allocator,
-    const vt: sessions.store.Bounded.VTable = .{ .nbytes = nbytes, .blobs = blobs, .release = release };
+    const vt: sessions.store.Bounded.VTable = .{ .nbytes = nbytes, .blobs = blobs, .pieces = pieces, .release = release };
+    fn pieces(_: *anyopaque) u32 {
+        return 1;
+    }
     fn make(gpa: std.mem.Allocator) !sessions.store.Bounded {
         const b = try gpa.create(Bounded);
         b.* = .{ .gpa = gpa };
