@@ -73,10 +73,15 @@ pub const Job = struct {
     fn restore(j: *Job, d: *Disk) ?anyerror {
         for (j.extents, 0..) |e, i| {
             const last = i + 1 == j.extents.len;
-            const r = d.readFile(e, &j.sink, last) catch |err| return err;
+            const r = d.readFile(e, &j.sink, last, j.ids) catch |err| return err;
             if (last) j.restored = r;
         }
         j.sink.store.publish() catch |err| return err;
+        // the entry's committed ids ride out with the bounded state (the files' own ids segments tiled [0, pos))
+        if (j.restored) |*r| {
+            r.ids = j.ids;
+            j.ids = &.{};
+        }
         return null;
     }
 };

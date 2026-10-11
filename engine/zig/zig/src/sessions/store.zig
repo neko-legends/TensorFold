@@ -250,6 +250,16 @@ pub const Store = struct {
         errdefer ext.deinit(s.gpa);
         try d.extents(e.key, &ext);
         j.extents = try ext.toOwnedSlice(s.gpa);
+        // the entry's committed ids [0, e.pos): the chain's files each hold their [first_page x page, pos) of
+        // them (an entry out of RAM keeps digests only in the index); the windows must tile with no gap
+        if (j.extents.len == 0 or j.extents[0].first_page != 0) return error.BadChain;
+        var covered: u64 = 0;
+        for (j.extents) |x| {
+            if (@as(u64, x.first_page) * s.pool.page > covered) return error.BadChain;
+            covered = @max(covered, x.pos);
+        }
+        if (covered != e.pos) return error.BadChain;
+        j.ids = try s.gpa.alloc(i32, e.pos);
         const np = pool_mod.pagesFor(e.pos, s.pool.page);
         j.lists = try s.familyLists(slot.mapped()[0..np], 0, false);
         j.sink = .{ .store = s.pages, .families = s.pool.layout.families, .page = s.pool.page, .world = s.pool.world, .rank = s.pool.rank, .pages = j.lists };

@@ -76,6 +76,8 @@ pub const Extent = struct {
     first_page: u32,
     lo: u32,
     hi: u32,
+    /// the entry tokens the file's own ids segment ends at (its ids cover [first_page x page, pos))
+    pos: u64,
 };
 
 /// Where a restore puts rows: per family, the family-tensor page of each of the slot's logical pages (any value where not owned).
@@ -92,6 +94,9 @@ pub const ReadSink = struct {
 /// The bounded state a restore returns (owned).
 pub const Restored = struct {
     blobs: []Blob,
+    /// the entry's committed ids [0, pos), assembled across the chain's ids segments (owned; the job attaches
+    /// them): an entry out of RAM keeps digests only in the index, so its resume's history comes from the files
+    ids: []i32 = &.{},
 
     pub fn deinit(r: *Restored, gpa: std.mem.Allocator) void {
         for (r.blobs) |b| {
@@ -99,6 +104,7 @@ pub const Restored = struct {
             gpa.free(b.bytes);
         }
         gpa.free(r.blobs);
+        gpa.free(r.ids);
     }
 };
 
@@ -290,13 +296,15 @@ pub const Disk = struct {
     }
 
     /// Reads one file of a restore: its pages [lo, hi) into the sink, every chunk checked before its rows go in; blobs too when want_blobs.
-    pub fn readFile(d: *Disk, ext: Extent, sink: *const ReadSink, want_blobs: bool) !?Restored {
+    /// `ids`: the whole entry's committed-ids buffer across the chain — the file's own ids segment lands in its
+    /// window of it ([first_page x page, pos); the caller tiles the windows over the chain's extents).
+    pub fn readFile(d: *Disk, ext: Extent, sink: *const ReadSink, want_blobs: bool, ids: ?[]i32) !?Restored {
         var nb: [48]u8 = undefined;
         const f = try d.openFile(fileName(ext.key, "tfs", &nb), false);
         defer _ = linux.close(f.fd);
         var lay = try d.readHead(f.fd);
         defer lay.deinit(d.gpa);
-        if (!std.mem.eql(u8, &lay.head.key, &ext.key) or lay.head.first_page != ext.first_page or lay.head.page != sink.page) return error.BadHeader;
+        if (!std.mem.eql(u8, &lay.head.key, &ext.key) or lay.head.first_page != ext.first_page or lay.head.page != sink.page or lay.head.pos != ext.pos) return error.BadHeader;
         var st: linux.Statx = undefined;
         if (linux.errno(linux.statx(f.fd, "", linux.AT.EMPTY_PATH, .{ .SIZE = true }, &st)) != .SUCCESS or st.size < lay.head.total) return error.Truncated;
         var out: std.ArrayList(Blob) = .empty;
@@ -335,6 +343,13 @@ pub const Disk = struct {
                 try out.append(d.gpa, .{ .name = name, .bytes = buf });
                 for (0..s.nchunks) |c| try jobs.append(d.gpa, .{ .seg = @intCast(si), .chunk = @intCast(c) });
             },
+            .ids => if (ids != null) {
+                // the file's ids segment: tokens [first_page x page, pos) of its entry, into the caller's buffer
+                if (s.nbytes % 4 != 0 or s.chunk % 4 != 0) return error.BadHeader;
+                const first: u64 = @as(u64, lay.head.first_page) * sink.page;
+                if (first + s.nbytes / 4 != lay.head.pos or lay.head.pos > ids.?.len) return error.BadHeader;
+                for (0..s.nchunks) |c| try jobs.append(d.gpa, .{ .seg = @intCast(si), .chunk = @intCast(c) });
+            },
             else => {},
         };
         const window = d.staging.count - 1;
@@ -358,6 +373,11 @@ pub const Disk = struct {
             const data = d.staging.buf(j.staging)[0..j.data];
             if (s.kind == .blob) {
                 for (out.items) |b| if (std.mem.eql(u8, b.name, s.nameOf())) @memcpy(@constCast(b.bytes)[@as(u64, jb.chunk) * s.chunk ..][0..data.len], data);
+                continue;
+            }
+            if (s.kind == .ids) {
+                const at: u64 = @as(u64, lay.head.first_page) * sink.page + @as(u64, jb.chunk) * (s.chunk / 4);
+                @memcpy(ids.?[at..][0 .. data.len / 4], std.mem.bytesAsSlice(i32, data));
                 continue;
             }
             try d.drain(s, jb.chunk, data, ext, sink);
@@ -536,7 +556,7 @@ pub const Disk = struct {
         var hi = d.recs.items[id].npages;
         while (id != none) {
             const r = &d.recs.items[id];
-            try out.append(d.gpa, .{ .key = r.key, .first_page = r.first_page, .lo = r.first_page, .hi = hi });
+            try out.append(d.gpa, .{ .key = r.key, .first_page = r.first_page, .lo = r.first_page, .hi = hi, .pos = r.pos });
             hi = r.first_page;
             id = r.base;
         }

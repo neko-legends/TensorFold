@@ -94,8 +94,8 @@ fn roundTrip(world: u32, rank: u32) !void {
     const tp = try familyPages(gpa, &p, b.mapped(), 0, false);
     defer freePages(gpa, tp);
     const sink: disk.ReadSink = .{ .store = h.store(), .families = &fams, .page = 256, .world = world, .rank = rank, .pages = tp };
-    try testing.expect(try d.readFile(ext.items[0], &sink, false) == null);
-    var got = (try d.readFile(ext.items[1], &sink, true)).?;
+    try testing.expect(try d.readFile(ext.items[0], &sink, false, null) == null);
+    var got = (try d.readFile(ext.items[1], &sink, true, null)).?;
     defer got.deinit(gpa);
     try testing.expectEqualSlices(u8, blob[0..77], got.blobs[0].bytes);
     for (a.mapped(), b.mapped()) |pa, pb| for (fams, 0..) |f, fi| {
@@ -112,7 +112,7 @@ fn roundTrip(world: u32, rank: u32) !void {
     one[0] ^= 0xff;
     try f.writePositionalAll(io, &one, 3 * 4096 + 100);
     f.close(io);
-    try testing.expectError(error.ChecksumMismatch, d.readFile(ext.items[1], &sink, true));
+    try testing.expectError(error.ChecksumMismatch, d.readFile(ext.items[1], &sink, true, null));
 }
 
 test "whole and delta files round-trip bit for bit (replicated)" {
