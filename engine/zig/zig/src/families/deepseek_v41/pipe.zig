@@ -388,6 +388,32 @@ pub fn rename(a: std.mem.Allocator, cs: []const calls.Call) ![]calls.Call {
     return out;
 }
 
+/// The stage programs' dense widths: the emitter asks a group's K2 by its bare name (`L<i>.attn.wo_a.<g>` for every one
+/// of the model's groups at world 1, where a TP rank holds only its own), and the renaming happens after it. Every
+/// stage copy's width under its bare name, where the TP rank has none (pipe_load.zig loaded "P.<name>").
+pub fn widthsFromCopies(a: std.mem.Allocator, w: *block.Widths) !void {
+    var add: std.ArrayList(struct { []const u8, u32 }) = .empty;
+    defer add.deinit(a);
+    var it = w.dense.iterator();
+    while (it.next()) |kv| if (std.mem.startsWith(u8, kv.key_ptr.*, prefix) and w.dense.get(kv.key_ptr.*[prefix.len..]) == null) {
+        try add.append(a, .{ kv.key_ptr.*[prefix.len..], kv.value_ptr.* });
+    };
+    for (add.items) |x| try w.dense.put(a, try a.dupe(u8, x[0]), x[1]);
+}
+
+/// Every `wo_a` group's width from group 0's where a listing has only a TP rank's groups (one checkpoint tensor a layer,
+/// one K2: the host listings aot-needs and the tests read).
+pub fn fillGroups(a: std.mem.Allocator, w: *block.Widths, cfg: *const Config) !void {
+    var nb: [64]u8 = undefined;
+    for (0..cfg.allLayers()) |L| {
+        const k2 = w.dense.get(try std.fmt.bufPrint(&nb, "L{d}.attn.wo_a.0", .{L})) orelse continue;
+        for (1..cfg.o_groups) |g| {
+            const name = try std.fmt.bufPrint(&nb, "L{d}.attn.wo_a.{d}", .{ L, g });
+            if (w.dense.get(name) == null) try w.dense.put(a, try a.dupe(u8, name), k2);
+        }
+    }
+}
+
 /// A stage program's options: the forward's at world 1, rank 0 (every head, every wo_a group, every expert column), the
 /// line's segment rows (4,096: x3gm one block, as TF_DSV41_PF_4K), and none of the TP-only or per-request paths (taps,
 /// TBO pairs, exchange pieces, image rows: an image segment never enters the line).

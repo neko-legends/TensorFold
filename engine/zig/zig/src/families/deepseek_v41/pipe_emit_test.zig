@@ -20,6 +20,9 @@ fn widths(a: std.mem.Allocator) !block.Widths {
     var w: block.Widths = .{};
     try check.parseDense(a, &w, @embedFile("fixtures/q28v2-dense-k2.txt"));
     try check.parseExperts(a, &w, @embedFile("fixtures/q28v2-expert-k2.txt"));
+    // the listing is a TP=2 rank's (wo_a groups 0-3): a stage at world 1 runs all eight
+    const cfg: Config = .{};
+    try pipe.fillGroups(a, &w, &cfg);
     return w;
 }
 
@@ -270,7 +273,8 @@ test "a stage program (its namespace, the P. names) reads every replicated tenso
             // the full-width copies: a tensor TP=4 has too (its shard, or a table of its shard's addresses)
             const bare = if (std.mem.startsWith(u8, name, pipe.prefix)) name[pipe.prefix.len..] else if (std.mem.startsWith(u8, name, "s." ++ pipe.prefix)) try std.fmt.allocPrint(aa, "s.{s}", .{name[2 + pipe.prefix.len ..]}) else null;
             if (bare) |b| {
-                if (tm.get(b) == null) {
+                // (a TP rank names only its own wo_a groups, 0 .. o_groups / world - 1: the stage runs all of them)
+                if (tm.get(b) == null and std.mem.indexOf(u8, b, ".attn.wo_a.") == null) {
                     std.debug.print("rank {d}: {s} renamed, but TP=4 has no {s}\n", .{ r, name, b });
                     return error.TestUnexpectedResult;
                 }

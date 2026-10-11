@@ -121,6 +121,8 @@ const Seg = struct {
     /// TF_DSV41_PF_OVERLAP_SITE: the last exchange's k pieces are all on the side stream, marks 1..k; the next
     /// boundary site runs in those pieces (`sitePieces`), anything else joins first. 0: none pending
     pend: i64 = 0,
+    /// TF_DSV41_PREFILL_PIPE (`emitStage`): this program is a pipeline stage, its entry and exit
+    stage: ?StageIo = null,
 
     // -----------------------------------------------------------------------------------------------------------
     // TF_DSV41_PF_OVERLAP: the exchanges in row pieces, overlapped with their producers' next piece
@@ -1329,6 +1331,11 @@ const Seg = struct {
             // every segment's positions (rope over the run's rows); each segment's own at its CSA2 steps (pf_seg)
             try e.glue("mpositions", &.{try e.buf("w.mpos64", .{}, .i64, &.{n})});
             try e.glue("embed", &.{ try e.streams(), try e.buf("w.recv.moe", .{}, .bf16, &.{ e.o.world, n, D }) });
+        } else if (s.stage) |io| {
+            // a pipeline stage: its input instead of the embedding (the round embedded the segment for stage 0; a later
+            // stage's is the previous stage's streams, its pending post and the selection its first layers reuse)
+            try e.glue("positions", &.{ try pos(e), try e.buf("w.pos64", .{}, .i64, &.{n}), try e.buf("w.lo", .{}, .i32, &.{n}) });
+            try e.glue("pipe_in", try s.handoff(io.entered, io.sel_in));
         } else {
             try e.glue("positions", &.{ try pos(e), try e.buf("w.pos64", .{}, .i64, &.{n}), try e.buf("w.lo", .{}, .i32, &.{n}) });
             try e.glue("embed", &.{ try e.streams(), try e.buf("w.recv.moe", .{}, .bf16, &.{ e.o.world, n, D }) });
@@ -1338,14 +1345,17 @@ const Seg = struct {
             // TF_DSV41_PF_TBO: a layer's attention part starts here (the first's at the program's first call)
             if (i > 0) if (e.marks) |m| try m.append(e.a, e.out.items.len);
             e.layer_ratio = e.cfg.compressRatio(L);
+            // the model's first block: no post to apply (a pipeline stage after the first enters its first block with
+            // the previous stage's pending post, as the next block would in one process)
+            const fresh = i == 0 and !(if (s.stage) |io| io.entered else false);
             if (s.part == .decoder and i == 0) {
                 // entered (forward._layers): the first block's attention site is the stash's
-            } else if (i == 0 or e.cfg.isEngram(L)) {
+            } else if (fresh or e.cfg.isEngram(L)) {
                 // the run's first block, or an Engram block: the last exchange's post alone, Engram, then a site that
                 // collapses with the previous coefficients' pre
-                if (i > 0) try s.postOnly(try e.streams());
+                if (!fresh) try s.postOnly(try e.streams());
                 if (e.cfg.isEngram(L)) try s.engram(L);
-                try s.site(L, "hc_attn", if (i == 0) .site1 else .site2);
+                try s.site(L, "hc_attn", if (fresh) .site1 else .site2);
             } else try s.site(L, "hc_attn", .boundary);
             // CED's encoder pass stops at the decoder's first layer once its site and compressor ran (`upto`)
             if (s.part == .encoder and i + 1 == layers.len) return s.encoderEnd(L);
@@ -1360,6 +1370,11 @@ const Seg = struct {
             if (s.short and i + 1 < layers.len) try e.prefetchX(layers[i + 1]);
             if (!s.sent_moe) try e.glue("exchange", &.{ try e.buf("L.moe16", .{}, .bf16, &.{ n, D }), try s.recv("moe") });
             s.sent_moe = false;
+            // a pipeline stage before the last stops here: its last block's MoE partial is the next stage's pending post
+            if (s.stage) |io| if (!io.last and i + 1 == layers.len) {
+                s.unpend();
+                return e.glue("pipe_out", try s.handoff(true, io.sel_out));
+            };
             if (e.o.trace) {
                 const y = try e.buf("w.trace", .{}, .bf16, &.{ n, 4 * D });
                 try s.postOnly(y);
@@ -1368,6 +1383,23 @@ const Seg = struct {
         }
         if (head) try s.final();
         s.unpend();
+    }
+
+    /// A pipeline stage's hand-off tensors (glue pipe_in / pipe_out, pipe_run.zig): the streams; with `post` the
+    /// pending post (the last exchange's gathered MoE partial, [1, n, D] at world 1, and the coefficient set its post
+    /// reads); with `sel` that index source's selection and visible counts. The two ends name the same tensors at the
+    /// same stream / coefficient buffers: a stage enters at buffers 0 / set 0, where one process is at that layer
+    /// (segments past split_rows rows), and leaves after an even number of sites.
+    fn handoff(s: *Seg, post: bool, sel: ?u32) ![]const Arg {
+        const e = s.e;
+        var out: std.ArrayList(Arg) = .empty;
+        try out.append(e.a, try e.streams());
+        if (post) {
+            try out.append(e.a, try gathered(e, ""));
+            for (try coefs(e, e.coef)) |c| try out.append(e.a, c);
+        }
+        if (sel) |src| for (try selection(e, src)) |x| try out.append(e.a, x);
+        return out.items;
     }
 
     /// A program ending on an exchange's pieces (TF_DSV41_PF_OVERLAP_SITE, no consumer after them): its last piece
@@ -1482,24 +1514,26 @@ pub fn planRuns(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths
 /// A prefill program's part: a whole segment, or one of CED replay's passes (ced.zig).
 pub const Part = enum { whole, encoder, decoder };
 
-/// A pipeline stage's entry and exit (TF_DSV41_PREFILL_PIPE, pipe.zig). Not emitted yet.
+/// A pipeline stage's entry and exit (TF_DSV41_PREFILL_PIPE, pipe.zig: Stage.selIn / selOut).
 pub const StageIo = struct {
+    /// a stage after the first: its first block applies the previous stage's pending post (glue pipe_in loads it)
     entered: bool,
+    /// the last stage ends with the encoder pass's end (the decoder's first layer's site and compressor, the stash);
+    /// the others stop after their last block's MoE partial (glue pipe_out)
     last: bool,
+    /// the index source whose selection it enters with / leaves with ("w.sel<src>", "w.cnt<src>")
     sel_in: ?u32 = null,
     sel_out: ?u32 = null,
 };
 
+/// A pipeline stage (TF_DSV41_PREFILL_PIPE, docs/ZIG-PREFILL-PIPE.md): CED's encoder pass over `layers` (consecutive;
+/// the last stage's end at the decoder's first layer) of an `n`-row segment from `start`, at `o` (pipe.stageOptions:
+/// world 1), entered through glue pipe_in, left through pipe_out (or the stash). The stages' programs end to end are
+/// the one-rank encoder pass's calls (pipe_emit_test.zig). Segments of at most split_rows rows are refused: a stage
+/// starts at streams buffer 0, which the split mHC programs' out-of-place boundaries would have moved.
 pub fn emitStage(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths, o: block.Options, layers: []const u32, n: i64, start: i64, io: StageIo) ![]calls.Call {
-    _ = a;
-    _ = cfg;
-    _ = w;
-    _ = o;
-    _ = layers;
-    _ = n;
-    _ = start;
-    _ = io;
-    return error.Unsupported;
+    if (layers.len == 0 or n <= split_rows or o.world != 1) return error.Unsupported;
+    return emitCore(a, cfg, w, o, layers, n, start, false, if (io.last) .encoder else .whole, null, io);
 }
 
 /// CED replay's programs (TF_DSV41_PREFILL=replay, ced.zig), `n` rows from `start`:
@@ -1679,6 +1713,10 @@ pub fn emitTbo(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths,
 }
 
 fn emitMarked(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths, o: block.Options, layers: []const u32, n: i64, start: i64, head: bool, part: Part, marks: ?*std.ArrayList(usize)) ![]calls.Call {
+    return emitCore(a, cfg, w, o, layers, n, start, head, part, marks, null);
+}
+
+fn emitCore(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths, o: block.Options, layers: []const u32, n: i64, start: i64, head: bool, part: Part, marks: ?*std.ArrayList(usize), io: ?StageIo) ![]calls.Call {
     if (n < 1 or n > o.prefill_rows or n > rowsCap(o)) return error.Unsupported;
     var e: E = .{ .a = a, .cfg = cfg, .w = w, .o = o, .n = n, .start = start, .marks = marks };
     const W: i64 = cfg.window;
@@ -1687,7 +1725,7 @@ fn emitMarked(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths, 
     const stage: i64 = @intCast(std.math.ceilPowerOfTwo(u64, @intCast(o.prefill_rows + W - 1)) catch return error.Unsupported);
     const ring = if (staged) stage else 2 * W;
     if (ring < n + W - 1) return error.Unsupported; // attn_pf: the ring must hold the rows and their windows
-    var s: Seg = .{ .e = &e, .staged = staged, .ring = ring, .short = n <= 16, .part = part };
+    var s: Seg = .{ .e = &e, .staged = staged, .ring = ring, .short = n <= 16, .part = part, .stage = io };
     try s.run(layers, head);
     if (o.holdsDeferred(n)) calls.holdDeferred(e.out.items);
     return e.out.items;
