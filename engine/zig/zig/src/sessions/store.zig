@@ -354,7 +354,19 @@ pub const Store = struct {
                 if (j.src.base) |b| d.get(b).?.refs -= 1;
                 const e = s.index.get(j.entry);
                 e.extra.job = null;
-                if (j.err) |err| return err; // the entry stays in RAM; the .tmp is gone
+                if (j.err) |err| {
+                    // a park that failed on this rank only diverges the fleet's pools by construction (the
+                    // entry's pages freed where the write landed, held here) and no agreement repairs it: in
+                    // a fleet it is the process-fatal ParkFailed (tp/replay.zig's classes — the follower's
+                    // exit fires the fate channel, a clean loud restart, as a replica's OOM), not the tier's
+                    // raw request-level error a follower would survive into a silent divergence. One rank
+                    // alone has nothing to diverge from: the raw error, the engine serves on.
+                    if (s.pool.world > 1) {
+                        std.log.warn("sessions: the park of entry {d} failed on this rank ({t}); the ranks' pools would diverge, this rank ends so the fleet restarts consistently", .{ j.entry, err });
+                        return error.ParkFailed;
+                    }
+                    return err; // the entry stays in RAM; the .tmp is gone
+                }
                 _ = try d.register(&j.src, j.size);
                 e.extra.file = true;
                 s.stats.parks += 1;

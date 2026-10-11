@@ -23,6 +23,10 @@ pub fn processFatal(err: anyerror) bool {
         error.DriverUnavailable, error.MissingSymbol, error.Unsupported, error.CudaFailed, error.OutOfDeviceMemory, error.NotReady, error.NotFound, error.Invalid, error.CublasFailed, error.NoAlgorithm, error.NcclFailed => true,
         // pool integrity: state that can only mean the ranks' pools diverged (fail-fast's own)
         error.ResidueMismatch, error.DoubleFree, error.PastCapacity, error.SlotNotEmpty, error.BadPool => true,
+        // a spill's park that failed on this rank: the pools diverged by construction the moment another
+        // rank's write landed (sessions/store.zig's settle maps it, world > 1 only — the NVMe read path's
+        // own errors stay request-level, folded by restore()'s agreement)
+        error.ParkFailed => true,
         // request-level: session-store state, the NVMe tier's I/O, a request's pool price — rank 0 ends the
         // request for these and serves on, so the follower does too
         else => false,
