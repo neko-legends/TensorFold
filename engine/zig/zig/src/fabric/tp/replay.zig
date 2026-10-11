@@ -12,7 +12,13 @@ const std = @import("std");
 /// (its allocator, its device or the operations stream itself failed, or its pool state provably diverged
 /// from rank 0's). Everything else — session-store state (an evicted, trimmed or damaged entry) and the NVMe
 /// tier's I/O, a pool a request priced out — is a request-level error rank 0 already ends only the request
-/// for, so the follower logs it and serves on.
+/// for, so the follower logs it and serves on. One carve-out: a spill's park that failed on this rank
+/// (ParkFailed) IS the tier's I/O, yet it is not classed request-level — a park cannot be mirrored or rolled
+/// back locally (where the write landed the entry's pages were freed and the reservation taken), so a failure
+/// there cannot be recovered consistently; it joins the pool-divergence fatal class, and the fate channel's
+/// restart is the recovery. (Its prevention: rank 0's planner refuses an admission whose spills the tier
+/// cannot hold — kv/sess.zig's tier gate, TierFull — so a full tier on every rank degrades to refusals
+/// instead of a ParkFailed crash loop.)
 pub fn processFatal(err: anyerror) bool {
     return switch (err) {
         // the process itself cannot mirror rank 0's work

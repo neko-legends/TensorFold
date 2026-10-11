@@ -39,6 +39,11 @@ pub fn admit(store: *sessions.Store, hit: ?sessions.store.Hit, prompt: u64, max_
         spills.clearRetainingCapacity();
         return .{ .need = need, .want = want, .wait = true };
     }
+    // a full NVMe tier turns this admission's parks into the process-fatal ParkFailed on every
+    // follower at once — a fleet crash loop (boots start empty and never scan the tier, so the
+    // restart frees nothing and the next spill meets the same wall). Rank 0's plan refuses the
+    // request instead, before anything is broadcast: every rank's store untouched, request-level.
+    try store.tierAdmits(spills.items);
     return .{ .need = need, .want = want };
 }
 
