@@ -47,19 +47,6 @@ pub fn admit(store: *sessions.Store, hit: ?sessions.store.Hit, prompt: u64, max_
     return .{ .need = need, .want = want };
 }
 
-/// The save op's tier gate (rank 0, before the op is broadcast — sessions_gpu's save/savePrompt): a
-/// save's trims park on every rank alike (Store.save's trimRam/enforce, replayed with the op), and a
-/// tier too full to hold them turns the save into the same process-fatal ParkFailed on every follower
-/// at once — the admission gate's crash loop through the save path, the restart's empty start freeing
-/// nothing. Rank 0 prices the parks through the same predicate first (Store.planSaveParks, then
-/// tierAdmits) and ends the request instead: nothing broadcast, every rank's store untouched. A
-/// follower never gates — its probe is its own tier's, and a follower-local full tier keeps its clean
-/// ParkFailed restart.
-pub fn saveAdmits(store: *sessions.Store, new_bounded: u64, scratch: *std.ArrayList(u32)) !void {
-    try store.planSaveParks(new_bounded, scratch);
-    try store.tierAdmits(scratch.items);
-}
-
 /// batch.py `_admit`'s `save_at`: a prompt of n tokens resumed at `cached` is snapshotted at its replay point
 /// (sessions.snapshot_point: the last 16-token grid point strictly before its end) when that lies past `cached` and holds
 /// at least rounds.py's `session_min` (64) tokens. (ced.savePoint on the GPU side: the same rule.)

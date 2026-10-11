@@ -301,18 +301,12 @@ pub const Sessions = struct {
         measure: u64,
 
         fn bounded(p: *Snap) sessions.store.Bounded {
-            return .{ .ptr = p, .vtable = &.{ .nbytes = nbytes, .blobs = blobs, .pieces = pieces, .release = release } };
+            return .{ .ptr = p, .vtable = &.{ .nbytes = nbytes, .blobs = blobs, .release = release } };
         }
 
         fn nbytes(ptr: *anyopaque) u64 {
             const p: *Snap = @ptrCast(@alignCast(ptr));
             return p.measure;
-        }
-
-        /// blobs()' count without the copies (the tier price's per-piece slack): the roles' pieces and "slot".
-        fn pieces(ptr: *anyopaque) u32 {
-            const p: *Snap = @ptrCast(@alignCast(ptr));
-            return @intCast(p.owner.pieces.len + 1);
         }
 
         /// The park's blobs: each role's bytes under its name, then "slot" (position, tail).
@@ -362,7 +356,8 @@ pub const Sessions = struct {
         errdefer s.gpa.destroy(p);
         const sl = &s.f.slot;
         const ds = if (s.measure.ds_blocks > 0) kv.sess.dsRows(sl.pos, s.ds_valid[s.cur()], s.measure.window) else 0;
-        p.* = .{ .owner = s, .bytes = try s.gpa.alloc(u8, s.bounded_bytes), .pos = sl.pos, .tail = sl.tail, .tail_len = sl.tail_len, .stash = sl.ced, .ds_rows = ds, .measure = s.measureNow() };
+        const stash = if (s.measure.replay) kv.sess.stashRows(sl.pos, sl.ced.from) else 0;
+        p.* = .{ .owner = s, .bytes = try s.gpa.alloc(u8, s.bounded_bytes), .pos = sl.pos, .tail = sl.tail, .tail_len = sl.tail_len, .stash = sl.ced, .ds_rows = ds, .measure = s.measure.bytes(sl.pos, stash, ds) };
         errdefer s.gpa.free(p.bytes);
         var at: usize = 0;
         for (s.pieces) |pc| {
@@ -371,14 +366,6 @@ pub const Sessions = struct {
             at += pc.len;
         }
         return p;
-    }
-
-    /// The bounded-state measure a save of the slot right now carries: snapshot's arithmetic, before its device copies.
-    fn measureNow(s: *Sessions) u64 {
-        const sl = &s.f.slot;
-        const ds = if (s.measure.ds_blocks > 0) kv.sess.dsRows(sl.pos, s.ds_valid[s.cur()], s.measure.window) else 0;
-        const stash = if (s.measure.replay) kv.sess.stashRows(sl.pos, sl.ced.from) else 0;
-        return s.measure.bytes(sl.pos, stash, ds);
     }
 
     fn uploadSnap(s: *Sessions, p: *const Snap) !void {
@@ -440,7 +427,6 @@ pub const Sessions = struct {
     pub fn save(s: *Sessions) !?u32 {
         const h = &s.hist[s.cur()];
         if (h.items.len != s.f.slot.pos or s.f.slot.pending != null) return error.BadWindow;
-        try s.saveGate();
         try s.f.sendSess(.save, 0);
         if (h.items.len == 0) return null;
         const snap = try s.snapshot();
@@ -461,7 +447,6 @@ pub const Sessions = struct {
         const h = &s.hist[s.cur()];
         if (h.items.len != s.f.slot.pos or s.f.slot.pending != null) return error.BadWindow;
         if (s.f.prefill_state.mode == .replay and s.f.slot.ced.hi != s.f.slot.pos) return error.BadWindow;
-        try s.saveGate();
         try s.f.sendSess(.prompt, 0);
         if (h.items.len == 0) return null;
         const snap = try s.snapshot();
@@ -471,18 +456,6 @@ pub const Sessions = struct {
         };
         try s.store.settleAll();
         return id;
-    }
-
-    /// The save op's tier gate (kv/sess.zig's saveAdmits): rank 0 prices the save's trim parks against
-    /// its tier's real free space before the op is broadcast and ends the request (TierFull) instead —
-    /// a full tier on every rank degrades to that, not to the ParkFailed crash loop the replayed save's
-    /// parks would be. Leader only: a follower's probe is its own tier's (a refusal there would skip
-    /// what the leader applied), and its follower-local full tier keeps the clean ParkFailed restart.
-    fn saveGate(s: *Sessions) !void {
-        if (s.hist[s.cur()].items.len == 0 or !s.f.leads()) return;
-        var priced: std.ArrayList(u32) = .empty;
-        defer priced.deinit(s.gpa);
-        try kv.sess.saveAdmits(&s.store, s.measureNow(), &priced);
     }
 
     /// sessions.Entry.kind: a prompt's replay point (a turn's end is 0)

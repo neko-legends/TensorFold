@@ -704,7 +704,7 @@ pub const Forward = struct {
         return .{ op_ds_propose, anchor, @intCast(start) };
     }
 
-    pub fn leads(f: *const Forward) bool {
+    fn leads(f: *const Forward) bool {
         return f.link != null and !f.quiet and f.comm.rank() == 0;
     }
 

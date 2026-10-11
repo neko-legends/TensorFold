@@ -79,10 +79,7 @@ const Fixed = struct {
     pos: u64,
     bytes: u64,
 
-    const vt: Bounded.VTable = .{ .nbytes = nbytes, .blobs = blobs, .pieces = pieces, .release = release };
-    fn pieces(_: *anyopaque) u32 {
-        return 1;
-    }
+    const vt: Bounded.VTable = .{ .nbytes = nbytes, .blobs = blobs, .release = release };
 
     fn make(gpa: std.mem.Allocator, pos: u64, bytes: u64) !Bounded {
         const h = try gpa.create(Fixed);

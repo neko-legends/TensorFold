@@ -18,10 +18,7 @@ fn secs(a: i96, b: i96) f64 {
 const Blob = struct {
     gpa: std.mem.Allocator,
     bytes: []u8,
-    const vt: sessions.store.Bounded.VTable = .{ .nbytes = nbytes, .blobs = blobs, .pieces = pieces, .release = release };
-    fn pieces(_: *anyopaque) u32 {
-        return 1;
-    }
+    const vt: sessions.store.Bounded.VTable = .{ .nbytes = nbytes, .blobs = blobs, .release = release };
     fn make(gpa: std.mem.Allocator) !sessions.store.Bounded {
         const b = try gpa.create(Blob);
         b.* = .{ .gpa = gpa, .bytes = try gpa.alloc(u8, 11 << 20) };
