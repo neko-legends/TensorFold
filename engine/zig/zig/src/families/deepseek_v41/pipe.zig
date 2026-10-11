@@ -34,8 +34,9 @@ pub const max_world: usize = 16;
 /// coefficient set 0, exactly where the one-process encoder pass is at that layer (pipe_emit_test.zig). Shorter
 /// segments (a prompt's ragged tail) drain the line and run tensor parallel.
 pub const min_seg: u32 = 33;
+const names = @import("pipe_names.zig");
 /// the weight prefix of a stage's full-width copies
-pub const prefix = "P.";
+pub const prefix = names.prefix;
 /// the stage programs' namespace (block_prefill.ownCalls: window, layer and scratch roles; the slot's state shared)
 pub const tag = "pp~";
 
@@ -323,23 +324,8 @@ pub const FinalsLayout = struct {
 
 // -- the stage weights' names --------------------------------------------------------------------------------------
 
-/// A layer tensor's field (names.zig's TP splits): col (wq_b, the routed and shared experts' gate / up), row (wo_b, their
-/// down), own groups (wo_a.<g>) or a per-head native (attn.sink). Everything else is replicated: the stage reads the
-/// TP copy.
-pub fn sharded(field: []const u8) bool {
-    const whole = [_][]const u8{ "attn.wq_b", "attn.wo_b", "attn.sink", "moe.w1", "moe.w2", "moe.w3" };
-    for (whole) |w| if (std.mem.eql(u8, field, w) or (std.mem.startsWith(u8, field, w) and field.len > w.len and field[w.len] == '.')) return true;
-    return std.mem.startsWith(u8, field, "attn.wo_a.") or std.mem.startsWith(u8, field, "moe.shared.");
-}
-
-/// "L<i>.<field>" -> the field (null: not a layer tensor's name).
-fn fieldOf(name: []const u8) ?[]const u8 {
-    if (name.len < 3 or name[0] != 'L') return null;
-    const dot = std.mem.indexOfScalar(u8, name, '.') orelse return null;
-    if (dot == 1) return null;
-    for (name[1..dot]) |c| if (!std.ascii.isDigit(c)) return null;
-    return name[dot + 1 ..];
-}
+pub const sharded = names.sharded;
+const fieldOf = names.fieldOf;
 
 /// A stage program's role: a sharded tensor's weight and run-time forms (`s.<w>.lanes` / `.T`), the expert tables
 /// (`s.L<i>.ex.*`) and x3gm's pointer tables (`s.L<i>.gm.t{g,u,d}`) take the `P.` prefix (the stage's full-width
