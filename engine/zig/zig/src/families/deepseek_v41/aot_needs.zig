@@ -549,6 +549,18 @@ pub fn enumerate(gpa: std.mem.Allocator, n: *Needs, cfg: *const Config, w: *cons
     }
 }
 
+/// TF_DSV41_PREFILL_PIPE: this rank's stage programs. Not enumerated yet.
+pub fn enumerateStage(gpa: std.mem.Allocator, n: *Needs, cfg: *const Config, w: *const block.Widths, o1: block.Options, ps: @import("pipe.zig").Settings, rank: u32, log: *std.Io.Writer) !void {
+    _ = gpa;
+    _ = n;
+    _ = cfg;
+    _ = w;
+    _ = o1;
+    _ = ps;
+    _ = rank;
+    _ = log;
+}
+
 /// `tf-dsv41-m1 aot-needs SIGS OUT`.
 pub fn main(gpa: std.mem.Allocator, io: std.Io, sigs_path: []const u8, out_path: []const u8, log: *std.Io.Writer) !void {
     const cwd = std.Io.Dir.cwd();

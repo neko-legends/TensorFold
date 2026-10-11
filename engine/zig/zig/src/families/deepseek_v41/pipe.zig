@@ -414,6 +414,16 @@ pub fn fillGroups(a: std.mem.Allocator, w: *block.Widths, cfg: *const Config) !v
     }
 }
 
+/// The (rows, start) of the stage programs the boot plans. Not planned yet.
+pub fn planned(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths, o1: block.Options, s: Settings, rank: u32) ![]const [2]i64 {
+    _ = cfg;
+    _ = w;
+    _ = o1;
+    _ = s;
+    _ = rank;
+    return a.alloc([2]i64, 0);
+}
+
 /// A stage program's options: the forward's at world 1, rank 0 (every head, every wo_a group, every expert column), the
 /// line's segment rows (4,096: x3gm one block, as TF_DSV41_PF_4K), and none of the TP-only or per-request paths (taps,
 /// TBO pairs, exchange pieces, image rows: an image segment never enters the line).

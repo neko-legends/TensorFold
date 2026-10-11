@@ -22,6 +22,7 @@ test {
     _ = @import("streamrb_test.zig");
     _ = @import("pipe_test.zig");
     _ = @import("pipe_emit_test.zig");
+    _ = @import("pipe_aot_test.zig");
 }
 
 const Fake = struct {
