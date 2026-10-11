@@ -399,3 +399,104 @@ test "the stage programs' buffer plan: a namespace of its own, sized by world-1 
     try testing.expectEqual(@as(u64, 2048 * 6 * 2304 * 2), plan.sizes.get("s.pp~ex.xg").?);
     try testing.expect(plan.sizes.get("L.q") == null and plan.sizes.get("s.ex.xg") == null);
 }
+
+/// The roles of rank `rank`'s stage over an `n`-row segment from `start` that the boot's stage plan (`plan`: pipe.planned's
+/// programs, as pipe_run.planInto adds them) lacks or holds smaller; the first few printed. 0: every role bound and big enough.
+fn unplanned(cfg: *const Config, w: *const block.Widths, o1: block.Options, s: *const pipe.Settings, plan: *const buffers.Plan, rank: u32, n: i64, start: i64) !usize {
+    var pa = std.heap.ArenaAllocator.init(testing.allocator);
+    defer pa.deinit();
+    const cs = pipe.program(pa.allocator(), cfg, w, o1, s, rank, n, start) catch |e| switch (e) {
+        error.Unsupported => return 0, // past the stage's last start: the line never enters it (pipe.lastEnd)
+        else => return e,
+    };
+    var need: buffers.Plan = .{ .a = pa.allocator() };
+    try need.add(cs);
+    var bad: usize = 0;
+    for (need.sizes.keys(), need.sizes.values()) |role, bytes| {
+        // the forward's roles (the slot's state, the replicated tensors' forms): its own plan's, not the stage's
+        if (std.mem.indexOf(u8, role, pipe.tag) == null and !std.mem.startsWith(u8, role, "s." ++ pipe.prefix)) continue;
+        const have = plan.sizes.get(role) orelse 0;
+        if (have >= bytes) continue;
+        if (bad < 4) std.debug.print("rank {d}, {d} rows at {d}: {s} needs {d} bytes, the stage plan holds {d}\n", .{ rank, n, start, role, bytes, have });
+        bad += 1;
+    }
+    return bad;
+}
+
+test "every role a stage names at any segment the line runs is in the boot's stage plan, at least as large (Unbound, window 6)" {
+    // Spark 2026-10-11 (window 6): the first pipelined prompt's third segment (rank 0, rows 4,096-6,143) named the
+    // materialised indexer's row-block positions "L.pp~ix.pos0/1", in no planned stage program: `the line failed (Unbound)`.
+    // pipe.planned held a segment at 0 and at its last start only (the indexer's regimes in between were not planned).
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const aa = arena.allocator();
+    const cfg: Config = .{};
+    const w = try widths(aa);
+    var prng = std.Random.DefaultPrng.init(0x5eed_0006);
+    const rnd = prng.random();
+    for ([_][]const u8{ "2048", "4096" }) |rows_knob| {
+        const s = if (std.mem.eql(u8, rows_knob, "2048")) try settingsAt("2048") else try settingsAt("4096");
+        const R: i64 = s.rows;
+        for (0..4) |ri| {
+            const r: u32 = @intCast(ri);
+            const o1 = pipe.stageOptions(servedOptions(r), s.rows);
+            var plan: buffers.Plan = .{ .a = aa };
+            for (try pipe.planned(aa, &cfg, &w, o1, s, r)) |x| try plan.add(try pipe.program(aa, &cfg, &w, o1, &s, r, x[0], x[1]));
+            var bad: usize = 0;
+            // the line's whole segments through the first 16K positions (the window-6 prompt's), a ragged tail's and the
+            // shortest, a key split's ends (the stream's row blocks), deep in the context and at the end
+            const ns = [_]i64{ R, R - 1, 1547, 1366, 1365, 1024, 100, 64, 33 };
+            for (ns) |n| {
+                var start: i64 = 0;
+                while (start + n <= 16384) : (start += 512) bad += try unplanned(&cfg, &w, o1, &s, &plan, r, n, start);
+                for ([_]i64{ 3583, 5683, 6143, 6824, 8191 - n, 32768 * 8 - n, 32768 * 8 + 1 - n, 300000, limit - n }) |st| {
+                    if (st >= 0) bad += try unplanned(&cfg, &w, o1, &s, &plan, r, n, st);
+                }
+            }
+            // and a sample of any segment at any start
+            for (0..40) |_| {
+                const n = rnd.intRangeAtMost(i64, pipe.min_seg, R);
+                const st = if (rnd.boolean()) rnd.intRangeAtMost(i64, 0, 16384) else rnd.intRangeAtMost(i64, 0, limit - n);
+                bad += try unplanned(&cfg, &w, o1, &s, &plan, r, n, st);
+            }
+            try testing.expectEqual(@as(usize, 0), bad);
+        }
+    }
+}
+
+test "every role pipe_run looks up by name is one the stage programs name (the commit's carry rows under pp~, never bare)" {
+    // window 6's suspect (pipe_run.Line.stage's commit, no bare "w.L<i>.proj" fallback as forward_prefill.commitRoles
+    // has for K4.keep): a stage's ratio-2 projection rows are only ever "w.pp~L<i>.proj" (ownCalls keeps no role), so the
+    // bare name, which the forward's plan holds for its own segments, would be the TP rows of another segment
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const aa = arena.allocator();
+    const cfg: Config = .{};
+    const w = try widths(aa);
+    const s = try settings();
+    var nb: [64]u8 = undefined;
+    var sb: [64]u32 = undefined;
+    for (0..4) |ri| {
+        const r: u32 = @intCast(ri);
+        const o1 = pipe.stageOptions(servedOptions(r), s.rows);
+        var plan: buffers.Plan = .{ .a = aa };
+        for (try pipe.planned(aa, &cfg, &w, o1, s, r)) |x| try plan.add(try pipe.program(aa, &cfg, &w, o1, &s, r, x[0], x[1]));
+        const st = s.stage(r);
+        // Line.stage's commit (pipe_run.zig: src, dst) and Line.rows' pool families
+        for (st.sources(&cfg, &sb)) |L| {
+            if (cfg.compressRatio(L) == 2) {
+                try testing.expect(plan.sizes.get(try std.fmt.bufPrint(&nb, "w." ++ pipe.tag ++ "L{d}.proj", .{L})) != null);
+                try testing.expect(plan.sizes.get(try std.fmt.bufPrint(&nb, "w.L{d}.proj", .{L})) == null);
+                try testing.expect(plan.sizes.get(try std.fmt.bufPrint(&nb, "s.L{d}.carry", .{L})) != null);
+            }
+            try testing.expect(plan.sizes.get(try std.fmt.bufPrint(&nb, "s.kv.comp.L{d}", .{L})) != null);
+            try testing.expect(plan.sizes.get(try std.fmt.bufPrint(&nb, "s.kv.ik.L{d}", .{L})) != null);
+        }
+        // Line.state's drain: each encoder layer's SWA ring, the last stage's stash ring
+        for (st.lo..@min(st.hi, st.d)) |L| {
+            try testing.expect(plan.sizes.get(try std.fmt.bufPrint(&nb, "s.L{d}.swa.v", .{L})) != null);
+            try testing.expect(plan.sizes.get(try std.fmt.bufPrint(&nb, "s.L{d}.swa.s", .{L})) != null);
+        }
+        if (st.last) for (@import("ced.zig").roles) |role| try testing.expect(plan.sizes.get(role) != null);
+    }
+}

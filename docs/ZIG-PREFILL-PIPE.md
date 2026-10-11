@@ -252,9 +252,9 @@ programs and of sampled segments reduces to a variant in `aot_needs.enumerateReg
   the planned 33-row program at 420,063 is not on the 16-row grid, and it is covered by the regimes.
   - The fill itself (`enumerateStage`) lists the planned programs too.
   - A mutation that drops the regimes' row sweep fails the test (`build/pipe-proofs-red2.log`: `_site` at 33 rows).
-- **The plan is frozen.** `pipe.planned` at this config is frozen in the test: (2048, 0), (2048, 418048), (33, 0),
-  (33, 420063), every rank. A change to the plan or to `lastEnd` fails the test until the constant is updated
-  deliberately.
+- **The plan is frozen.** `pipe.planned` at this config is frozen in the test, per rank: (2048, 0), (2048, 418048),
+  (33, 0), (33, 420063), and on ranks 0-2 the selection's worst segments (1547, 5684) and (1366, 6825). A change to
+  the plan or to `lastEnd` fails the test until the constant is updated deliberately.
 - **Sampled.** Rows {2048, 2047, 1500, 1000, 100, 64, 34, 33} × starts {0, 16, 2048, 4112, 37984, 154176, 300000,
   417984, limit − n}. "Any segment at any start" is the regime argument: a start's variant set depends only on the
   regime the dedup sweep finds. It is not a test.
@@ -262,6 +262,27 @@ programs and of sampled segments reduces to a variant in `aot_needs.enumerateReg
   - A shorter context: a 420096 fill holds every start a shorter one has, by the sweep's design.
   - `lastEnd`'s assumption that a stage's emission limit is monotone in the rows. It probes only 2,048 and 33 rows,
     which hold at the served config: `lastEnd` = limit on every rank, tested.
+
+The buffer plan (`pipe_emit_test.zig`, window 6). A stage program runs in its own namespace ("pp~"), so the boot's
+buffer plan holds its window, layer and scratch roles only from the stage programs `pipe.planned` lists. The first
+version listed a segment at its first and last starts, the forward's rule (`forward_prefill.plan`). That rule holds
+for the forward only together with its other planned programs. On the stages the index selection's scratch is not
+monotone in the start: past 2,730 keys a 2,048-row segment's materialised scores go to row blocks, each naming
+"L.ix.pos<j>", and past 4,096 keys they stream. So the first pipelined prompt's third segment (rows 4,096-6,143 on
+rank 0) named "L.pp~ix.pos0", which no planned program named: `the line failed (Unbound)` (Runner.tensorAddr). The
+second segment had already overrun "L.pp~ix.scores" (16 MiB into an 8 MiB slot of the layer arena).
+
+- **The fix.** `pipe.planned` adds the segments where the selection's start-dependent scratch is largest
+  (`block_prefill.selectWorst`, exact over every (rows, start): each key count's last start, each key split's for the
+  stream, through `selectScratch`, which takes select's own decisions). A stage that selects at the candidate source
+  or with a top-k off the powers of two is refused at boot (not the model).
+- **Tested.** Every stage-owned role ("pp~", "s.P.") of a stage at sampled segments is in the plan at least as large:
+  2,048- and 4,096-row lines, every rank, rows {R, R − 1, 1547, 1366, 1365, 1024, 100, 64, 33} × starts every 512
+  through 16,384, the regime edges, a key split's ends, 300,000 and the last start, plus 40 random segments a rank.
+  It fails on e62f70a0 (`build/pipe-plan-red.log`). Sampled, not swept: the sweep is `selectWorst`'s argument.
+- **The named lookups.** Every role `pipe_run.zig` looks up by name (the commit's "w.pp~L<i>.proj" and carry, the
+  pool's families, the SWA rings, the stash) is in the stage plan, and no stage program names a bare
+  "w.L<i>.proj" (the forward's own rows).
 
 ## Implementation map
 
@@ -272,7 +293,7 @@ programs and of sampled segments reduces to a variant in `aot_needs.enumerateReg
 | the AOT fill's stage variants | `aot_needs.enumerateStage` (`enumerateRegimes` + the planned programs) | `pipe_aot_test.zig`: at CONTEXT=420096 on every rank, the frozen planned programs and sampled segments ⊆ the regimes, through the served Triton signatures |
 | the stage copies | `pipe_load.zig`, `prepared.zig` (key variant) | `host_test.zig` (a synthetic pack at world 1), `prepared.zig` |
 | the shift | `Collective.sendRecv` (NCCL group) | `fabric/tp/host_test.zig` |
-| rounds, exchange, drain, fail-fast | `pipe_run.zig` | none possible on the host (device code); the route / layouts above are its decisions |
+| rounds, exchange, drain, fail-fast | `pipe_run.zig` | device code; the route / layouts above are its decisions, and every role it binds or looks up is in the stage plan (`pipe_emit_test.zig`) |
 | boot | `model.zig`; refusals in `pipe_run.check` | compile only |
 
 `aot-needs` with `config/tp4-zig.env.example` and `TF_DSV41_PREFILL_PIPE=1024` on this host gives these counts. Every

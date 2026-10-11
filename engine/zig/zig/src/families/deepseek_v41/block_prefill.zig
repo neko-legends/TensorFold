@@ -657,7 +657,7 @@ const Seg = struct {
 
     /// Row blocks of the materialised indexer (backend._row_blocks): `per_row` bytes a row under the index budget.
     fn step(e: *E, per_row: i64) i64 {
-        return if (e.n > 16) @max(16, @divFloor(e.o.index_budget, @max(1, per_row))) else e.n;
+        return rowStep(e.o.index_budget, e.n, per_row);
     }
 
     /// An index layer's selection (blocks._select over backend.select / select_cand / reindex).
@@ -1513,6 +1513,85 @@ pub fn planRuns(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths
 
 /// A prefill program's part: a whole segment, or one of CED replay's passes (ced.zig).
 pub const Part = enum { whole, encoder, decoder };
+
+/// backend._row_blocks' rows a block (Seg.step): `per_row` bytes a row under the index budget.
+pub fn rowStep(budget: i64, n: i64, per_row: i64) i64 {
+    return if (n > 16) @max(16, @divFloor(budget, @max(1, per_row))) else n;
+}
+
+/// The start-dependent scratch a full-mode index layer's selection (Seg.select of a layer that is not the candidate
+/// source, a power-of-two top-k) names over an `n`-row segment from `start` at a ratio-`ratio` source: its largest
+/// launch's materialised scores (rows x keys: "L.ix.scores" f32, "L.ix.keys" i64), its stream launch's scratch (rows x
+/// splits: "L.ix.stream", the merge's "L.ix.keys") and its row blocks (each block's "L.ix.pos<j>"; 0: the window's
+/// positions). Select's own decisions; neither is monotone in the start (a regime's blocks shrink as the keys grow).
+pub const SelectScratch = struct { mat: i64 = 0, stream: i64 = 0, blocks: i64 = 0 };
+
+pub fn selectScratch(o: block.Options, ratio: i64, topk: i64, n: i64, start: i64) SelectScratch {
+    const nvis = @max(@divFloor(start + n, ratio), 1);
+    const B = o.index_budget;
+    const fits = n * nvis * 12 <= B;
+    const streamed = n > 16 and nvis >= stream_min;
+    if (n <= dtopk_rows and fits and !streamed) return .{ .mat = n * nvis };
+    const st = if (streamed) longpf.plan(n, nvis, topk) else if (fits) n else rowStep(B, n, nvis * 12);
+    // the largest block: the last whole one (its keys the most of the whole ones) or the ragged last
+    const k = std.math.divCeil(i64, n, st) catch unreachable;
+    const whole_blocks = @divFloor(n, st);
+    var most: i64 = 0;
+    for ([_]i64{ whole_blocks - 1, k - 1 }) |b| {
+        if (b < 0) continue;
+        const a = b * st;
+        const rows = @min(st, n - a);
+        const nk = if (!streamed and fits) nvis else @max(@divFloor(start + a + rows, ratio), 1);
+        most = @max(most, rows * if (streamed) longpf.splits(nk) else nk);
+    }
+    const named: i64 = if (st < n) k else 0;
+    return if (streamed) .{ .stream = most, .blocks = named } else .{ .mat = most, .blocks = named };
+}
+
+/// The segments of `lo`..`hi` rows ending by `end` whose selection scratch (`selectScratch`) is the largest of each kind:
+/// a buffer plan holding a segment's programs at its first and last starts alone misses them (pipe.planned; window 6:
+/// the line's third segment named "L.pp~ix.pos0" in no planned program). Exact over every (rows, start): within a key
+/// count the scratch grows with the start, so each count's last start is searched (the stream's: each key split's).
+pub fn selectWorst(o: block.Options, ratio: i64, topk: i64, lo: i64, hi: i64, end: i64) [3]?[2]i64 {
+    var best: [3]i64 = @splat(0);
+    var at: [3]?[2]i64 = @splat(null);
+    const Note = struct {
+        fn f(b: *[3]i64, x: *[3]?[2]i64, sc: SelectScratch, n: i64, s: i64) void {
+            for ([_]i64{ sc.mat, sc.stream, sc.blocks }, 0..) |v, i| if (v > b[i]) {
+                b[i] = v;
+                x[i] = .{ n, s };
+            };
+        }
+    };
+    const top_keys = @divFloor(end, ratio);
+    var n = lo;
+    while (n <= hi and n <= end) : (n += 1) {
+        // materialised (and attn_cuda's top-k): the whole segment's scores grow with the keys up to the last count they
+        // fit; past it, every key count below the stream's at its last start (the row blocks shrink as the keys grow)
+        const v0 = @max(@divFloor(n, ratio), 1);
+        const fit = @divFloor(o.index_budget, 12 * n);
+        if (fit >= v0) {
+            const s = @min(end, @min(fit, stream_min - 1) * ratio + ratio - 1) - n;
+            if (s >= 0) Note.f(&best, &at, selectScratch(o, ratio, topk, n, s), n, s);
+        }
+        var v = @max(v0, fit + 1);
+        while (v < stream_min and v <= top_keys) : (v += 1) {
+            const s = @min(end, v * ratio + ratio - 1) - n;
+            if (s < 0) continue;
+            Note.f(&best, &at, selectScratch(o, ratio, topk, n, s), n, s);
+        }
+        // the stream: each key split's last start (its row blocks and splits are constant across it)
+        var c: i64 = 1;
+        while ((c - 1) * longpf.split_keys < top_keys) : (c += 1) {
+            const keys = @min(c * longpf.split_keys, top_keys);
+            if (keys < stream_min) continue;
+            const s = @min(end, keys * ratio + ratio - 1) - n;
+            if (s < 0) continue;
+            Note.f(&best, &at, selectScratch(o, ratio, topk, n, s), n, s);
+        }
+    }
+    return at;
+}
 
 /// A pipeline stage's entry and exit (TF_DSV41_PREFILL_PIPE, pipe.zig: Stage.selIn / selOut).
 pub const StageIo = struct {

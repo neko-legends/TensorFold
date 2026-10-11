@@ -28,9 +28,16 @@ fn served(rank: u32) block.Options {
     return .{ .world = 4, .rank = rank, .r1 = true, .expert_topp = 0.85, .limit = limit, .rope_rows = limit + 2048, .prefill_rows = 4096, .pf4k = true, .gm_v2 = .one, .index_bound = true, .index_budget = 64 << 20, .mhc_pf_rows = 17, .taps = true, .pool = .{ .comp_pages = pages + 1, .ik_pages = pages + 1, .pts = pages } };
 }
 
-/// pipe.planned at this config, every rank (frozen 2026-10-11 from pipe.planned; update deliberately, never re-derived
-/// in the test): the whole segment and the shortest, at 0 and at their last start (lastEnd: the limit)
-const frozen_planned = [_][2]i64{ .{ 2048, 0 }, .{ 2048, 418048 }, .{ 33, 0 }, .{ 33, 420063 } };
+/// pipe.planned at this config (frozen 2026-10-11 from pipe.planned; update deliberately, never re-derived in the test):
+/// the whole segment and the shortest, at 0 and at their last start (lastEnd: the limit), then on ranks 0-2 (index
+/// sources 2, 8, 14) the selection's worst segments (block_prefill.selectWorst): the materialised scores' largest launch
+/// and the most row blocks (the stream's largest is the whole segment's last start); rank 3's stage selects nowhere
+const frozen_planned = [_][]const [2]i64{
+    &.{ .{ 2048, 0 }, .{ 2048, 418048 }, .{ 33, 0 }, .{ 33, 420063 }, .{ 1547, 5684 }, .{ 1366, 6825 } },
+    &.{ .{ 2048, 0 }, .{ 2048, 418048 }, .{ 33, 0 }, .{ 33, 420063 }, .{ 1547, 5684 }, .{ 1366, 6825 } },
+    &.{ .{ 2048, 0 }, .{ 2048, 418048 }, .{ 33, 0 }, .{ 33, 420063 }, .{ 1547, 5684 }, .{ 1366, 6825 } },
+    &.{ .{ 2048, 0 }, .{ 2048, 418048 }, .{ 33, 0 }, .{ 33, 420063 } },
+};
 
 fn settings() !pipe.Settings {
     const F = struct {
@@ -71,8 +78,8 @@ test "TP=4 (CONTEXT=420096): the boot's planned and sampled prompt stage program
         // the boot's plan, then prompt segments: whole ones, a piece's or a resumed prompt's ragged ones, the shortest
         var cases: std.ArrayList([2]i64) = .empty;
         const plan = try pipe.planned(aa, &cfg, &w, o1, s, @intCast(r));
-        try testing.expectEqual(frozen_planned.len, plan.len);
-        for (frozen_planned, plan) |f, p| try testing.expectEqual(f, p);
+        try testing.expectEqual(frozen_planned[r].len, plan.len);
+        for (frozen_planned[r], plan) |f, p| try testing.expectEqual(f, p);
         for (plan) |p| try cases.append(aa, p);
         for ([_]i64{ 2048, 2047, 1500, 1000, 100, 64, 34, 33 }) |n| for ([_]i64{ 0, 16, 2048, 4112, 37984, 154176, 300000, 417984, limit - n }) |start| {
             if (start + n <= limit) try cases.append(aa, .{ n, start });

@@ -574,16 +574,40 @@ pub fn lastEnd(cfg: *const Config, w: *const block.Widths, o1: block.Options, s:
     return @min(whole, short);
 }
 
-/// The (rows, start) of the stage programs the boot plans (forward_prefill.plan's rule for a segment's programs): a
-/// whole segment of the line and the shortest one, each at 0 and at its last start (the indexer's scores and the
-/// stream top-k's scratch grow with the keys).
+/// The (rows, start) of the stage programs the boot plans: a whole segment of the line and the shortest one, each at 0
+/// and at its last start, and the segments whose index selection names the most start-dependent scratch
+/// (block_prefill.selectWorst: the materialised scores' and the stream's largest launches, the most row blocks). A
+/// segment's scratch is not monotone in its start: the forward's rule (forward_prefill.plan: first and last starts)
+/// holds there only with its other programs, and a stage's namespace has none (window 6: `the line failed (Unbound)` on
+/// "L.pp~ix.pos0", the first prompt's third segment). pipe_emit_test.zig checks the plan against sampled segments.
 pub fn planned(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths, o1: block.Options, s: Settings, rank: u32) ![]const [2]i64 {
     var out: std.ArrayList([2]i64) = .empty;
+    var end: i64 = o1.limit;
     for ([_]i64{ s.rows, min_seg }) |n| {
         const top = try lastStart(cfg, w, o1, &s, rank, n);
         try out.append(a, .{ n, 0 });
         if (top > 0) try out.append(a, .{ n, top });
+        end = @min(end, top + n);
     }
+    // the selecting layers' sources (the last stage's decoder layer runs its site and compressor alone)
+    const st = s.stage(rank);
+    var ratios: [3]bool = @splat(false);
+    for (st.lo..@min(st.hi, st.d)) |i| {
+        const L: u32 = @intCast(i);
+        if (cfg.compressRatio(L) == 0 or !cfg.isIndexSource(L) or cfg.mode(L) != .full) continue;
+        // a candidate source's selection never streams, a top-k off the powers of two neither: not selectWorst's model
+        if (cfg.isCandidateSource(L) or @popCount(cfg.index_topk) != 1) {
+            log.warn("TF_DSV41_PREFILL_PIPE: stage {d} selects at layer {d} (candidate source or top-k {d}): its scratch is not planned", .{ rank, L, cfg.index_topk });
+            return error.Unsupported;
+        }
+        ratios[cfg.compressRatio(L)] = true;
+    }
+    for (ratios, 0..) |on, ratio| if (on) for (bp.selectWorst(o1, @intCast(ratio), cfg.index_topk, min_seg, s.rows, end)) |x| {
+        const p = x orelse continue;
+        for (out.items) |y| {
+            if (y[0] == p[0] and y[1] == p[1]) break;
+        } else try out.append(a, p);
+    };
     return out.items;
 }
 
