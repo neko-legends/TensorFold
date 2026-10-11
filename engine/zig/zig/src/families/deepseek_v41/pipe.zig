@@ -18,6 +18,7 @@
 const std = @import("std");
 const calls = @import("calls.zig");
 const block = @import("block.zig");
+const bp = @import("block_prefill.zig");
 const ced = @import("ced.zig");
 const Config = @import("config.zig").Config;
 
@@ -414,14 +415,61 @@ pub fn fillGroups(a: std.mem.Allocator, w: *block.Widths, cfg: *const Config) !v
     }
 }
 
-/// The (rows, start) of the stage programs the boot plans. Not planned yet.
+// -- a rank's stage programs ---------------------------------------------------------------------------------------
+
+/// Rank `rank`'s stage entry and exit (block_prefill.emitStage).
+pub fn stageIo(cfg: *const Config, s: *const Settings, rank: u32) bp.StageIo {
+    const st = s.stage(rank);
+    return .{ .entered = rank > 0, .last = st.last, .sel_in = st.selIn(cfg), .sel_out = st.selOut(cfg, s.boundsSlice()) };
+}
+
+/// Rank `rank`'s stage over an `n`-row segment from `start`, as emitted (aot-needs reduces these: the namespace and
+/// the stage weights' names change no launch's variant).
+pub fn emit(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths, o1: block.Options, s: *const Settings, rank: u32, n: i64, start: i64) ![]calls.Call {
+    var buf: [64]u32 = undefined;
+    return bp.emitStage(a, cfg, w, o1, s.stage(rank).layers(&buf), n, start, stageIo(cfg, s, rank));
+}
+
+/// The program the runtime issues: `emit` in the stage namespace (`tag`) with the stage weights' names (`rename`).
+pub fn program(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths, o1: block.Options, s: *const Settings, rank: u32, n: i64, start: i64) ![]calls.Call {
+    return rename(a, try bp.ownCalls(a, try emit(a, cfg, w, o1, s, rank, n, start), tag));
+}
+
+fn emits(cfg: *const Config, w: *const block.Widths, o1: block.Options, s: *const Settings, rank: u32, n: i64, start: i64) !bool {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    _ = emit(arena.allocator(), cfg, w, o1, s, rank, n, start) catch |e| switch (e) {
+        error.Unsupported => return false,
+        else => return e,
+    };
+    return true;
+}
+
+/// The last start an `n`-row stage segment emits at (forward_prefill.lastStartWith's bisection).
+pub fn lastStart(cfg: *const Config, w: *const block.Widths, o1: block.Options, s: *const Settings, rank: u32, n: i64) !i64 {
+    var hi: i64 = o1.limit - n;
+    if (hi < 0) return error.Unsupported;
+    if (try emits(cfg, w, o1, s, rank, n, hi)) return hi;
+    if (!try emits(cfg, w, o1, s, rank, n, 0)) return error.Unsupported;
+    var lo: i64 = 0;
+    while (hi - lo > 1) {
+        const mid = lo + @divFloor(hi - lo, 2);
+        if (try emits(cfg, w, o1, s, rank, n, mid)) lo = mid else hi = mid;
+    }
+    return lo;
+}
+
+/// The (rows, start) of the stage programs the boot plans (forward_prefill.plan's rule for a segment's programs): a
+/// whole segment of the line and the shortest one, each at 0 and at its last start (the indexer's scores and the
+/// stream top-k's scratch grow with the keys).
 pub fn planned(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths, o1: block.Options, s: Settings, rank: u32) ![]const [2]i64 {
-    _ = cfg;
-    _ = w;
-    _ = o1;
-    _ = s;
-    _ = rank;
-    return a.alloc([2]i64, 0);
+    var out: std.ArrayList([2]i64) = .empty;
+    for ([_]i64{ s.rows, min_seg }) |n| {
+        const top = try lastStart(cfg, w, o1, &s, rank, n);
+        try out.append(a, .{ n, 0 });
+        if (top > 0) try out.append(a, .{ n, top });
+    }
+    return out.items;
 }
 
 /// A stage program's options: the forward's at world 1, rank 0 (every head, every wo_a group, every expert column), the

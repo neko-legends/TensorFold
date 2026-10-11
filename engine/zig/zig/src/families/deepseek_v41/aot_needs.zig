@@ -48,8 +48,9 @@ const rowmode = @import("rowmode.zig");
 const triton_call = @import("triton_call.zig");
 const Config = @import("config.zig").Config;
 const ced = @import("ced.zig");
+const pipe = @import("pipe.zig");
 
-pub const Param = struct { name: []const u8, constexpr: bool, nospec: bool, noalign: bool };
+pub const Param =struct { name: []const u8, constexpr: bool, nospec: bool, noalign: bool };
 pub const Fn = struct { function: []const u8, params: []Param };
 pub const Sigs = std.json.ArrayHashMap([]Fn);
 const SigsJson = struct { kernels: Sigs };
@@ -208,6 +209,8 @@ pub const Served = struct {
     /// TF_DSV41_PIECE_RUNS / TF_DSV41_REPLAY_RUNS (several slots, replay): the multi-segment runs' programs too
     runs: bool = false,
     replay_runs: bool = false,
+    /// TF_DSV41_PREFILL_PIPE (replay): this rank's pipeline stage programs too (enumerateStage)
+    pipe: ?pipe.Settings = null,
 
     /// The engine's knobs as model.zig / prod_knobs.zig read them (the dense prefill's table and image paths aside:
     /// PF_DENSE's fused kernel is CUDA, so the `_gemm` variants it replaces are listed too).
@@ -259,6 +262,7 @@ pub const Served = struct {
             .replay = try knobs.prefillMode(&knobs.env) == .replay,
             .runs = slots > 1 and envOn("TF_DSV41_PIECE_RUNS", false) and try knobs.prefillMode(&knobs.env) == .replay,
             .replay_runs = slots > 1 and envOn("TF_DSV41_REPLAY_RUNS", false) and try knobs.prefillMode(&knobs.env) == .replay,
+            .pipe = if (try knobs.prefillMode(&knobs.env) == .replay) try pipe.settings(&knobs.env, &Config{}, o.world) else null,
         };
     }
 };
@@ -517,6 +521,8 @@ pub fn enumerate(gpa: std.mem.Allocator, n: *Needs, cfg: *const Config, w: *cons
             }
         }
     }
+    // TF_DSV41_PREFILL_PIPE: this rank's stage at world 1 (its own variants: 64 heads, 8 wo_a groups, 2,304 expert columns)
+    if (sv.pipe) |ps| try enumerateStage(gpa, n, cfg, w, pipe.stageOptions(sv.o, ps.rows), ps, sv.o.rank, log);
     // DSpark
     if (sv.drafts) {
         var pa = std.heap.ArenaAllocator.init(gpa);
@@ -549,16 +555,39 @@ pub fn enumerate(gpa: std.mem.Allocator, n: *Needs, cfg: *const Config, w: *cons
     }
 }
 
-/// TF_DSV41_PREFILL_PIPE: this rank's stage programs. Not enumerated yet.
-pub fn enumerateStage(gpa: std.mem.Allocator, n: *Needs, cfg: *const Config, w: *const block.Widths, o1: block.Options, ps: @import("pipe.zig").Settings, rank: u32, log: *std.Io.Writer) !void {
-    _ = gpa;
-    _ = n;
-    _ = cfg;
-    _ = w;
-    _ = o1;
-    _ = ps;
-    _ = rank;
-    _ = log;
+/// TF_DSV41_PREFILL_PIPE (pipe.zig): this rank's stage programs at their world-1 options `o1` (pipe.stageOptions): the
+/// whole segment's regimes as the prefill's (a start of the line's rows whose variant set is new), the boot's planned
+/// programs (pipe.planned: the last start is not a multiple of the rows), then every row count a stage takes
+/// (pipe.min_seg .. the line's rows) at each regime's first start.
+pub fn enumerateStage(gpa: std.mem.Allocator, n: *Needs, cfg: *const Config, w: *const block.Widths, o1: block.Options, ps: pipe.Settings, rank: u32, log: *std.Io.Writer) !void {
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const P: i64 = ps.rows;
+    var starts: std.ArrayList(i64) = .empty;
+    var seen: std.AutoHashMapUnmanaged(u64, void) = .empty;
+    var s: i64 = 0;
+    while (s + P <= o1.limit) : (s += P) {
+        var pa = std.heap.ArenaAllocator.init(gpa);
+        defer pa.deinit();
+        const f = try n.program(try pipe.emit(pa.allocator(), cfg, w, o1, &ps, rank, P, s));
+        if (!(try seen.getOrPut(a, f)).found_existing) try starts.append(a, s);
+    }
+    for (try pipe.planned(a, cfg, w, o1, ps, rank)) |p| {
+        var pa = std.heap.ArenaAllocator.init(gpa);
+        defer pa.deinit();
+        _ = try n.program(try pipe.emit(pa.allocator(), cfg, w, o1, &ps, rank, p[0], p[1]));
+    }
+    for (starts.items) |s0| {
+        var rows: i64 = pipe.min_seg;
+        while (rows <= P and s0 + rows <= o1.limit) : (rows += 1) {
+            var pa = std.heap.ArenaAllocator.init(gpa);
+            defer pa.deinit();
+            _ = try n.program(try pipe.emit(pa.allocator(), cfg, w, o1, &ps, rank, rows, s0));
+        }
+        try log.print("aot-needs: pipeline stage {d} from {d} ({d} rows), {d} programs, {d} variants\n", .{ rank, s0, P, n.programs, n.keys.count() });
+        try log.flush();
+    }
 }
 
 /// `tf-dsv41-m1 aot-needs SIGS OUT`.
@@ -580,7 +609,9 @@ pub fn main(gpa: std.mem.Allocator, io: std.Io, sigs_path: []const u8, out_path:
     // DSpark's ingest main_proj (a DSpark block's width; its EXL3 linear is CUDA, as mdraft_test.zig sets it)
     try w.dense.put(a, "dspark.main_proj", try w.k2("L40.attn.wkv"));
     const sv = try Served.fromEnv();
-    try log.print("aot-needs: limit {d}, {d} slot(s), rows cap {d}, prefill rows {d}, index budget {d} MiB, R1 {}, drafts {}, slot drafts {} (group {d}), world {d}\n", .{ sv.o.limit, sv.slots, sv.cap, sv.o.prefill_rows, sv.o.index_budget >> 20, sv.o.r1, sv.drafts, sv.slot_drafts, sv.group, sv.o.world });
+    // a pipeline stage runs every wo_a group of its layers (the listing is a TP rank's)
+    if (sv.pipe != null) try pipe.fillGroups(a, &w, &cfg);
+    try log.print("aot-needs: limit {d}, {d} slot(s), rows cap {d}, prefill rows {d}, index budget {d} MiB, R1 {}, drafts {}, slot drafts {} (group {d}), world {d}, pipeline {s}\n", .{ sv.o.limit, sv.slots, sv.cap, sv.o.prefill_rows, sv.o.index_budget >> 20, sv.o.r1, sv.drafts, sv.slot_drafts, sv.group, sv.o.world, if (sv.pipe != null) "on" else "off" });
     var n: Needs = .{ .gpa = gpa, .sigs = &parsed.value.kernels };
     defer n.deinit();
     try enumerate(gpa, &n, &cfg, &w, sv, log);
