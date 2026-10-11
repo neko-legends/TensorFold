@@ -127,7 +127,11 @@ pub const Runner = struct {
         const off: u64 = @intCast(t.offset);
         return switch (t.role) {
             .weight => |w| (r.weights.get(w) orelse return error.MissingWeight).ptr + off,
-            .buf => |b| (r.addrs.get(b) orelse return error.Unbound) + off,
+            .buf => |b| (r.addrs.get(b) orelse {
+                var mb: [256]u8 = undefined;
+                std.log.scoped(.dsv41).warn("{s}", .{buffers.unboundMessage(&mb, t)});
+                return error.Unbound;
+            }) + off,
             .empty => error.EmptyRole,
         };
     }

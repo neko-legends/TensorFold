@@ -581,6 +581,12 @@ pub fn lastEnd(cfg: *const Config, w: *const block.Widths, o1: block.Options, s:
 /// holds there only with its other programs, and a stage's namespace has none (window 6: `the line failed (Unbound)` on
 /// "L.pp~ix.pos0", the first prompt's third segment). pipe_emit_test.zig checks the plan against sampled segments.
 pub fn planned(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths, o1: block.Options, s: Settings, rank: u32) ![]const [2]i64 {
+    // x3gm's width-bit plans (TF_DSV41_GM_V2=0 or split: gm_plan with k2 > 0) read "s.L<i>.ex.k2_{g,d}" by the bare name
+    // (forward_prefill.glueStep): the forward's TP-sharded table, not a world-1 stage's experts
+    if (o1.gm_v2 != .one) {
+        log.warn("TF_DSV41_PREFILL_PIPE: a stage's MoE needs TF_DSV41_GM_V2=1 (x3gm one plan), not {t}", .{o1.gm_v2});
+        return error.Unsupported;
+    }
     var out: std.ArrayList([2]i64) = .empty;
     var end: i64 = o1.limit;
     for ([_]i64{ s.rows, min_seg }) |n| {
@@ -594,10 +600,11 @@ pub fn planned(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths,
     var ratios: [3]bool = @splat(false);
     for (st.lo..@min(st.hi, st.d)) |i| {
         const L: u32 = @intCast(i);
-        if (cfg.compressRatio(L) == 0 or !cfg.isIndexSource(L) or cfg.mode(L) != .full) continue;
-        // a candidate source's selection never streams, a top-k off the powers of two neither: not selectWorst's model
-        if (cfg.isCandidateSource(L) or @popCount(cfg.index_topk) != 1) {
-            log.warn("TF_DSV41_PREFILL_PIPE: stage {d} selects at layer {d} (candidate source or top-k {d}): its scratch is not planned", .{ rank, L, cfg.index_topk });
+        if (cfg.compressRatio(L) == 0 or !cfg.isIndexSource(L)) continue;
+        // a candidate source's selection never streams, a top-k off the powers of two neither, a reindex layer's names
+        // its own keys ("L.ix.ckeys" / "L.ix.bkeys"): not selectWorst's model, refused rather than left unplanned
+        if (cfg.mode(L) != .full or cfg.isCandidateSource(L) or @popCount(cfg.index_topk) != 1) {
+            log.warn("TF_DSV41_PREFILL_PIPE: stage {d} selects at layer {d} ({t} mode, candidate source {}, top-k {d}): its scratch is not planned", .{ rank, L, cfg.mode(L), cfg.isCandidateSource(L), cfg.index_topk });
             return error.Unsupported;
         }
         ratios[cfg.compressRatio(L)] = true;

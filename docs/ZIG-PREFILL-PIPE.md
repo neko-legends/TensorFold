@@ -270,12 +270,33 @@ for the forward only together with its other planned programs. On the stages the
 monotone in the start: past 2,730 keys a 2,048-row segment's materialised scores go to row blocks, each naming
 "L.ix.pos<j>", and past 4,096 keys they stream. So the first pipelined prompt's third segment (rows 4,096-6,143 on
 rank 0) named "L.pp~ix.pos0", which no planned program named: `the line failed (Unbound)` (Runner.tensorAddr). The
-second segment had already overrun "L.pp~ix.scores" (16 MiB into an 8 MiB slot of the layer arena).
+second segment had already overrun "L.pp~ix.scores" (16 MiB into an 8 MiB slot of the layer arena). Its sort keys
+"L.pp~ix.keys" (32 MiB there) did not overrun: the last start's stream merge names the same role, and the old plan
+already held it at 109,051,904 bytes (the pinned-size test passes that assertion against e62f70a0's plan).
 
 - **The fix.** `pipe.planned` adds the segments where the selection's start-dependent scratch is largest
   (`block_prefill.selectWorst`, exact over every (rows, start): each key count's last start, each key split's for the
-  stream, through `selectScratch`, which takes select's own decisions). A stage that selects at the candidate source
-  or with a top-k off the powers of two is refused at boot (not the model).
+  stream, through `selectScratch`, which takes select's own decisions).
+- **The refusals.** `selectScratch` models one kind of selection: a full-mode index source that is not the candidate
+  source, with a power-of-two top-k. `pipe.planned` refuses a stage that selects any other way. That covers the
+  candidate source, a top-k off the powers of two, and a reindex-mode index source, whose selection names its own keys
+  ("L.ix.ckeys" / "L.ix.bkeys"). The first version skipped the reindex case silently instead of refusing it. It also
+  refuses `TF_DSV41_GM_V2` other than 1 (`pipe_run.check` too): with GM_V2=0 or split, the stage's x3gm emits
+  `gm_plan` with k2 > 0. `forward_prefill.glueStep` would then read the K2 table by its bare name "s.L<i>.ex.k2_{g,d}",
+  which is the forward's TP-sharded table and not the stage's world-1 experts. None of these is reachable at this
+  checkpoint's served config. Reindex layers are 24-36, past the encoder's 0-20; the candidate source is layer 20,
+  the decoder's first, whose last stage emits no selection; the top-k is 512; GM_V2=1.
+  - These refusals are tested in `pipe_emit_test.zig`, "the boot refuses a stage whose selection the plan does not
+    model". It checks every refused shape on every rank, plus a control at the served config. It fails on e022203c
+    (the reindex case plans), and also under a mutation that drops the GM_V2 guard or the candidate / top-k guard.
+    The k2 > 0 reach is tested directly: at 0 and split a stage's `gm_plan` carries k2 > 0, and at 1 it never does.
+- **The sizes are pinned.** On ranks 0-2 the plan holds "L.pp~ix.scores" at 22,369,620 bytes (the materialised
+  ceiling n·nvis ≤ budget / 12, reached at (1547, nvis 3615)) and "L.pp~ix.keys" at 109,051,904 bytes (the stream
+  merge). The 2,048-row segment from 2,048 needs 16,777,216 and 33,554,432. On e62f70a0 the scores assertion fails
+  (8,388,608).
+- **An `Unbound` names its role.** `Runner.tensorAddr` warns `role <name> is unbound: the call needs <bytes> bytes
+  (<dtype> <shape> at offset <o>), the plan holds 0` (`buffers.unboundMessage`, tested). `pipe_run.zig`'s lookups by
+  name warn with the role too. Window 6's line read only `(Unbound)`.
 - **Tested.** Every stage-owned role ("pp~", "s.P.") of a stage at sampled segments is in the plan at least as large:
   2,048- and 4,096-row lines, every rank, rows {R, R − 1, 1547, 1366, 1365, 1024, 100, 64, 33} × starts every 512
   through 16,384, the regime edges, a key split's ends, 300,000 and the last start, plus 40 random segments a rank.
@@ -294,7 +315,7 @@ second segment had already overrun "L.pp~ix.scores" (16 MiB into an 8 MiB slot o
 | the stage copies | `pipe_load.zig`, `prepared.zig` (key variant) | `host_test.zig` (a synthetic pack at world 1), `prepared.zig` |
 | the shift | `Collective.sendRecv` (NCCL group) | `fabric/tp/host_test.zig` |
 | rounds, exchange, drain, fail-fast | `pipe_run.zig` | device code; the route / layouts above are its decisions, and every role it binds or looks up is in the stage plan (`pipe_emit_test.zig`) |
-| boot | `model.zig`; refusals in `pipe_run.check` | compile only |
+| boot | `model.zig`; refusals in `pipe_run.check` and `pipe.planned` | `pipe.planned`'s: `pipe_emit_test.zig`; `pipe_run.check`: compile only |
 
 `aot-needs` with `config/tp4-zig.env.example` and `TF_DSV41_PREFILL_PIPE=1024` on this host gives these counts. Every
 rank's list is a superset of the window-4b fill (136 variants, none dropped), so the same assets also boot with the

@@ -500,3 +500,105 @@ test "every role pipe_run looks up by name is one the stage programs name (the c
         if (st.last) for (@import("ced.zig").roles) |role| try testing.expect(plan.sizes.get(role) != null);
     }
 }
+
+test "the boot refuses a stage whose selection the plan does not model (candidate source, top-k off the powers of two, reindex, GM_V2 != 1)" {
+    // pipe.planned (boot: model.zig's residentBytes, forward_prefill.plan) refuses rather than leaving the stage's
+    // selection scratch unplanned, which would fail as `Unbound` (or overrun a smaller slot) mid-prompt (window 6)
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const aa = arena.allocator();
+    const base: Config = .{};
+    var w = try widths(aa);
+    // the reindex case's layer 3 runs an indexer: its projections' widths (layer 2's; the fixture's layer 3 has none)
+    for ([_][]const u8{ "ix_wk", "ix_wq_b" }) |m| try w.dense.put(aa, try std.fmt.allocPrint(aa, "L3.attn.{s}", .{m}), w.dense.get(try std.fmt.allocPrint(aa, "L2.attn.{s}", .{m})).?);
+    // the GM_V2=0 / split cases' x3gm v1 / width-bit plans: each routed layer's K2 widths (as the k2 test below)
+    for (0..40) |L| try w.gm.put(aa, @intCast(L), .{ (1 << 3) | (1 << 4), (1 << 3) | (1 << 4) });
+    const s = try settings();
+    const Case = struct { cfg: Config, gm: @import("gm2pf.zig").Mode = .one, refused: [4]bool };
+    var topk = base;
+    topk.index_topk = 384;
+    var cand = base;
+    cand.candidate_source = 8; // rank 1's index source
+    var reindex = base;
+    reindex.index_sources = @TypeOf(base.index_sources).of(&.{ 2, 3, 8, 14, 20, 24, 28, 32, 36 }); // 3: rank 0's, not a kv source
+    try testing.expectEqual(.reindex, reindex.mode(3));
+    const cases = [_]Case{
+        .{ .cfg = base, .refused = .{ false, false, false, false } },
+        .{ .cfg = topk, .refused = .{ true, true, true, false } }, // rank 3 (15..19) selects at no index source
+        .{ .cfg = cand, .refused = .{ s.owner(8) == 0, s.owner(8) == 1, s.owner(8) == 2, false } },
+        .{ .cfg = reindex, .refused = .{ true, false, false, false } },
+        .{ .cfg = base, .gm = .off, .refused = .{ true, true, true, true } },
+        .{ .cfg = base, .gm = .split, .refused = .{ true, true, true, true } },
+    };
+    try testing.expectEqual(@as(u32, 0), s.owner(3));
+    for (cases) |c| for (0..4) |ri| {
+        const r: u32 = @intCast(ri);
+        var o = servedOptions(r);
+        o.gm_v2 = c.gm;
+        const got = pipe.planned(aa, &c.cfg, &w, pipe.stageOptions(o, s.rows), s, r);
+        if (c.refused[ri]) try testing.expectError(error.Unsupported, got) else _ = try got;
+    };
+}
+
+test "a stage's gm_plan glue reads a K2 table (k2 > 0, the forward's bare name) at TF_DSV41_GM_V2=0 and split, never at 1" {
+    // the reach of forward_prefill.glueStep's "s.L<i>.ex.k2_{g,d}" read from a stage (pipe_run.stageGlue): why
+    // pipe.planned and pipe_run.check refuse every mode but `.one`
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const aa = arena.allocator();
+    const cfg: Config = .{};
+    var w = try widths(aa);
+    // each routed layer's K2 widths (the run's plan; two bits, as the other prefill tests)
+    for (0..40) |L| try w.gm.put(aa, @intCast(L), .{ (1 << 3) | (1 << 4), (1 << 3) | (1 << 4) });
+    const s = try settings();
+    for ([_]@import("gm2pf.zig").Mode{ .one, .off, .split }) |gm| {
+        var o = servedOptions(0);
+        o.gm_v2 = gm;
+        const cs = try pipe.emit(aa, &cfg, &w, pipe.stageOptions(o, s.rows), &s, 0, 2048, 2048);
+        var k2: usize = 0;
+        var plans: usize = 0;
+        for (cs) |c| if (std.mem.eql(u8, c.name, "glue.gm_plan")) {
+            plans += 1;
+            if (c.args[6].arg.i > 0) k2 += 1;
+        };
+        try testing.expect(plans > 0);
+        if (gm == .one) try testing.expectEqual(@as(usize, 0), k2) else try testing.expect(k2 > 0);
+    }
+}
+
+test "the stage plan's indexer scores and sort keys hold a 2,048-row segment from 2,048 (round 1's 16 MiB scores overran an 8 MiB slot)" {
+    // the 2,048-row segment from 2,048 (nvis 2,048, materialised whole) writes 16,777,216 bytes of scores and 33,554,432
+    // of sort keys; e62f70a0's plan held "L.pp~ix.scores" at 8,388,608 (its (2048, 0) program: 8 MiB past the slot) and
+    // "L.pp~ix.keys" at 109,051,904 already (its last start's stream merge names the same role: no keys overrun).
+    // Pinned exactly: a plan that drops either program fails here, not as corruption on hardware
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const aa = arena.allocator();
+    const cfg: Config = .{};
+    const w = try widths(aa);
+    const s = try settings();
+    for (0..3) |ri| {
+        const r: u32 = @intCast(ri);
+        const o1 = pipe.stageOptions(servedOptions(r), s.rows);
+        var plan: buffers.Plan = .{ .a = aa };
+        for (try pipe.planned(aa, &cfg, &w, o1, s, r)) |x| try plan.add(try pipe.program(aa, &cfg, &w, o1, &s, r, x[0], x[1]));
+        var need: buffers.Plan = .{ .a = aa };
+        try need.add(try pipe.program(aa, &cfg, &w, o1, &s, r, 2048, 2048));
+        try testing.expectEqual(@as(u64, 16777216), need.sizes.get("L.pp~ix.scores").?);
+        try testing.expectEqual(@as(u64, 33554432), need.sizes.get("L.pp~ix.keys").?);
+        // the plan's: the materialised ceiling n x nvis <= index_budget / 12 at (1547, nvis 3615), f32 scores; the keys
+        // the larger of its i64 sort keys (44,739,240) and the stream's merge (block_prefill.selectScratch)
+        try testing.expectEqual(@as(u64, 22369620), plan.sizes.get("L.pp~ix.scores").?);
+        try testing.expect(plan.sizes.get("L.pp~ix.keys").? >= 44739240);
+        try testing.expectEqual(@as(u64, 109051904), plan.sizes.get("L.pp~ix.keys").?);
+    }
+}
+
+test "an Unbound names its role and the bytes the call needs (run.Runner.tensorAddr's warn; window 6's error named nothing)" {
+    const t: calls.Tensor = .{ .role = .{ .buf = "L.pp~ix.pos0" }, .dt = .i32, .shape = &.{1}, .stride = &.{1} };
+    var mb: [256]u8 = undefined;
+    const m = buffers.unboundMessage(&mb, t);
+    try testing.expect(std.mem.indexOf(u8, m, "L.pp~ix.pos0") != null);
+    try testing.expect(std.mem.indexOf(u8, m, "needs 4 bytes") != null);
+    try testing.expect(std.mem.indexOf(u8, m, "holds 0") != null);
+}

@@ -33,6 +33,17 @@ pub fn extent(t: calls.Tensor) u64 {
     return @as(u64, @intCast(t.offset)) + (@as(u64, @intCast(last)) + 1) * dtSize(t.dt);
 }
 
+/// What an `Unbound` names (window 6's `the line failed (Unbound)` named nothing): the role, the bytes the call's
+/// view reaches, the bytes the runner holds for it (none: no planned program names it).
+pub fn unboundMessage(buf: []u8, t: calls.Tensor) []const u8 {
+    const role = switch (t.role) {
+        .buf => |b| b,
+        .weight => |w| w,
+        .empty => "",
+    };
+    return std.fmt.bufPrint(buf, "role {s} is unbound: the call needs {d} bytes ({t} {any} at offset {d}), the plan holds 0", .{ role, extent(t), t.dt, t.shape, t.offset }) catch role;
+}
+
 pub const Plan = struct {
     a: std.mem.Allocator,
     sizes: std.StringArrayHashMapUnmanaged(u64) = .empty,

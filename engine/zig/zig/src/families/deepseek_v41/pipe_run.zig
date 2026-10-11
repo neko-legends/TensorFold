@@ -445,8 +445,8 @@ pub const Line = struct {
         var nb: [64]u8 = undefined;
         var sb: [64]u32 = undefined;
         for (ln.s.stage(ln.rank).sources(f.cfg, &sb)) |L| if (f.cfg.compressRatio(L) == 2) {
-            const src = r.addressOf(try std.fmt.bufPrint(&nb, "w." ++ pipe.tag ++ "L{d}.proj", .{L})) orelse return error.Unbound;
-            const dst = r.addressOf(try std.fmt.bufPrint(&nb, "s.L{d}.carry", .{L})) orelse return error.Unbound;
+            const src = try bound(r, try std.fmt.bufPrint(&nb, "w." ++ pipe.tag ++ "L{d}.proj", .{L}));
+            const dst = try bound(r, try std.fmt.bufPrint(&nb, "s.L{d}.carry", .{L}));
             try copy(r, dst, src + (sg.n - 1) * row, row);
         };
     }
@@ -533,8 +533,8 @@ pub const Line = struct {
             const ratio = f.cfg.compressRatio(L);
             const span = pipe.rowsOf(ratio, sg.start, sg.n);
             const off = pipe.RowsLayout.at(f.cfg, ln.s, L);
-            const comp = r.addressOf(try std.fmt.bufPrint(&nb, "s.kv.comp.L{d}", .{L})) orelse return error.Unbound;
-            const ik = r.addressOf(try std.fmt.bufPrint(&nb, "s.kv.ik.L{d}", .{L})) orelse return error.Unbound;
+            const comp = try bound(r, try std.fmt.bufPrint(&nb, "s.kv.comp.L{d}", .{L}));
+            const ik = try bound(r, try std.fmt.bufPrint(&nb, "s.kv.ik.L{d}", .{L}));
             const shift: u6 = @intCast(block.Pool.shift(ratio));
             const p0 = span[0] >> shift;
             const p1 = (span[1] + (@as(u64, 1) << shift) - 1) >> shift;
@@ -585,13 +585,13 @@ pub const Line = struct {
         };
         for (st.lo..@min(st.hi, st.d)) |i| {
             const L: u32 = @intCast(i);
-            try Mv.go(r, r.addressOf(try std.fmt.bufPrint(&nb, "s.L{d}.swa.v", .{L})) orelse return error.Unbound, part, &off, ring[0], pack);
-            try Mv.go(r, r.addressOf(try std.fmt.bufPrint(&nb, "s.L{d}.swa.s", .{L})) orelse return error.Unbound, part, &off, ring[1], pack);
+            try Mv.go(r, try bound(r, try std.fmt.bufPrint(&nb, "s.L{d}.swa.v", .{L})), part, &off, ring[0], pack);
+            try Mv.go(r, try bound(r, try std.fmt.bufPrint(&nb, "s.L{d}.swa.s", .{L})), part, &off, ring[1], pack);
             if (f.cfg.isKvSource(L) and f.cfg.compressRatio(L) == 2)
-                try Mv.go(r, r.addressOf(try std.fmt.bufPrint(&nb, "s.L{d}.carry", .{L})) orelse return error.Unbound, part, &off, pipe.FinalsLayout.carryBytes(f.cfg), pack);
+                try Mv.go(r, try bound(r, try std.fmt.bufPrint(&nb, "s.L{d}.carry", .{L})), part, &off, pipe.FinalsLayout.carryBytes(f.cfg), pack);
         }
         if (st.last) for (ced.roles, pipe.FinalsLayout.stashBytes(f.cfg)) |role, bytes| {
-            try Mv.go(r, r.addressOf(role) orelse return error.Unbound, part, &off, bytes, pack);
+            try Mv.go(r, try bound(r, role), part, &off, bytes, pack);
         };
     }
 
@@ -650,8 +650,10 @@ pub fn check(f: *const Forward, s: pipe.Settings) !void {
         log.warn("TF_DSV41_PREFILL_PIPE: a stage reads its sources' whole history; needs TF_DSV41_KV_SPLIT=0", .{});
         return error.BadKnob;
     }
-    if (s.rows > 2048 and f.opts.gm_v2 == .off) {
-        log.warn("TF_DSV41_PIPE_ROWS=4096: x3gm one block a segment, needs TF_DSV41_GM_V2=1", .{});
+    if (f.opts.gm_v2 != .one) {
+        // 0 / split: gm_plan's width bits read the forward's K2 table by its bare name (pipe.planned refuses it too);
+        // 4,096 rows: x3gm one block a segment
+        log.warn("TF_DSV41_PREFILL_PIPE: a stage's MoE needs TF_DSV41_GM_V2=1, not {t}", .{f.opts.gm_v2});
         return error.BadKnob;
     }
     if (f.cfg.vocab % s.world != 0) return error.BadKnob;
@@ -674,6 +676,14 @@ pub fn planInto(f: *Forward, ln: *const Line, p: *buffers.Plan) !void {
 pub fn residentBytes(f: *Forward, ln: *const Line) !u64 {
     // priced before the pool exists: a stage's own roles do not depend on its options (pipe_test.zig)
     return try pipe.stageRoleBytes(f.gpa, f.cfg, f.widths, ln.o1, ln.s, ln.rank) + Line.bufferBytes(f.cfg, ln.s, ln.rank);
+}
+
+/// A role the line's glue looks up by name; `Unbound` with the name in the log (run.Runner.tensorAddr's for a call's).
+fn bound(r: *const run.Runner, role: []const u8) !u64 {
+    return r.addressOf(role) orelse {
+        log.warn("role {s} is unbound: the line's glue looks it up by name, the plan holds 0", .{role});
+        return error.Unbound;
+    };
 }
 
 fn copy(r: *run.Runner, dst: u64, src: u64, bytes: u64) !void {
