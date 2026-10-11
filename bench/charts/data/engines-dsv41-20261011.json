@@ -1,0 +1,874 @@
+{
+ "title": "DeepSeek V4.1 Flash on 4× DGX Spark: every engine we have run — TensorFold Python, Zig (four configs), vLLM, SGLang",
+ "subtitle": "TensorFold series: bench/zig_vs_python.py, 2026-10-10 (Python) and 2026-10-11 windows 7 / 8 (Zig), best of 3. vLLM and SGLang: their own harness, September 2026, another checkpoint precision.",
+ "tier_key": [
+  "Same window, one variable changed (controlled): Zig pipelined prefill off → on, the box round the pair.",
+  "Same harness, different session: % vs live Python TensorFold (RoCE), 2026-10-10. Not a controlled comparison.",
+  "Different harness, prompts, date and weights (vLLM, SGLang): hollow bars, italic values, indicative only, no %."
+ ],
+ "footnotes": [
+  "● Controlled: Zig pipelined prefill off → on, same window, image, transport and prompts (w7: NCCL, salt zvp-20261011w7; w8: RoCE, salt zvp-20261011w8). w8 is under independent review: pending review.",
+  "Small %: vs live Python TensorFold over RoCE (2026-10-10), same harness (bench/zig_vs_python.py), different session. TensorFold 'RoCE' = its own RoCE all-gather; 'NCCL' = NCCL over the same ConnectX-7 RoCE links (as vLLM and SGLang use).",
+  "Not measured: w8 was trimmed to the cold, long and mixwin parts. Its short cells have only a single cold pass (n = 1, the first requests after boot); that is not plotted against anyone's warm best of 3.",
+  "vLLM: phase-4 champion (CHAMPION.env: greedy DSpark draft k = 5, max batched 16,384, 430K context), run final-champion, n = 1 decode / n = 2 prefill. SGLang: dev-dsv41 image + MiaAI TP4 kit, EP = 4, DSpark on, 3 reps + 1 probe. Both on the native FP8 + MXFP4 checkpoint; all their correctness gates passed.",
+  "Their cells are matched only where the metric is defined alike: cold prefill tok/s on a unique prompt (46.7–46.8K and 145.5–145.9K tokens vs ours 38.0K and 154.2K), and single-stream decode = (tokens − 1) / (last − first token), but on their own 36–47-token prompts with ≤ 200-token replies (ours 384).",
+  "No like metric: TTFT (their prompt is ~146K, not 154K: vLLM 102.8 s, SGLang 74.8 s), decode after a long prompt, mixed windows, T0.7, and ×4 (their C4 sends one prompt four times and divides by wall clock incl. TTFT). Best of the reps throughout (TTFT: lowest); medians and n in bench/charts/data/engines-dsv41-20261011.json."
+ ],
+ "mirror": "/home/jun/nest/tmp/zvp-20261011",
+ "artifact_root": "forge:~/zigtp4-run/out/zvp (TensorFold runs); forge:~/dsv41-vllm, forge:~/dsv41-sglang-trial-20260914, forge:~/tf-claude-20261004 (vLLM, SGLang)",
+ "statistic": "best of the repetitions without a failed stream (TTFT: the lowest); median and n beside it",
+ "baseline": "python-roce",
+ "controlled": [
+  {
+   "a": "zig-nccl-control",
+   "b": "zig-nccl-pipe",
+   "note": "window 7, NCCL, salt zvp-20261011w7"
+  },
+  {
+   "a": "zig-roce-control",
+   "b": "zig-roce-pipe",
+   "note": "window 8, RoCE, salt zvp-20261011w8"
+  }
+ ],
+ "cells": {
+  "prefill-32k": {
+   "label": "32K prompt",
+   "unit": "prompt tok/s",
+   "better": "higher",
+   "tensorfold_def": "long.json long-32768 T0.0 x1 prompt_tok_s"
+  },
+  "prefill-131k": {
+   "label": "131K prompt",
+   "unit": "prompt tok/s",
+   "better": "higher",
+   "tensorfold_def": "long.json long-131072 T0.0 x1 prompt_tok_s"
+  },
+  "ttft-154k": {
+   "label": "154K-token\nprompt",
+   "unit": "s",
+   "better": "lower",
+   "tensorfold_def": "long.json long-131072 T0.0 x1 ttft_s"
+  },
+  "long-decode-131k": {
+   "label": "decode after\nthe 154K prompt",
+   "unit": "tok/s",
+   "better": "higher",
+   "tensorfold_def": "long.json long-131072 T0.0 x1 mean_tok_s"
+  },
+  "mixwin": {
+   "label": "mixed windows\naggregate",
+   "unit": "tok/s",
+   "better": "higher",
+   "tensorfold_def": "mixwin.json mixwin-131072 T0.0 x4 aggregate_tok_s"
+  },
+  "code-x1": {
+   "label": "code ×1",
+   "unit": "tok/s",
+   "better": "higher",
+   "tensorfold_def": "warm.json code T0.0 x1 rate"
+  },
+  "code-x4": {
+   "label": "code ×4\naggregate",
+   "unit": "tok/s",
+   "better": "higher",
+   "tensorfold_def": "warm.json code T0.0 x4 rate"
+  },
+  "code-t07-x4": {
+   "label": "code T0.7 ×4\naggregate",
+   "unit": "tok/s",
+   "better": "higher",
+   "tensorfold_def": "warm.json code T0.7 x4 rate"
+  },
+  "prose-x1": {
+   "label": "prose ×1",
+   "unit": "tok/s",
+   "better": "higher",
+   "tensorfold_def": "warm.json prose T0.0 x1 rate"
+  },
+  "prose-x4": {
+   "label": "prose ×4\naggregate",
+   "unit": "tok/s",
+   "better": "higher",
+   "tensorfold_def": "warm.json prose T0.0 x4 rate"
+  }
+ },
+ "series": [
+  {
+   "id": "python-nccl",
+   "label": "Python TensorFold",
+   "engine": "python",
+   "transport": "NCCL",
+   "tp": "TP=4",
+   "quant": "EXL3 2.9 bpw",
+   "date": "2026-10-10",
+   "window": "2026-10-10",
+   "salt_tag": "zvp-20261010b",
+   "tier": "tensorfold",
+   "harness": "bench/zig_vs_python.py (Jay's bench_http cells: 384-token replies, distinct prompt a stream)",
+   "run_dir": "python-tp4-nccl",
+   "values": {
+    "prefill-32k": {
+     "value": 4084.5,
+     "median": 4051.4,
+     "n": 3,
+     "source": "python-tp4-nccl/long.json",
+     "harness": "zig_vs_python",
+     "prompt_tokens": [
+      37986
+     ]
+    },
+    "prefill-131k": {
+     "value": 4333.6,
+     "median": 4332.1,
+     "n": 3,
+     "source": "python-tp4-nccl/long.json",
+     "harness": "zig_vs_python",
+     "prompt_tokens": [
+      154195
+     ]
+    },
+    "ttft-154k": {
+     "value": 35.581,
+     "median": 35.594,
+     "n": 3,
+     "source": "python-tp4-nccl/long.json",
+     "harness": "zig_vs_python",
+     "prompt_tokens": [
+      154195
+     ]
+    },
+    "long-decode-131k": {
+     "value": 81.01,
+     "median": 71.67,
+     "n": 3,
+     "source": "python-tp4-nccl/long.json",
+     "harness": "zig_vs_python",
+     "prompt_tokens": [
+      154195
+     ]
+    },
+    "mixwin": {
+     "value": 165.92,
+     "median": 161.21,
+     "n": 3,
+     "source": "python-tp4-nccl/mixwin.json",
+     "harness": "zig_vs_python"
+    },
+    "code-x1": {
+     "value": 101.71,
+     "median": 101.43,
+     "n": 3,
+     "source": "python-tp4-nccl/warm.json",
+     "harness": "zig_vs_python"
+    },
+    "code-x4": {
+     "value": 176.09,
+     "median": 174.96,
+     "n": 3,
+     "source": "python-tp4-nccl/warm.json",
+     "harness": "zig_vs_python"
+    },
+    "code-t07-x4": {
+     "value": 169.15,
+     "median": 168.08,
+     "n": 3,
+     "source": "python-tp4-nccl/warm.json",
+     "harness": "zig_vs_python"
+    },
+    "prose-x1": {
+     "value": 55.85,
+     "median": 55.83,
+     "n": 3,
+     "source": "python-tp4-nccl/warm.json",
+     "harness": "zig_vs_python"
+    },
+    "prose-x4": {
+     "value": 112.93,
+     "median": 111.69,
+     "n": 3,
+     "source": "python-tp4-nccl/warm.json",
+     "harness": "zig_vs_python"
+    }
+   },
+   "not_measured": []
+  },
+  {
+   "id": "python-roce",
+   "label": "Python TensorFold (live)",
+   "engine": "python",
+   "transport": "RoCE",
+   "tp": "TP=4",
+   "quant": "EXL3 2.9 bpw",
+   "date": "2026-10-10",
+   "window": "2026-10-10",
+   "salt_tag": "zvp-20261010a",
+   "tier": "tensorfold",
+   "harness": "bench/zig_vs_python.py (Jay's bench_http cells: 384-token replies, distinct prompt a stream)",
+   "run_dir": "python-tp4-roce-live",
+   "values": {
+    "prefill-32k": {
+     "value": 4083.6,
+     "median": 4065.7,
+     "n": 3,
+     "source": "python-tp4-roce-live/long.json",
+     "harness": "zig_vs_python",
+     "prompt_tokens": [
+      37986
+     ]
+    },
+    "prefill-131k": {
+     "value": 4354.1,
+     "median": 4352.2,
+     "n": 3,
+     "source": "python-tp4-roce-live/long.json",
+     "harness": "zig_vs_python",
+     "prompt_tokens": [
+      154195
+     ]
+    },
+    "ttft-154k": {
+     "value": 35.414,
+     "median": 35.429,
+     "n": 3,
+     "source": "python-tp4-roce-live/long.json",
+     "harness": "zig_vs_python",
+     "prompt_tokens": [
+      154195
+     ]
+    },
+    "long-decode-131k": {
+     "value": 79.48,
+     "median": 79.22,
+     "n": 3,
+     "source": "python-tp4-roce-live/long.json",
+     "harness": "zig_vs_python",
+     "prompt_tokens": [
+      154195
+     ]
+    },
+    "mixwin": {
+     "value": 192.08,
+     "median": 191.47,
+     "n": 3,
+     "source": "python-tp4-roce-live/mixwin.json",
+     "harness": "zig_vs_python"
+    },
+    "code-x1": {
+     "value": 119.08,
+     "median": 117.92,
+     "n": 3,
+     "source": "python-tp4-roce-live/warm.json",
+     "harness": "zig_vs_python"
+    },
+    "code-x4": {
+     "value": 207.93,
+     "median": 205.75,
+     "n": 3,
+     "source": "python-tp4-roce-live/warm.json",
+     "harness": "zig_vs_python"
+    },
+    "code-t07-x4": {
+     "value": 199.43,
+     "median": 198.75,
+     "n": 3,
+     "source": "python-tp4-roce-live/warm.json",
+     "harness": "zig_vs_python"
+    },
+    "prose-x1": {
+     "value": 66.07,
+     "median": 66.05,
+     "n": 3,
+     "source": "python-tp4-roce-live/warm.json",
+     "harness": "zig_vs_python"
+    },
+    "prose-x4": {
+     "value": 129.78,
+     "median": 129.24,
+     "n": 3,
+     "source": "python-tp4-roce-live/warm.json",
+     "harness": "zig_vs_python"
+    }
+   },
+   "not_measured": []
+  },
+  {
+   "id": "zig-nccl-control",
+   "label": "Zig",
+   "engine": "zig",
+   "transport": "NCCL",
+   "tp": "TP=4",
+   "quant": "EXL3 2.9 bpw",
+   "date": "2026-10-11",
+   "window": "w7",
+   "salt_tag": "zvp-20261011w7",
+   "tier": "tensorfold",
+   "harness": "bench/zig_vs_python.py (Jay's bench_http cells: 384-token replies, distinct prompt a stream)",
+   "run_dir": "w7/zig-tp4-nccl-control",
+   "values": {
+    "prefill-32k": {
+     "value": 2774.4,
+     "median": 2744.5,
+     "n": 3,
+     "source": "w7/zig-tp4-nccl-control/long.json",
+     "harness": "zig_vs_python",
+     "prompt_tokens": [
+      37987
+     ]
+    },
+    "prefill-131k": {
+     "value": 2554.5,
+     "median": 2542.7,
+     "n": 3,
+     "source": "w7/zig-tp4-nccl-control/long.json",
+     "harness": "zig_vs_python",
+     "prompt_tokens": [
+      154196
+     ]
+    },
+    "ttft-154k": {
+     "value": 60.363,
+     "median": 60.642,
+     "n": 3,
+     "source": "w7/zig-tp4-nccl-control/long.json",
+     "harness": "zig_vs_python",
+     "prompt_tokens": [
+      154196
+     ]
+    },
+    "long-decode-131k": {
+     "value": 73.77,
+     "median": 71.18,
+     "n": 3,
+     "source": "w7/zig-tp4-nccl-control/long.json",
+     "harness": "zig_vs_python",
+     "prompt_tokens": [
+      154196
+     ]
+    },
+    "mixwin": {
+     "value": 177.25,
+     "median": 176.52,
+     "n": 3,
+     "source": "w7/zig-tp4-nccl-control/mixwin.json",
+     "harness": "zig_vs_python"
+    },
+    "code-x1": {
+     "value": 111.61,
+     "median": 111.45,
+     "n": 3,
+     "source": "w7/zig-tp4-nccl-control/warm.json",
+     "harness": "zig_vs_python"
+    },
+    "code-x4": {
+     "value": 181.91,
+     "median": 181.56,
+     "n": 3,
+     "source": "w7/zig-tp4-nccl-control/warm.json",
+     "harness": "zig_vs_python"
+    },
+    "code-t07-x4": {
+     "value": 182.75,
+     "median": 182.18,
+     "n": 3,
+     "source": "w7/zig-tp4-nccl-control/warm.json",
+     "harness": "zig_vs_python"
+    },
+    "prose-x1": {
+     "value": 57.52,
+     "median": 57.18,
+     "n": 3,
+     "source": "w7/zig-tp4-nccl-control/warm.json",
+     "harness": "zig_vs_python"
+    },
+    "prose-x4": {
+     "value": 120.92,
+     "median": 120.63,
+     "n": 3,
+     "source": "w7/zig-tp4-nccl-control/warm.json",
+     "harness": "zig_vs_python"
+    }
+   },
+   "not_measured": []
+  },
+  {
+   "id": "zig-nccl-pipe",
+   "label": "Zig + pipelined prefill",
+   "engine": "zig-pipe",
+   "transport": "NCCL",
+   "tp": "TP=4",
+   "quant": "EXL3 2.9 bpw",
+   "date": "2026-10-11",
+   "window": "w7",
+   "salt_tag": "zvp-20261011w7",
+   "tier": "tensorfold",
+   "harness": "bench/zig_vs_python.py (Jay's bench_http cells: 384-token replies, distinct prompt a stream)",
+   "run_dir": "w7/zig-tp4-nccl-pipe",
+   "values": {
+    "prefill-32k": {
+     "value": 4825.6,
+     "median": 4823.1,
+     "n": 3,
+     "source": "w7/zig-tp4-nccl-pipe/long.json",
+     "harness": "zig_vs_python",
+     "prompt_tokens": [
+      37987
+     ]
+    },
+    "prefill-131k": {
+     "value": 5131.0,
+     "median": 5123.0,
+     "n": 3,
+     "source": "w7/zig-tp4-nccl-pipe/long.json",
+     "harness": "zig_vs_python",
+     "prompt_tokens": [
+      154196
+     ]
+    },
+    "ttft-154k": {
+     "value": 30.052,
+     "median": 30.099,
+     "n": 3,
+     "source": "w7/zig-tp4-nccl-pipe/long.json",
+     "harness": "zig_vs_python",
+     "prompt_tokens": [
+      154196
+     ]
+    },
+    "long-decode-131k": {
+     "value": 74.92,
+     "median": 73.76,
+     "n": 3,
+     "source": "w7/zig-tp4-nccl-pipe/long.json",
+     "harness": "zig_vs_python",
+     "prompt_tokens": [
+      154196
+     ]
+    },
+    "mixwin": {
+     "value": 175.15,
+     "median": 173.38,
+     "n": 3,
+     "source": "w7/zig-tp4-nccl-pipe/mixwin.json",
+     "harness": "zig_vs_python"
+    },
+    "code-x1": {
+     "value": 111.52,
+     "median": 111.45,
+     "n": 3,
+     "source": "w7/zig-tp4-nccl-pipe/warm.json",
+     "harness": "zig_vs_python"
+    },
+    "code-x4": {
+     "value": 182.13,
+     "median": 181.51,
+     "n": 3,
+     "source": "w7/zig-tp4-nccl-pipe/warm.json",
+     "harness": "zig_vs_python"
+    },
+    "code-t07-x4": {
+     "value": 181.86,
+     "median": 180.38,
+     "n": 3,
+     "source": "w7/zig-tp4-nccl-pipe/warm.json",
+     "harness": "zig_vs_python"
+    },
+    "prose-x1": {
+     "value": 57.62,
+     "median": 57.36,
+     "n": 3,
+     "source": "w7/zig-tp4-nccl-pipe/warm.json",
+     "harness": "zig_vs_python"
+    },
+    "prose-x4": {
+     "value": 120.98,
+     "median": 120.44,
+     "n": 3,
+     "source": "w7/zig-tp4-nccl-pipe/warm.json",
+     "harness": "zig_vs_python"
+    }
+   },
+   "not_measured": []
+  },
+  {
+   "id": "zig-roce-control",
+   "label": "Zig",
+   "engine": "zig",
+   "transport": "RoCE",
+   "tp": "TP=4",
+   "quant": "EXL3 2.9 bpw",
+   "date": "2026-10-11",
+   "window": "w8",
+   "review": "pending review",
+   "salt_tag": "zvp-20261011w8",
+   "tier": "tensorfold",
+   "harness": "bench/zig_vs_python.py (Jay's bench_http cells: 384-token replies, distinct prompt a stream)",
+   "run_dir": "w8/zig-tp4-roce-control",
+   "values": {
+    "prefill-32k": {
+     "value": 2778.9,
+     "median": 2758.7,
+     "n": 3,
+     "source": "w8/zig-tp4-roce-control/long.json",
+     "harness": "zig_vs_python",
+     "prompt_tokens": [
+      37987
+     ]
+    },
+    "prefill-131k": {
+     "value": 2548.9,
+     "median": 2546.5,
+     "n": 3,
+     "source": "w8/zig-tp4-roce-control/long.json",
+     "harness": "zig_vs_python",
+     "prompt_tokens": [
+      154196
+     ]
+    },
+    "ttft-154k": {
+     "value": 60.496,
+     "median": 60.551,
+     "n": 3,
+     "source": "w8/zig-tp4-roce-control/long.json",
+     "harness": "zig_vs_python",
+     "prompt_tokens": [
+      154196
+     ]
+    },
+    "long-decode-131k": {
+     "value": 90.65,
+     "median": 84.72,
+     "n": 3,
+     "source": "w8/zig-tp4-roce-control/long.json",
+     "harness": "zig_vs_python",
+     "prompt_tokens": [
+      154196
+     ]
+    },
+    "mixwin": {
+     "value": 219.2,
+     "median": 215.24,
+     "n": 3,
+     "source": "w8/zig-tp4-roce-control/mixwin.json",
+     "harness": "zig_vs_python"
+    }
+   },
+   "not_measured": [
+    "code-x1",
+    "code-x4",
+    "code-t07-x4",
+    "prose-x1",
+    "prose-x4"
+   ],
+   "cold_pass_only": {
+    "code-x1": {
+     "value": 130.49,
+     "n": 1,
+     "source": "w8/zig-tp4-roce-control/cold.json"
+    },
+    "code-x4": {
+     "value": 215.24,
+     "n": 1,
+     "source": "w8/zig-tp4-roce-control/cold.json"
+    },
+    "code-t07-x4": {
+     "value": 229.03,
+     "n": 1,
+     "source": "w8/zig-tp4-roce-control/cold.json"
+    },
+    "prose-x1": {
+     "value": 66.58,
+     "n": 1,
+     "source": "w8/zig-tp4-roce-control/cold.json"
+    },
+    "prose-x4": {
+     "value": 136.56,
+     "n": 1,
+     "source": "w8/zig-tp4-roce-control/cold.json"
+    }
+   }
+  },
+  {
+   "id": "zig-roce-pipe",
+   "label": "Zig + pipelined prefill",
+   "engine": "zig-pipe",
+   "transport": "RoCE",
+   "tp": "TP=4",
+   "quant": "EXL3 2.9 bpw",
+   "date": "2026-10-11",
+   "window": "w8",
+   "review": "pending review",
+   "salt_tag": "zvp-20261011w8",
+   "tier": "tensorfold",
+   "harness": "bench/zig_vs_python.py (Jay's bench_http cells: 384-token replies, distinct prompt a stream)",
+   "run_dir": "w8/zig-tp4-roce-pipe",
+   "values": {
+    "prefill-32k": {
+     "value": 4851.5,
+     "median": 4842.2,
+     "n": 3,
+     "source": "w8/zig-tp4-roce-pipe/long.json",
+     "harness": "zig_vs_python",
+     "prompt_tokens": [
+      37987
+     ]
+    },
+    "prefill-131k": {
+     "value": 5148.1,
+     "median": 5133.5,
+     "n": 3,
+     "source": "w8/zig-tp4-roce-pipe/long.json",
+     "harness": "zig_vs_python",
+     "prompt_tokens": [
+      154196
+     ]
+    },
+    "ttft-154k": {
+     "value": 29.952,
+     "median": 30.037,
+     "n": 3,
+     "source": "w8/zig-tp4-roce-pipe/long.json",
+     "harness": "zig_vs_python",
+     "prompt_tokens": [
+      154196
+     ]
+    },
+    "long-decode-131k": {
+     "value": 99.58,
+     "median": 93.06,
+     "n": 3,
+     "source": "w8/zig-tp4-roce-pipe/long.json",
+     "harness": "zig_vs_python",
+     "prompt_tokens": [
+      154196
+     ]
+    },
+    "mixwin": {
+     "value": 212.24,
+     "median": 208.92,
+     "n": 3,
+     "source": "w8/zig-tp4-roce-pipe/mixwin.json",
+     "harness": "zig_vs_python"
+    }
+   },
+   "not_measured": [
+    "code-x1",
+    "code-x4",
+    "code-t07-x4",
+    "prose-x1",
+    "prose-x4"
+   ],
+   "cold_pass_only": {
+    "code-x1": {
+     "value": 129.13,
+     "n": 1,
+     "source": "w8/zig-tp4-roce-pipe/cold.json"
+    },
+    "code-x4": {
+     "value": 218.33,
+     "n": 1,
+     "source": "w8/zig-tp4-roce-pipe/cold.json"
+    },
+    "code-t07-x4": {
+     "value": 226.87,
+     "n": 1,
+     "source": "w8/zig-tp4-roce-pipe/cold.json"
+    },
+    "prose-x1": {
+     "value": 66.24,
+     "n": 1,
+     "source": "w8/zig-tp4-roce-pipe/cold.json"
+    },
+    "prose-x4": {
+     "value": 138.17,
+     "n": 1,
+     "source": "w8/zig-tp4-roce-pipe/cold.json"
+    }
+   }
+  },
+  {
+   "id": "vllm",
+   "label": "vLLM champion",
+   "engine": "vllm",
+   "transport": "NCCL",
+   "tp": "TP=4",
+   "quant": "FP8 + MXFP4",
+   "date": "2026-09-11",
+   "window": "2026-09-11",
+   "config": "vllm/dsv41-vllm/CHAMPION.env: greedy DSpark draft k=5, MAX_BATCHED=16384, MAXLEN=430080 (the phase-4 champion: B3 greedy draft and B7 batched-16K accepted, every other arm rejected; STATUS.md 'Final (Phase 4b)'); run phase4/final-champion",
+   "gates": "STATUS.md: 'Gates on final world: ALL PASS incl NIAH 32k x3 + 400k'; the gate log itself (phase4/gates-final-champion.log) is not in the mirror",
+   "tier": "other-harness",
+   "harness": "v41bench.py prompt set v1 (MiaAI-Lab / Tony kit; <=200-token replies) + prefillprobe.py",
+   "values": {
+    "code-x1": {
+     "value": 71.44,
+     "median": 71.44,
+     "n": 1,
+     "source": [
+      "vllm/dsv41-vllm/phase4/final-champion/bench-final-champion.json"
+     ],
+     "harness": "v41bench",
+     "completion_tokens": [
+      200
+     ],
+     "prompt_tokens": [
+      47
+     ]
+    },
+    "prose-x1": {
+     "value": 31.7,
+     "median": 31.7,
+     "n": 1,
+     "source": [
+      "vllm/dsv41-vllm/phase4/final-champion/bench-final-champion.json"
+     ],
+     "harness": "v41bench",
+     "completion_tokens": [
+      128
+     ],
+     "prompt_tokens": [
+      36
+     ]
+    },
+    "prefill-32k": {
+     "value": 1494.9,
+     "median": 1476.95,
+     "n": 2,
+     "source": [
+      "vllm/dsv41-vllm/phase4/final-champion/bench-final-champion.json",
+      "vllm/dsv41-vllm/phase4/final-champion/prefill-probe.json"
+     ],
+     "harness": "v41bench cold prefill / prefillprobe",
+     "prompt_tokens": [
+      46709,
+      46810
+     ],
+     "ttft_s": [
+      31.313,
+      32.015
+     ]
+    },
+    "prefill-131k": {
+     "value": 1415.6,
+     "median": 1400.05,
+     "n": 2,
+     "source": [
+      "vllm/dsv41-vllm/phase4/final-champion/bench-final-champion.json",
+      "vllm/dsv41-vllm/phase4/final-champion/prefill-probe.json"
+     ],
+     "harness": "v41bench cold prefill / prefillprobe",
+     "prompt_tokens": [
+      145504,
+      145882
+     ],
+     "ttft_s": [
+      102.783,
+      105.364
+     ]
+    }
+   },
+   "no_like_metric": {
+    "ttft-154k": "their longest cold prompt is 145.5-145.9K tokens, not 154K: TTFT scales with length",
+    "long-decode-131k": "no decode-after-a-long-prompt cell in their harness",
+    "mixwin": "no mixed-window cell in their harness",
+    "code-x4": "their C4 is one prompt x4, aggregate over wall clock incl. TTFT; ours: 4 prompts, live span",
+    "code-t07-x4": "their bench is T0 only",
+    "prose-x4": "their C4 is one prompt x4, aggregate over wall clock incl. TTFT; ours: 4 prompts, live span"
+   }
+  },
+  {
+   "id": "sglang",
+   "label": "SGLang + MiaAI kit, DSpark",
+   "engine": "sglang",
+   "transport": "NCCL",
+   "tp": "TP=4 EP=4",
+   "quant": "FP8 + MXFP4",
+   "date": "2026-09-14",
+   "window": "2026-09-14",
+   "config": "sglang/trial-20260914/WORLD.md: lmsysorg/sglang:dev-dsv41 (2026-09-11) + MiaAI-Lab TP4 kit, image 4e2c1ff3, TP=4 EP=4, DSpark on (block 5), native checkpoint",
+   "gates": "sglang/trial-20260914/gates/: G1 30/30 clean, G2 TOOL_ROUNDTRIP 3/3, G3 REASONING_PARSER PASS, G4 needle 32K/400K/1M pass; WORLD.md: G0 (tool-result continuation repro) 3/3 clean. The corruption Jun remembers is the 2026-09-10 DSpark-on-GB10 bug of the earlier image, fixed by the 2026-09-11 dev-dsv41 image (WORLD.md)",
+   "tier": "other-harness",
+   "harness": "v41bench.py prompt set v1 (MiaAI-Lab / Tony kit; <=200-token replies) + prefillprobe.py",
+   "values": {
+    "code-x1": {
+     "value": 76.8,
+     "median": 76.47,
+     "n": 3,
+     "source": [
+      "sglang/trial-20260914/bench/rep1/bench-sglang-r1.json",
+      "sglang/trial-20260914/bench/rep2/bench-sglang-r2.json",
+      "sglang/trial-20260914/bench/rep3/bench-sglang-r3.json"
+     ],
+     "harness": "v41bench",
+     "completion_tokens": [
+      200
+     ],
+     "prompt_tokens": [
+      47
+     ]
+    },
+    "prose-x1": {
+     "value": 36.58,
+     "median": 36.35,
+     "n": 3,
+     "source": [
+      "sglang/trial-20260914/bench/rep1/bench-sglang-r1.json",
+      "sglang/trial-20260914/bench/rep2/bench-sglang-r2.json",
+      "sglang/trial-20260914/bench/rep3/bench-sglang-r3.json"
+     ],
+     "harness": "v41bench",
+     "completion_tokens": [
+      130
+     ],
+     "prompt_tokens": [
+      36
+     ]
+    },
+    "prefill-32k": {
+     "value": 2356.9,
+     "median": 2283.75,
+     "n": 4,
+     "source": [
+      "sglang/trial-20260914/bench/rep1/bench-sglang-r1.json",
+      "sglang/trial-20260914/bench/rep2/bench-sglang-r2.json",
+      "sglang/trial-20260914/bench/rep3/bench-sglang-r3.json",
+      "sglang/trial-20260914/bench/sglang-prefill/prefill-probe.json"
+     ],
+     "harness": "v41bench cold prefill / prefillprobe",
+     "prompt_tokens": [
+      46712,
+      46810
+     ],
+     "ttft_s": [
+      19.861,
+      20.474,
+      20.478,
+      20.701
+     ]
+    },
+    "prefill-131k": {
+     "value": 1950.3,
+     "median": 1950.3,
+     "n": 1,
+     "source": [
+      "sglang/trial-20260914/bench/sglang-prefill/prefill-probe.json"
+     ],
+     "harness": "v41bench cold prefill / prefillprobe",
+     "prompt_tokens": [
+      145885
+     ],
+     "ttft_s": [
+      74.801
+     ]
+    }
+   },
+   "no_like_metric": {
+    "ttft-154k": "their longest cold prompt is 145.5-145.9K tokens, not 154K: TTFT scales with length",
+    "long-decode-131k": "no decode-after-a-long-prompt cell in their harness",
+    "mixwin": "no mixed-window cell in their harness",
+    "code-x4": "their C4 is one prompt x4, aggregate over wall clock incl. TTFT; ours: 4 prompts, live span",
+    "code-t07-x4": "their bench is T0 only",
+    "prose-x4": "their C4 is one prompt x4, aggregate over wall clock incl. TTFT; ours: 4 prompts, live span"
+   }
+  }
+ ]
+}

@@ -113,10 +113,78 @@ file also records the median and the repetition count. The 32K / 131K labels are
   over the same transport (NCCL).
 - **Transport matters for Python decode.** Python over RoCE decodes 10–40 % faster than Python over NCCL in these
   cells; on prefill the two transports are within 0.5 %. Zig over RoCE with the pipeline (window 8) is not in this
-  chart yet.
+  chart; it is in the next section's.
 - Decode after a long prompt and the mix cells vary a lot between passes. For example, Python over NCCL ran 61–81
   tok/s on decode after the 32K prompt, so treat those cells as indicative only.
 - Sources (forge `~/zigtp4-run/out/zvp/`): `python-tp4-nccl/`, `python-tp4-roce-live/`, `w7/zig-tp4-nccl-control/`,
   `w7/zig-tp4-nccl-pipe/` (`long.json`, `warm.json`, `mix.json`, `mixwin.json`). The on/off figures match
   `w7/compare-control-vs-pipe.w7.md`, and the Python NCCL figures match `compare-nccl.w4b.md`. The Python prefill
   figures (4,084 tok/s at 32K, 4,354 at 131K, 35.4–35.6 s time to first token) are these runs' own long cells.
+
+## Every engine on four Sparks: TensorFold Python, Zig, vLLM, SGLang (2026-10-11)
+
+All DeepSeek V4.1 Flash, TP=4 on the same four DGX Sparks. The TensorFold series (Python, and Zig with pipelined
+prefill off and on, over NCCL and over RoCE) come from one harness, `bench/zig_vs_python.py`. vLLM and SGLang were
+measured in September with a different harness, on different prompts, on the native FP8 + MXFP4 checkpoint rather
+than the EXL3 2.9 bpw pack. Treat their values as indicative only.
+
+![Every engine on four Sparks](img/engines-dsv41-comparison-20261011.png)
+
+([SVG](img/engines-dsv41-comparison-20261011.svg). `python bench/charts/engines_comparison.py build` rebuilds
+[`bench/charts/data/engines-dsv41-20261011.json`](../bench/charts/data/engines-dsv41-20261011.json) from the raw
+artifacts. For every value, that file records the source file, the best value, the median, n and the harness.
+`uv run --with matplotlib python bench/charts/engines_comparison.py render` draws the chart and fails if any label
+leaves the figure or sits within 3 pt of another. `... table` prints the table below.)
+
+Best of the repetitions without a failed stream (time to first token: the lowest). Percentages compare against live
+Python over RoCE (2026-10-10). They are same-harness, cross-session comparisons, not controlled ones. Italic values
+come from a different harness and carry no percentage. "—" means the other harness has no cell defined the same way.
+
+| Cell | Python NCCL | Python RoCE (live) | Zig NCCL | Zig + pipe NCCL | Zig RoCE ‡ | Zig + pipe RoCE ‡ | vLLM † (2026-09-11) | SGLang † (2026-09-14) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 32K prompt (prompt tok/s) | 4,084.5 (±0%) | 4,083.6 | 2,774.4 (−32%) | 4,825.6 (+18%) | 2,778.9 (−32%) | 4,851.5 (+19%) | *1,494.9* | *2,356.9* |
+| 131K prompt (prompt tok/s) | 4,333.6 (±0%) | 4,354.1 | 2,554.5 (−41%) | 5,131.0 (+18%) | 2,548.9 (−41%) | 5,148.1 (+18%) | *1,415.6* | *1,950.3* |
+| 154K-token prompt (s) | 35.58 (±0%) | 35.41 | 60.36 (+70%) | 30.05 (−15%) | 60.50 (+71%) | 29.95 (−15%) | — | — |
+| decode after the 154K prompt (tok/s) | 81.0 (+2%) | 79.5 | 73.8 (−7%) | 74.9 (−6%) | 90.7 (+14%) | 99.6 (+25%) | — | — |
+| mixed windows aggregate (tok/s) | 165.9 (−14%) | 192.1 | 177.2 (−8%) | 175.2 (−9%) | 219.2 (+14%) | 212.2 (+10%) | — | — |
+| code ×1 (tok/s) | 101.7 (−15%) | 119.1 | 111.6 (−6%) | 111.5 (−6%) | not measured | not measured | *71.4* | *76.8* |
+| code ×4 aggregate (tok/s) | 176.1 (−15%) | 207.9 | 181.9 (−13%) | 182.1 (−12%) | not measured | not measured | — | — |
+| code T0.7 ×4 aggregate (tok/s) | 169.2 (−15%) | 199.4 | 182.8 (−8%) | 181.9 (−9%) | not measured | not measured | — | — |
+| prose ×1 (tok/s) | 55.9 (−15%) | 66.1 | 57.5 (−13%) | 57.6 (−13%) | not measured | not measured | *31.7* | *36.6* |
+| prose ×4 aggregate (tok/s) | 112.9 (−13%) | 129.8 | 120.9 (−7%) | 121.0 (−7%) | not measured | not measured | — | — |
+
+- **Controlled:** only pipeline off → on within a window. Window 7 ran over NCCL and window 8 over RoCE; each pair
+  used the same image and prompts. Prefill gains +74/75 % at 32K and +101/102 % at 131K, and time to first token
+  halves. Mixed windows: −1 % (w7) / −3 % (w8).
+- **‡ w8 (RoCE) is under independent review.** That run was trimmed to the cold, long and mixwin parts, so its
+  short-prompt cells are **not measured** (not zero). Its single cold pass (n = 1, the first requests after boot)
+  read code ×1 / ×4 / T0.7 ×4 / prose ×1 / ×4 = 129.1 / 218.3 / 226.9 / 66.2 / 138.2 (pipeline on) and 130.5 /
+  215.2 / 229.0 / 66.6 / 136.6 (off). Those numbers are kept in the data file (`cold_pass_only`) and left out of
+  the comparison: a cold pass is not comparable with Python's warm best of 3. Python's own cold pass, for scale:
+  113.0 / 204.9 / 199.7 / 65.2 / 128.2.
+- **† vLLM:** the phase-4 champion (`CHAMPION.env`: greedy DSpark draft k = 5, `MAX_BATCHED=16384`,
+  `MAXLEN=430080`). Of the phase-4 arms, two were accepted (B3 greedy draft, B7 batched 16K) and the rest rejected
+  (`STATUS.md`, "Final (Phase 4b)"). The run is `phase4/final-champion`: n = 1 for decode, and n = 2 for prefill
+  (bench + probe). NCCL over the RoCE links, TP=4, 2026-09-11.
+- **† SGLang:** `lmsysorg/sglang:dev-dsv41` (2026-09-11) with the MiaAI-Lab TP4 kit, TP=4 EP=4, DSpark on, NCCL over
+  RoCE, 2026-09-14 (`trial-20260914`, 3 bench reps + 1 prefill probe).
+- **Correctness gates.** Both engines passed. SGLang `gates/`: G1 `30/30 clean (0 garbled)`, G2
+  `TOOL_ROUNDTRIP 3/3`, G3 `REASONING_PARSER PASS`, G4 needles at 32K / 400K / 1M `"pass": true`; `WORLD.md`
+  records G0 (the tool-result continuation repro) 3/3 clean. The SGLang corruption remembered as a no-go was the
+  **2026-09-10** DSpark-on-GB10 bug in the earlier image, which the 09-11 image fixed (`WORLD.md`). vLLM:
+  `STATUS.md` reads "Gates on final world: ALL PASS incl NIAH 32k x3 + 400k". That gate log is not in the local
+  mirror.
+- **What matches and what does not.** Prefill is cold tok/s on a unique prompt. Their prompts are 46.7–46.8K and
+  145.5–145.9K tokens; ours are 37,986–37,987 and 154,195–154,196. Single-stream decode uses the same definition on
+  both sides, (tokens − 1) / (last − first token), but their replies are ≤ 200 tokens on 36–47-token prompts (ours:
+  384 tokens). Left empty: time to first token, because their longest prompt is ~146K tokens, not 154K (vLLM
+  102.8 s, SGLang 74.8 s at that length); ×4, because their C4 sends one prompt four times and divides by wall
+  clock including TTFT; and T0.7, decode after a long prompt and mixed windows, which their harness does not have.
+- **Left out:** `docs/campaign/BASELINE-RESULTS.md` (vLLM at **TP=2**, two Sparks). The 2026-10-04 SGLang
+  TP4/EP2 runs (`tf-claude-20261004`, the uncensored FP8 checkpoint, FOUR_SPARKS.md's comparison): a different
+  deployment and prompt set from the gated 09-14 trial, and their mirrored runs have no long prompts (17–1,460 tokens). The vLLM
+  uncensored A/B (`ab-unc-20260913`), which failed G1 and G3.
+- Sources, under the local mirror `/home/jun/nest/tmp/zvp-20261011/` (forge `~/zigtp4-run/out/zvp`, `~/dsv41-vllm`,
+  `~/dsv41-sglang-trial-20260914`): `python-tp4-{nccl,roce-live}/`, `w7/zig-tp4-nccl-{control,pipe}/`,
+  `w8/zig-tp4-roce-{control,pipe}/`, `vllm/dsv41-vllm/phase4/final-champion/{bench-final-champion,prefill-probe}.json`,
+  `sglang/trial-20260914/bench/{rep1,rep2,rep3}/bench-sglang-r*.json`, `sglang/trial-20260914/bench/sglang-prefill/prefill-probe.json`.
