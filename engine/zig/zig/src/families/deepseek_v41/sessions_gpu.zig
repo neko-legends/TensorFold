@@ -551,17 +551,28 @@ pub const Sessions = struct {
     /// copied) or NVMe (streamed into fresh pages), its bounded state and committed ids. False: its file did not read
     /// back on some rank (a damaged NVMe entry: rounds.py `_admit`'s `except (ValueError, KeyError)`): every rank's slot
     /// is empty again with its reservation, the entry is forgotten (prod's sessdisk deletes the file), and the caller
-    /// prefills the prompt from 0.
+    /// prefills the prompt from 0. A RAM-flagged entry whose index path was trimmed under it (its tokens gone, an
+    /// eviction's residue) resumes as its NVMe entry instead of raising — the same recovery, not a second one; with
+    /// no file it is the damaged case, and the unrestorable entry is let go of.
     pub fn restore(s: *Sessions, id: u32) !bool {
         if (s.f.slot.pos != 0 or s.kx.slot.len != 0) return error.SlotNotEmpty;
         try s.active();
         const e = s.store.entry(id);
         const pos = e.pos;
         var ok = true;
-        if (e.ram) {
-            const b = try s.store.restoreRam(id, s.kx.slot);
-            try s.uploadSnap(@ptrCast(@alignCast(b.ptr)));
-        } else s.restoreDisk(id) catch |err| {
+        // the slot's committed ids start as the entry's (the caller prefills the rest of the prompt): the RAM
+        // path's from the index (its path's tokens, kept only while a RAM entry passes through them — a parked
+        // entry keeps digests only), the NVMe path's from the files' own ids segments
+        const h = &s.hist[s.cur()];
+        try h.resize(s.gpa, pos);
+        var ram = e.ram;
+        if (ram) ram = if (s.restoreRam(id, h.items)) true else |err| switch (err) {
+            // a RAM-flagged entry whose index path was trimmed under it resumes as its NVMe entry (the disk
+            // path's semantics, a damaged file's when no file holds it: not a second recovery)
+            error.NotInRam => false,
+            else => return err,
+        };
+        if (!ram) s.restoreDisk(id, h.items) catch |err| {
             if (err == error.OutOfMemory) return err;
             std.log.scoped(.dsv41).warn("sessions: slot {d}: the NVMe entry of {d} tokens did not read back ({t}); its prompt prefills from 0", .{ s.cur(), pos, err });
             ok = false;
@@ -576,21 +587,30 @@ pub const Sessions = struct {
             s.f.slot = .{};
             s.hist[s.cur()].clearRetainingCapacity();
             s.ds_valid[s.cur()] = 0;
-            try s.store.forget(id);
+            // a RAM-flagged entry that did not restore and has no file is unrestorable: let go of it (its pages
+            // back to the pool), as a damaged file's entry is forgotten
+            if (e.ram and !e.extra.file) try s.store.drop(id) else try s.store.forget(id);
             s.stats.damaged += 1;
             return false;
         }
         try s.kx.dev.syncTables();
-        const h = &s.hist[s.cur()];
-        try h.resize(s.gpa, pos);
-        try s.store.index.idsOf(id, h.items);
         return true;
     }
 
-    fn restoreDisk(s: *Sessions, id: u32) !void {
+    /// A RAM entry into the slot, its committed ids from the index's path tokens (error.NotInRam when those
+    /// were trimmed under the flag: the caller's NVMe path is the recovery, as a damaged file's is).
+    fn restoreRam(s: *Sessions, id: u32, ids_out: []i32) !void {
+        try s.store.index.idsOf(id, ids_out);
+        const b = try s.store.restoreRam(id, s.kx.slot);
+        try s.uploadSnap(@ptrCast(@alignCast(b.ptr)));
+    }
+
+    fn restoreDisk(s: *Sessions, id: u32, ids_out: []i32) !void {
         const j = try s.store.beginRestore(id, s.kx.slot);
         var restored = (try s.store.settle(j)) orelse return error.BadBlob;
         defer restored.deinit(s.gpa);
+        if (restored.ids.len != ids_out.len) return error.BadBlob;
+        @memcpy(ids_out, restored.ids);
         try s.uploadBlobs(restored.blobs);
     }
 

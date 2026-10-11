@@ -772,20 +772,20 @@ pub const Forward = struct {
                 op_stop => return,
                 op_sess_save => {
                     const x = f.sess orelse return error.BadPlan;
-                    try x.save(x.ptr);
+                    x.save(x.ptr) catch |err| return f.followSess("save", err);
                 },
                 op_sess_restore => {
                     const x = f.sess orelse return error.BadPlan;
-                    try x.restore(x.ptr, @intCast(msg[1]));
+                    x.restore(x.ptr, @intCast(msg[1])) catch |err| return f.followSess("restore", err);
                 },
                 op_sess_prompt => {
                     const x = f.sess orelse return error.BadPlan;
-                    try x.prompt(x.ptr);
+                    x.prompt(x.ptr) catch |err| return f.followSess("prompt", err);
                 },
                 op_sess_admit => {
                     const x = f.sess orelse return error.BadPlan;
                     const run_ = x.admit orelse return error.BadPlan;
-                    try run_(x.ptr, msg);
+                    run_(x.ptr, msg) catch |err| return f.followSess("admit", err);
                 },
                 op_pf_multi => {
                     const ns: usize = @intCast(msg[1]);
@@ -843,6 +843,15 @@ pub const Forward = struct {
                 },
             }
         }
+    }
+
+    /// A replayed session operation's failure (the w4b window's fleet crash: an evicted session's resume was
+    /// a per-request error on rank 0 and process-fatal on every follower). Request-level errors — the classes
+    /// rank 0 ends only the request for — are logged and the follower serves on; process, device, transport
+    /// and pool-divergence faults stay process-fatal (tp/replay.zig's classes: fail-fast's own).
+    fn followSess(f: *Forward, op: []const u8, err: anyerror) anyerror!void {
+        if (tp.replay.processFatal(err)) return err;
+        std.log.scoped(.dsv41).err("rank {d}: replayed session {s} failed ({t}); a request-level error rank 0 ends the request for, the follower serves on", .{ f.comm.rank(), op, err });
     }
 
     fn glueMissing(name: []const u8) Error {
