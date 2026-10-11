@@ -200,7 +200,19 @@ clear it. The window's first check is that boot and the decode cells' numbers.
   session semantics are unchanged.
 - A side effect worth measuring: Zig's world-1 kernels are the same ports that matched Python bit for bit at TP=2. A
   Zig pipelined prompt may therefore reproduce Python's pipelined long-cell hashes, which today are 0/6 equal.
-- Short prompts, below the knob's rows, stay on the TP path. Decode bits are unchanged.
+- Short prompts, below the knob's rows, stay on the TP path, and decode itself (windows, graphs, row mode, the
+  drafter) runs the same code either way. But a reply is **not** bit-identical across the switch when its prompt went
+  through the line: the prompt's KV carries world-1 bits instead of the TP=4 all-sum's, and greedy sampling turns
+  that into a different token somewhere, after which the texts diverge. Windows 7-8 (2026-10-11), on/off on the same
+  image, transport and prompts: every reply whose prompt ran the line differed — in window 7 the 6/6 long cells, 3/3
+  mix-long and the mixwin long stream 3/3 (12 of 12), and in the trimmed window 8 (no warm or mix parts) the 6/6 long
+  cells and the mixwin long stream 3/3 (9 of 9) — in token count and in content, while every short-prompt reply
+  (greedy and seeded T0.7, x1 and x4, including the mix/mixwin code streams) matched (101/101 in window 7, 29/29 in
+  window 8). The difference is deterministic, not a race: each differing cell
+  reproduced exactly across the three passes, and pipe-NCCL ≡ pipe-RoCE byte-identically on byte-identical prompts,
+  as did control ≡ control. What *is* identical stands as tested: the stage programs are the world-1 encoder pass
+  call for call, and the hand-off tensors are byte-equal ("What the tests prove"). What is not: the end-to-end reply
+  of a pipelined prompt.
 
 ## Risks
 
@@ -407,6 +419,12 @@ ran" first; a NOT RUN boot is not scored on gain.
 - No decode regression against the control boot: every decode and aggregate cell at ≥ −2 % (code / prose, T0 / T0.7,
   x1 / x4, long decode, mix, mixwin 214.76 on RoCE). Expected: unchanged, because decode never runs the line's code. The
   memory taken does show up in the boot check, the graph floor and MemAvailable at the prefill → decode hand-off.
+- A decode cell whose value depends on the generated text cannot be compared across the two settings without a
+  fixed-output protocol: the pipelined boot's long-prompt replies legitimately differ (Output parity), so the count
+  of the long reply's tokens inside a measured span moves with the reply, not with decode speed. Window 8's mixwin
+  long-live read 40.76 → 34.44 tok/s (−15.5 %) while its aggregate moved −3.2 %; that drop tracks the reply, which
+  differed (123 tokens against 136, on every pass), and per-token decode speed cannot be separated from reply length
+  in this cell. Judge mixwin on its aggregate and per-stream cells.
 - Correctness: 391, structured PASS, needle 3/3, no fleet exits. Long-cell hashes against Python's pipelined ones are
   recorded but are not a gate (the parity section above).
 - Rollback on any hang or regression: stop the ranks, boot again without the knob (same image and assets), then the
