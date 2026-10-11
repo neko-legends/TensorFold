@@ -244,6 +244,37 @@ test "a prompt call's route: which rows enter the line, which run tensor paralle
     // 4,096-row stages
     const t = (try settingsOf(&.{ .{ "TF_DSV41_PREFILL_PIPE", "1024" }, .{ "TF_DSV41_PIPE_ROWS", "4096" } }, 4)).?;
     try expectSteps(&.{ .{ .enter = .{ .start = 0, .n = 4096 } }, .{ .enter = .{ .start = 4096, .n = 4096 } } }, try routeOf(t, null, 0, 0, 8192, false));
+    // the ranks' agreed end (Settings.end: past it some rank's stage does not emit): rows past it run tensor parallel,
+    // the line drained first; a call wholly past it never opens a line
+    var c = s;
+    c.end = 6144;
+    try expectSteps(&.{ .{ .enter = .{ .start = 4096, .n = 2048 } }, .drain, .{ .tp = .{ .start = 6144, .n = 2048 } } }, try routeOf(c, at, 1, 4096, 4096, false));
+    try expectSteps(&.{ .{ .enter = .{ .start = 0, .n = 2048 } }, .{ .enter = .{ .start = 2048, .n = 2048 } }, .{ .enter = .{ .start = 4096, .n = 2048 } }, .drain, .{ .tp = .{ .start = 6144, .n = 100 } } }, try routeOf(c, null, 1, 0, 6244, false));
+    try expectSteps(&.{.{ .tp = .{ .start = 6144, .n = 4096 } }}, try routeOf(c, null, 1, 6144, 4096, false));
+}
+
+test "a stage's own roles (its namespace, the stage copies' forms): their bytes do not depend on the pool options" {
+    // the boot prices them before the pool exists (kv_state.bootCheck); the bound program has the pool's options
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const aa = arena.allocator();
+    const cfg: Config = .{};
+    var w: block.Widths = .{};
+    try @import("m1_check.zig").parseDense(aa, &w, @embedFile("fixtures/q28v2-dense-k2.txt"));
+    try @import("m1_check.zig").parseExperts(aa, &w, @embedFile("fixtures/q28v2-expert-k2.txt"));
+    try pipe.fillGroups(aa, &w, &cfg);
+    const s = (try settingsOf(&.{.{ "TF_DSV41_PREFILL_PIPE", "1024" }}, 4)).?;
+    const limit: i64 = 420096;
+    const pages = @divExact(limit, block.Pool.page);
+    const bare: block.Options = .{ .world = 4, .gm_v2 = .one, .r1 = true, .limit = limit, .rope_rows = limit + 2048, .index_budget = 64 << 20 };
+    var pooled = bare;
+    pooled.pool = .{ .comp_pages = pages + 1, .ik_pages = pages + 1, .pts = pages };
+    for (0..4) |r| {
+        const a = try pipe.stageRoleBytes(aa, &cfg, &w, pipe.stageOptions(bare, s.rows), s, @intCast(r));
+        const b = try pipe.stageRoleBytes(aa, &cfg, &w, pipe.stageOptions(pooled, s.rows), s, @intCast(r));
+        try testing.expect(a > 0);
+        try testing.expectEqual(a, b);
+    }
 }
 
 test "the stage hand-off's packed parts: streams, pending post, coefficients, selection (16-byte aligned)" {

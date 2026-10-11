@@ -48,6 +48,8 @@ pub const Settings = struct {
     world: u32,
     bounds: [max_world + 1]u32,
     trace: bool = false,
+    /// the end every rank's stage emits a segment up to (pipe_run agrees it at boot); not routed yet
+    end: u64 = std.math.maxInt(u64),
 
     pub fn boundsSlice(s: *const Settings) []const u32 {
         return s.bounds[0 .. s.world + 1];
@@ -543,6 +545,17 @@ pub fn lastStart(cfg: *const Config, w: *const block.Widths, o1: block.Options, 
         if (try emits(cfg, w, o1, s, rank, n, mid)) lo = mid else hi = mid;
     }
     return lo;
+}
+
+/// The bytes of a stage's own roles. Not written yet.
+pub fn stageRoleBytes(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths, o1: block.Options, s: Settings, rank: u32) !u64 {
+    _ = a;
+    _ = cfg;
+    _ = w;
+    _ = o1;
+    _ = s;
+    _ = rank;
+    return 0;
 }
 
 /// The (rows, start) of the stage programs the boot plans (forward_prefill.plan's rule for a segment's programs): a
