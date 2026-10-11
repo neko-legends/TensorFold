@@ -309,7 +309,10 @@ pub const Pool = struct {
     pub fn newSlot(p: *Pool, capacity: u64) Error!*Slot {
         const s = try p.gpa.create(Slot);
         errdefer p.gpa.destroy(s);
-        const mp = pagesFor(capacity, p.page);
+        // the device tables are [slots, max_pages] int32 and a slot's view binds at 4 x max_pages past the last
+        // slot's (slots.zig point, DevicePool.view): whole rows of 4 entries keep every slot's row 16-byte
+        // aligned (Runner.external's Triton contract; a 420K context's 1,641 pages bound slot 1 at +6,564)
+        const mp = std.mem.alignForward(u32, pagesFor(capacity, p.page), 4);
         s.* = .{ .pool = p, .id = @intCast(p.slots.items.len), .capacity = capacity, .max_pages = mp, .pages = try p.gpa.alloc(u32, mp) };
         errdefer p.gpa.free(s.pages);
         try p.slots.append(p.gpa, s);
@@ -476,4 +479,23 @@ test "residues, holders, quotas and the device tables" {
     try c.push(try p.takeAt(2));
     try std.testing.expectEqual(@as(u16, 3), p.holders(b.pages[0]));
     try std.testing.expectEqual(@as(u32, 0), c.pages[2] % 2);
+}
+
+test "a slot's page-table rows keep every slot's device-table view 16-byte aligned" {
+    const gpa = std.testing.allocator;
+    const fams = [_]Family{.{ .name = "comp", .ratio = 2, .row_bytes = 584, .split = false }};
+    var p = try Pool.init(gpa, .{ .families = &fams }, 16 * 256, 1, 0);
+    defer p.deinit();
+    // prod's 420K context (420,096 = 1,641 pages of 256): 1,641 is not a multiple of 4, so the device tables'
+    // [slots, max_pages] int32 row stride (4 x max_pages) would bind slot 1's view at 6,564 B (4 mod 16) —
+    // the w3 TP=4 boot's MisalignedRole on "s.kv.pt"; newSlot rounds up to whole rows of 4 entries
+    const s = try p.newSlot(420096);
+    try std.testing.expectEqual(@as(u32, 1644), s.max_pages);
+    try std.testing.expectEqual(@as(u64, 0), 4 * @as(u64, s.max_pages) % 16);
+    // a capacity already at a whole row keeps its exact page count
+    const t = try p.newSlot(8 * 256);
+    try std.testing.expectEqual(@as(u32, 8), t.max_pages);
+    // and one page past a whole row rounds to the next
+    const u = try p.newSlot(9 * 256 + 1);
+    try std.testing.expectEqual(@as(u32, 12), u.max_pages);
 }

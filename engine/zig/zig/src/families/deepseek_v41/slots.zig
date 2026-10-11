@@ -88,6 +88,14 @@ pub const SlotSet = struct {
         const tb: u64 = 4 * @as(u64, k.dev.pts);
         try ss.roles.put(ss.gpa, "s.kv.pt", .{ .base = k.dev.table.ptr, .bytes = tb });
         try ss.roles.put(ss.gpa, "s.kv.ct", .{ .base = k.dev.local.ptr, .bytes = tb });
+        // point() binds a slot's view at base + s x bytes through Runner.external (16-byte aligned, Triton's
+        // pointer specialization): a bad stride fails here at boot, named, not at the first request on slot 1
+        for (ss.roles.keys(), ss.roles.values()) |role, st| {
+            if (st.bytes % 16 != 0) {
+                std.log.scoped(.dsv41).err("slots: {s}: a slot's {d} B stride is not 16-byte aligned", .{ role, st.bytes });
+                return error.NotBound;
+            }
+        }
     }
 
     /// After Runner.bind: `roles` (planned ones; others skipped) become per-slot by swapping (CED's stash ring with
