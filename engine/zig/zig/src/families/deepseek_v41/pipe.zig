@@ -322,21 +322,59 @@ pub const FinalsLayout = struct {
     }
 };
 
-// -- a prompt call's route, the hand-off's packing, a family's rows (not written yet) -----------------------------
+// -- a prompt call's route, the hand-off's packing, a family's rows ------------------------------------------------
 
+/// An open line: its slot and the position its next segment starts at.
 pub const LineAt = struct { slot: u32, next: u64 };
+
+/// What a prompt call does, in order (every rank alike: `route` reads only what every rank holds): a segment enters
+/// the line, the line drains (its slot's state whole), the line is dropped (its slot was reset), or rows run tensor
+/// parallel (forward_prefill's own segments).
 pub const Step = union(enum) { enter: Seg, drain, abandon, tp: Seg };
 
+/// The route of a prompt call of `n` rows from `start` on slot `slot` (forward_prefill.prompt), `line` the line open
+/// before it. Segments of the line's rows enter while they are at least `min_seg` rows and the line is this slot's (or
+/// none is open and the call's first segment has at least `min_rows`); a shorter tail drains the line and runs tensor
+/// parallel; image rows never enter (their slot's line drains first); another slot's prompt runs tensor parallel and
+/// leaves the line open. A line whose slot is at another position (the op stream reset it) is abandoned first.
 pub fn route(s: Settings, line: ?LineAt, slot: u32, start: u64, n: usize, images: bool, buf: []Step) []const Step {
-    _ = s;
-    _ = line;
-    _ = slot;
-    _ = start;
-    _ = n;
-    _ = images;
-    return buf[0..0];
+    var k: usize = 0;
+    var open = line;
+    if (open) |l| if (l.slot == slot and l.next != start) {
+        buf[k] = .abandon;
+        k += 1;
+        open = null;
+    };
+    const mine = if (open) |l| l.slot == slot else false;
+    const rows: usize = s.rows;
+    const opens = open == null and n >= min_seg and @min(rows, n) >= s.min_rows;
+    if (images or !(mine or opens)) {
+        if (images and mine) {
+            buf[k] = .drain;
+            k += 1;
+        }
+        buf[k] = .{ .tp = .{ .start = start, .n = @intCast(n) } };
+        return buf[0 .. k + 1];
+    }
+    var at: usize = 0;
+    while (at < n) {
+        const m = @min(rows, n - at);
+        if (m < min_seg) {
+            buf[k] = .drain;
+            buf[k + 1] = .{ .tp = .{ .start = start + at, .n = @intCast(m) } };
+            k += 2;
+            break;
+        }
+        buf[k] = .{ .enter = .{ .start = start + at, .n = @intCast(m) } };
+        k += 1;
+        at += m;
+    }
+    return buf[0..k];
 }
 
+/// The stage hand-off's tensors packed (glue pipe_in / pipe_out, block_prefill Seg.handoff): the streams [n, 4 D] bf16;
+/// with `post` the pending post's partial [1, n, D] bf16 and its coefficient set (pre [n, 4], post [n, 4], comb
+/// [n, 16] fp32); with `sel` the selection [n, K] and its counts [n] int32. Each part 16-byte aligned.
 pub const HandoffLayout = struct {
     parts: usize = 0,
     bytes: [7]u64 = @splat(0),
@@ -344,22 +382,44 @@ pub const HandoffLayout = struct {
     total: u64 = 0,
 
     pub fn of(cfg: *const Config, n: u32, post: bool, sel: bool) HandoffLayout {
-        _ = cfg;
-        _ = n;
-        _ = post;
-        _ = sel;
-        return .{};
+        const D: u64 = cfg.hidden;
+        const N: u64 = n;
+        var all: [7]u64 = .{ N * 4 * D * 2, N * D * 2, N * 4 * 4, N * 4 * 4, N * 16 * 4, N * cfg.index_topk * 4, N * 4 };
+        var lay: HandoffLayout = .{};
+        var take: [7]bool = .{ true, post, post, post, post, sel, sel };
+        for (&all, &take) |b, t| {
+            if (!t) continue;
+            lay.bytes[lay.parts] = b;
+            lay.offset[lay.parts] = lay.total;
+            lay.total += a16(b);
+            lay.parts += 1;
+        }
+        return lay;
     }
 };
 
+/// Rows [row, row + n) of a family, at physical rows [phys, phys + n) of its tensor.
 pub const Run = struct { row: u64, phys: u64, n: u64 };
 
+/// Logical rows [a, b) of a family through the slot's page table (`table[page]`: the physical page; 2^shift rows a
+/// page) as runs of consecutive physical rows (pages that follow each other physically merge).
 pub fn pageRuns(table: []const u32, shift: u6, a: u64, b: u64, buf: []Run) []const Run {
-    _ = table;
-    _ = shift;
-    _ = a;
-    _ = b;
-    return buf[0..0];
+    var k: usize = 0;
+    var j = a;
+    const per: u64 = @as(u64, 1) << shift;
+    while (j < b) {
+        const pg = j >> shift;
+        const end = @min(b, (pg + 1) << shift);
+        const phys = @as(u64, table[@intCast(pg)]) * per + (j & (per - 1));
+        if (k > 0 and buf[k - 1].phys + buf[k - 1].n == phys) {
+            buf[k - 1].n += end - j;
+        } else {
+            buf[k] = .{ .row = j, .phys = phys, .n = end - j };
+            k += 1;
+        }
+        j = end;
+    }
+    return buf[0..k];
 }
 
 // -- the stage weights' names --------------------------------------------------------------------------------------
