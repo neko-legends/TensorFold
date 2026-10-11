@@ -337,6 +337,8 @@ pub const Model = struct {
         // host); its point-to-point connections made now, every rank
         if (m.f.prefill_state.pipe) |ln| {
             try ln.bind(&m.f, &m.weights, &m.pipe_copies.?);
+            ln.fatal = .{ .ctx = &m.session, .run = sessionFatal };
+            try ln.agreeEnd(&m.f);
             try ln.warm(&m.f);
         }
         if (world > 1) m.f.link = &m.session.plan;
@@ -423,6 +425,12 @@ pub const Model = struct {
     pub fn piecesEnv() bool {
         const v = std.c.getenv("TF_DSV41_PREFILL_PIECES") orelse return false;
         return std.mem.eql(u8, std.mem.trim(u8, std.mem.span(v), " "), "1");
+    }
+
+    /// TF_DSV41_PREFILL_PIPE: a failed line takes every rank down (pipe_run.Line.fatal).
+    fn sessionFatal(ctx: *anyopaque, where: []const u8, err: anyerror) void {
+        const s: *tp.Session = @ptrCast(@alignCast(ctx));
+        s.fatal(where, err);
     }
 
     fn announceStop(ctx: *anyopaque) void {

@@ -48,7 +48,8 @@ pub const Settings = struct {
     world: u32,
     bounds: [max_world + 1]u32,
     trace: bool = false,
-    /// the end every rank's stage emits a segment up to (pipe_run agrees it at boot); not routed yet
+    /// the end up to which every rank's stage emits a segment (pipe_run.Line.agreeEnd, at boot: the least of the ranks'
+    /// `lastEnd`); `route` keeps rows past it tensor parallel, so no rank meets a segment its stage refuses
     end: u64 = std.math.maxInt(u64),
 
     pub fn boundsSlice(s: *const Settings) []const u32 {
@@ -349,7 +350,7 @@ pub fn route(s: Settings, line: ?LineAt, slot: u32, start: u64, n: usize, images
     };
     const mine = if (open) |l| l.slot == slot else false;
     const rows: usize = s.rows;
-    const opens = open == null and n >= min_seg and @min(rows, n) >= s.min_rows;
+    const opens = open == null and n >= min_seg and @min(rows, n) >= s.min_rows and start + @min(rows, n) <= s.end;
     if (images or !(mine or opens)) {
         if (images and mine) {
             buf[k] = .drain;
@@ -361,9 +362,10 @@ pub fn route(s: Settings, line: ?LineAt, slot: u32, start: u64, n: usize, images
     var at: usize = 0;
     while (at < n) {
         const m = @min(rows, n - at);
-        if (m < min_seg) {
+        // a ragged tail, or rows past the end every rank's stage emits at: the rest tensor parallel, the line drained
+        if (m < min_seg or start + at + m > s.end) {
             buf[k] = .drain;
-            buf[k + 1] = .{ .tp = .{ .start = start + at, .n = @intCast(m) } };
+            buf[k + 1] = .{ .tp = .{ .start = start + at, .n = @intCast(n - at) } };
             k += 2;
             break;
         }
@@ -547,15 +549,29 @@ pub fn lastStart(cfg: *const Config, w: *const block.Widths, o1: block.Options, 
     return lo;
 }
 
-/// The bytes of a stage's own roles. Not written yet.
+/// The bytes of rank `rank`'s stage's own roles in the buffer plan: its namespace's (window, layer and scratch roles)
+/// and its copies' run-time forms ("s.P.*"), each 256-aligned as the runner binds them, over the boot's planned
+/// programs (`planned`). The slot's state and the replicated tensors' forms are the forward's, already priced.
 pub fn stageRoleBytes(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths, o1: block.Options, s: Settings, rank: u32) !u64 {
-    _ = a;
-    _ = cfg;
-    _ = w;
-    _ = o1;
-    _ = s;
-    _ = rank;
-    return 0;
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const aa = arena.allocator();
+    var p: @import("buffers.zig").Plan = .{ .a = aa };
+    for (try planned(aa, cfg, w, o1, s, rank)) |x| try p.add(try program(aa, cfg, w, o1, &s, rank, x[0], x[1]));
+    var total: u64 = 0;
+    for (p.sizes.keys(), p.sizes.values()) |k, v| {
+        if (std.mem.indexOf(u8, k, tag) == null and !std.mem.startsWith(u8, k, "s." ++ prefix)) continue;
+        total += std.mem.alignForward(u64, v, 256);
+    }
+    return total;
+}
+
+/// The end up to which rank `rank`'s stage emits both a whole segment of the line and the shortest one (their last
+/// starts, `lastStart`, plus their rows): the line's routes stay under the least of the ranks' (pipe_run's agreement).
+pub fn lastEnd(cfg: *const Config, w: *const block.Widths, o1: block.Options, s: *const Settings, rank: u32) !u64 {
+    const whole: u64 = @intCast(try lastStart(cfg, w, o1, s, rank, s.rows) + s.rows);
+    const short: u64 = @intCast(try lastStart(cfg, w, o1, s, rank, min_seg) + min_seg);
+    return @min(whole, short);
 }
 
 /// The (rows, start) of the stage programs the boot plans (forward_prefill.plan's rule for a segment's programs): a

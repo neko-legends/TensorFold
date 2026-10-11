@@ -95,6 +95,12 @@ pub const Line = struct {
     eng_stage: [eh.max_layers]hs.Stage = @splat(.{}),
     stats: Stats = .{},
     lines: u64 = 0,
+    /// the tp session's fail-fast (model.zig: tp.Session.fatal): a line that fails takes every rank down with its
+    /// reason (the fate channel; peers' kernels waiting on this rank are aborted by their own hooks). null (tests, a
+    /// session without fail-fast): the communicator aborted and the error returned
+    fatal: ?Fatal = null,
+
+    pub const Fatal = struct { ctx: *anyopaque, run: *const fn (ctx: *anyopaque, where: []const u8, err: anyerror) void };
 
     pub fn create(gpa: std.mem.Allocator, f: *const Forward, s: pipe.Settings) !*Line {
         const ln = try gpa.create(Line);
@@ -254,8 +260,13 @@ pub const Line = struct {
         return ln.hist.items[i -| keep..i];
     }
 
-    /// A segment enters (every rank): the line opens on its slot if none is; its host state advances; one round.
+    /// A segment enters (every rank): the line opens on its slot if none is; its host state advances; one round. Any
+    /// failure past the open is the line's (`fail`): a half-entered segment never stays behind in a running line.
     fn enter(ln: *Line, f: *Forward, ids: []const u32) !void {
+        ln.admit(f, ids) catch |e| return ln.fail(f, e);
+    }
+
+    fn admit(ln: *Line, f: *Forward, ids: []const u32) !void {
         const start = f.slot.pos;
         if (ln.slot == null) {
             ln.slot = activeSlot(f);
@@ -266,11 +277,11 @@ pub const Line = struct {
             ln.lines += 1;
             if (ln.lines <= 4 or ln.lines % 64 == 0) log.info("pipeline: rank {d}: slot {d}'s prompt from {d} through the stages {any} (line {d})", .{ ln.rank, ln.slot.?, start, ln.s.boundsSlice(), ln.lines });
         } else if (ln.slot.? != activeSlot(f) or ln.base + ln.hist.items.len != start) return error.LineOrder;
-        try ln.hist.appendSlice(ln.gpa, ids);
         if (f.kv) |kx| try kx.reserve(start + ids.len);
+        try ln.hist.appendSlice(ln.gpa, ids);
         try pf.advanceHost(f, start, ids);
         ln.stats.segments += 1;
-        ln.round(f, .{ .start = start, .n = @intCast(ids.len) }) catch |e| return ln.fail(f, e);
+        try ln.round(f, .{ .start = start, .n = @intCast(ids.len) });
     }
 
     /// Runs the line empty and hands every stage's state to every rank (every rank, the same op).
@@ -289,11 +300,33 @@ pub const Line = struct {
         ln.close();
     }
 
+    /// A failed line on this rank: every rank goes down (fail-fast's exit, which in serving does not return), never a
+    /// rank left waiting in a collective or a point-to-point this rank will not reach, nor one serving on.
     fn fail(ln: *Line, f: *Forward, e: anyerror) anyerror {
-        log.err("pipeline: rank {d}: the line failed ({t}): aborting the communicator so no rank waits on this one", .{ ln.rank, e });
-        f.comm.abort();
+        log.err("pipeline: rank {d}: the line failed ({t}): every rank goes down", .{ ln.rank, e });
         ln.close();
+        if (ln.fatal) |h| h.run(h.ctx, "the prefill pipeline", e);
+        f.comm.abort();
         return e;
+    }
+
+    /// At boot, every rank: the end up to which every rank's stage emits (pipe.lastEnd, the least over the ranks, one
+    /// all-gather), so no route hands a rank a segment its stage refuses.
+    pub fn agreeEnd(ln: *Line, f: *Forward) !void {
+        const mine = try pipe.lastEnd(f.cfg, f.widths, ln.o1, &ln.s, ln.rank);
+        const send = ln.bufs.fin_send.?.ptr;
+        const recv = ln.bufs.fin_recv.?.ptr;
+        var b: [8]u8 = undefined;
+        std.mem.writeInt(u64, &b, mine, .little);
+        try cuda.DeviceBuffer.upload(.{ .d = f.runner.d, .ptr = send, .len = 8 }, 0, &b);
+        try f.comm.allGather(send, recv, 8, .u8, f.runner.stream.handle);
+        try f.runner.stream.synchronize();
+        var all: [pipe.max_world * 8]u8 = undefined;
+        try cuda.DeviceBuffer.download(.{ .d = f.runner.d, .ptr = recv, .len = 8 * ln.world }, 0, all[0 .. 8 * ln.world]);
+        var end: u64 = std.math.maxInt(u64);
+        for (0..ln.world) |q| end = @min(end, std.mem.readInt(u64, all[8 * q ..][0..8], .little));
+        ln.s.end = end;
+        if (end < @as(u64, @intCast(f.opts.limit))) log.info("pipeline: rank {d}: segments end by {d} (a stage refuses past it; the rest runs tensor parallel)", .{ ln.rank, end });
     }
 
     fn round(ln: *Line, f: *Forward, new: ?pipe.Seg) !void {
@@ -371,8 +404,8 @@ pub const Line = struct {
         const keep: usize = h.max_ngram - 1;
         var buf: [2 * eh.max_ngram]u32 = undefined;
         const lb: []const u32 = if (before.len >= keep) before[before.len - keep ..] else blk: {
-            // the call's first segment: the line's own ids before it (the slot's tail at the open)
-            const have = ln.hist.items;
+            // fewer of the call's ids than the lookback before it: the slot's committed tail first (TP's readAhead)
+            const have = f.slot.tail[0..f.slot.tail_len];
             const old = @min(have.len, keep - before.len);
             @memcpy(buf[0..old], have[have.len - old ..]);
             @memcpy(buf[old .. old + before.len], before);
@@ -639,16 +672,8 @@ pub fn planInto(f: *Forward, ln: *const Line, p: *buffers.Plan) !void {
 /// The bytes the line adds at boot beyond its stage copies (priced by kv_state.bootCheck as resident): the stage
 /// programs' own roles (their namespace and the stage copies' run-time forms) and the line's buffers.
 pub fn residentBytes(f: *Forward, ln: *const Line) !u64 {
-    var arena = std.heap.ArenaAllocator.init(f.gpa);
-    defer arena.deinit();
-    var p: buffers.Plan = .{ .a = arena.allocator() };
-    try planInto(f, ln, &p);
-    var total: u64 = 0;
-    for (p.sizes.keys(), p.sizes.values()) |k, v| {
-        if (std.mem.indexOf(u8, k, pipe.tag) == null and !std.mem.startsWith(u8, k, "s." ++ pipe.prefix)) continue;
-        total += std.mem.alignForward(u64, v, 256);
-    }
-    return total + Line.bufferBytes(f.cfg, ln.s, ln.rank);
+    // priced before the pool exists: a stage's own roles do not depend on its options (pipe_test.zig)
+    return try pipe.stageRoleBytes(f.gpa, f.cfg, f.widths, ln.o1, ln.s, ln.rank) + Line.bufferBytes(f.cfg, ln.s, ln.rank);
 }
 
 fn copy(r: *run.Runner, dst: u64, src: u64, bytes: u64) !void {
