@@ -15,6 +15,7 @@ pub const hybrid = @import("hybrid.zig");
 pub const roce = @import("roce.zig");
 pub const roce_verbs = @import("roce_verbs.zig");
 pub const planlink = @import("planlink.zig");
+pub const replay = @import("replay.zig");
 pub const Verbs = @import("verbs").Verbs;
 
 pub const Collective = collective.Collective;
@@ -227,6 +228,7 @@ test {
     _ = mailbox;
     _ = roce_verbs;
     _ = planlink;
+    _ = replay;
     _ = @import("roce_test.zig");
     _ = @import("host_test.zig");
     _ = @import("fate_test.zig");

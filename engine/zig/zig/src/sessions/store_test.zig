@@ -111,6 +111,8 @@ fn turn(gpa: std.mem.Allocator, r: *Rank, s: *Slot, chat: u32, ids: []const i32)
             var got = (try r.store.settle(j)).?;
             defer got.deinit(gpa);
             try testing.expectEqual(@as(u8, @truncate(chat *% 17 +% hit.pos)), got.blobs[0].bytes[0]);
+            // the NVMe restore yields the entry's committed ids (its files hold them), whole file or delta chain
+            try testing.expectEqualSlices(i32, ids[0..@intCast(hit.pos)], got.ids);
             tier = "disk";
         }
         try r.check(s, chat, hit.pos);
@@ -197,6 +199,43 @@ test "chats over turns: residency to NVMe, bit-identical resumes, deltas, older 
     defer gpa.free(r1);
     try scenario(gpa, r1, 1, 0, true, &t1);
     try testing.expectEqualSlices(u64, t0.items, t1.items); // the tier thread changes when bytes move, not what is decided
+}
+
+test "an evicted (parked) entry's index path is trimmed; its NVMe restore returns the committed ids" {
+    // the 2026-10-10 w4b fleet crash: a repeated prompt whose session was RAM-evicted raised NotInRam out of
+    // sessions_gpu.restore()'s index.idsOf tail on every rank (a parked entry keeps digests only, by design),
+    // and the followers' replay made the request-level error process-fatal. The index behaviour stays; the
+    // restore sources the ids from the files.
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try tmpRoot(gpa, &tmp, "evicted");
+    defer gpa.free(root);
+    var r: Rank = undefined;
+    try r.init(gpa, root, 1, 0, .{});
+    defer r.deinit();
+    const s = try r.pool.newSlot(64 * page);
+    const a = try chatIds(gpa, 1, 20 * page);
+    defer gpa.free(a);
+    try testing.expectEqualStrings("fresh", try turn(gpa, &r, s, 1, a[0 .. 5 * page + 10]));
+    const hit = (try r.store.find(1, a[0 .. 8 * page])).?;
+    try testing.expect(hit.ram);
+    // the RAM trim's eviction (a spill's: the same settle path): the entry parked, its index path trimmed
+    _ = try r.store.evict(hit.id);
+    try r.store.settleAll();
+    const parked = (try r.store.find(1, a[0 .. 8 * page])).?;
+    try testing.expect(!parked.ram);
+    try testing.expectEqual(hit.id, parked.id);
+    // the defect: a disk entry's ids are not in the index, so the old restore tail's idsOf raised NotInRam
+    const buf = try gpa.alloc(i32, @intCast(parked.pos));
+    defer gpa.free(buf);
+    try testing.expectError(error.NotInRam, r.store.index.idsOf(parked.id, buf));
+    // the fix: the NVMe restore itself returns the entry's committed ids (its files hold them, checksummed)
+    const j = try r.store.beginRestore(parked.id, s);
+    var got = (try r.store.settle(j)).?;
+    defer got.deinit(gpa);
+    try testing.expectEqualSlices(i32, a[0..@intCast(parked.pos)], got.ids);
+    try r.check(s, 1, parked.pos);
 }
 
 test "two split ranks make the same decisions on the same calls and each restores its own rows" {
