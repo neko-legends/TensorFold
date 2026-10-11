@@ -49,6 +49,9 @@ test "replayed request-level errors are survivable; process, device and transpor
     // a request priced the pool out (rank 0 ends the request; every rank's pool agreed on it)
     try std.testing.expect(!processFatal(error.PoolExhausted));
     try std.testing.expect(!processFatal(error.SlotTooShort));
+    // a spill's park that failed on this rank only: the ranks' pools diverged by construction (the entry's
+    // pages freed where the write landed, held here) — the fate channel's clean restart, as a replica's OOM
+    try std.testing.expect(processFatal(error.ParkFailed));
     // the process itself cannot mirror rank 0's work
     try std.testing.expect(processFatal(error.OutOfMemory));
     // the operations stream (a peer or a framing failure is not a request's)

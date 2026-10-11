@@ -238,6 +238,82 @@ test "an evicted (parked) entry's index path is trimmed; its NVMe restore return
     try r.check(s, 1, parked.pos);
 }
 
+fn chmod(path: [:0]const u8, mode: std.c.mode_t) !void {
+    if (std.c.fchmodat(std.posix.AT.FDCWD, path, mode, 0) != 0) return error.ChmodFailed;
+}
+
+/// The disk's directory of a Rank.init'd rank (compat @splat(7)): <root>/<compat hex>/rank<d>.
+fn tierDir(gpa: std.mem.Allocator, root: [:0]const u8, rank: u32) ![:0]u8 {
+    return std.fmt.allocPrintSentinel(gpa, "{s}/0707070707070707/rank{d}", .{ root, rank }, 0);
+}
+
+test "a spill park that fails on one rank is the fleet-fatal ParkFailed (the review's silent pool divergence)" {
+    // the 2026-10-10 review's M1: a follower-local NVMe failure on the admit/spill path (no agreement there)
+    // surfaced as the tier's raw error — request-level on a follower (tp/replay.zig) — so the follower logged
+    // and served on with its pool still holding the entry's pages the other ranks' parks freed: silent pool
+    // divergence, an asymmetric PoolExhausted away from a collective-order desync with every rank alive. A
+    // failed park on a multi-rank store is the distinct process-fatal ParkFailed (the fate channel's clean
+    // restart, as a replica's OOM); on a one-rank store the raw tier error stands (nothing to diverge from).
+    if (std.os.linux.geteuid() == 0) return; // root writes through permission bits: the failure cannot be injected
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try tmpRoot(gpa, &tmp, "parkfail");
+    defer gpa.free(root);
+    // a follower's store in a two-rank fleet, a chat saved and idle in RAM
+    var r: Rank = undefined;
+    try r.init(gpa, root, 2, 1, .{});
+    defer r.deinit();
+    const s = try r.pool.newSlot(64 * page);
+    const a = try chatIds(gpa, 1, 20 * page);
+    defer gpa.free(a);
+    try testing.expectEqualStrings("fresh", try turn(gpa, &r, s, 1, a[0 .. 5 * page + 10]));
+    const hit = (try r.store.find(1, a[0 .. 8 * page])).?;
+    try testing.expect(hit.ram);
+    const free_before = r.pool.freePages();
+    // this rank's tier stops taking writes (one Spark's full or faulted disk): its rank dir read-only
+    const tier = try tierDir(gpa, root, 1);
+    defer gpa.free(tier);
+    try chmod(tier, 0o555);
+    defer chmod(tier, 0o755) catch {};
+    // the spill path itself (applyAdmit's evict, its sync park settle): not the tier's raw request-level
+    // error but the process-fatal ParkFailed, and the failed park changed nothing on this rank — the entry
+    // is still in RAM holding its pages, the failed file's .tmp is gone
+    try testing.expectError(error.ParkFailed, r.store.evict(hit.id));
+    try testing.expect(r.store.entry(hit.id).ram);
+    try testing.expectEqual(free_before, r.pool.freePages());
+    var d = try std.Io.Dir.cwd().openDir(testing.io, tier, .{ .iterate = true });
+    defer d.close(testing.io);
+    var it = d.iterate();
+    while (try it.next(testing.io)) |ent| try testing.expect(!std.mem.endsWith(u8, ent.name, ".tmp"));
+    // the async settle point (applyAdmit's settleAll) maps the same way
+    var r2: Rank = undefined;
+    try r2.init(gpa, root, 2, 1, .{ .async_io = true });
+    defer r2.deinit();
+    const s2 = try r2.pool.newSlot(64 * page);
+    try testing.expectEqualStrings("fresh", try turn(gpa, &r2, s2, 1, a[0 .. 5 * page + 10]));
+    const hit2 = (try r2.store.find(1, a[0 .. 8 * page])).?;
+    _ = try r2.store.evict(hit2.id); // the park job starts; its failure surfaces at the plan's settle
+    try testing.expectError(error.ParkFailed, r2.store.settleAll());
+    try testing.expect(r2.store.entry(hit2.id).ram);
+    // one rank alone has nothing to diverge from: the tier's own error, the entry still in RAM, serving on
+    const root1 = try tmpRoot(gpa, &tmp, "parkfail1");
+    defer gpa.free(root1);
+    var r1: Rank = undefined;
+    try r1.init(gpa, root1, 1, 0, .{});
+    defer r1.deinit();
+    const s1 = try r1.pool.newSlot(64 * page);
+    try testing.expectEqualStrings("fresh", try turn(gpa, &r1, s1, 1, a[0 .. 5 * page + 10]));
+    const hit1 = (try r1.store.find(1, a[0 .. 8 * page])).?;
+    const tier1 = try tierDir(gpa, root1, 0);
+    defer gpa.free(tier1);
+    try chmod(tier1, 0o555);
+    defer chmod(tier1, 0o755) catch {};
+    if (r1.store.evict(hit1.id)) |_| return error.TestUnexpectedResult else |err|
+        try testing.expect(err != error.ParkFailed);
+    try testing.expect(r1.store.entry(hit1.id).ram);
+}
+
 test "two split ranks make the same decisions on the same calls and each restores its own rows" {
     const gpa = testing.allocator;
     var tmp = testing.tmpDir(.{});
