@@ -1482,6 +1482,26 @@ pub fn planRuns(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths
 /// A prefill program's part: a whole segment, or one of CED replay's passes (ced.zig).
 pub const Part = enum { whole, encoder, decoder };
 
+/// A pipeline stage's entry and exit (TF_DSV41_PREFILL_PIPE, pipe.zig). Not emitted yet.
+pub const StageIo = struct {
+    entered: bool,
+    last: bool,
+    sel_in: ?u32 = null,
+    sel_out: ?u32 = null,
+};
+
+pub fn emitStage(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths, o: block.Options, layers: []const u32, n: i64, start: i64, io: StageIo) ![]calls.Call {
+    _ = a;
+    _ = cfg;
+    _ = w;
+    _ = o;
+    _ = layers;
+    _ = n;
+    _ = start;
+    _ = io;
+    return error.Unsupported;
+}
+
 /// CED replay's programs (TF_DSV41_PREFILL=replay, ced.zig), `n` rows from `start`:
 /// - `.encoder`: a prompt segment over `layers` (0 .. D, D last: the decoder's first layer), D only to its attention
 ///   site and compressor, then the stash glue; no head (replay.encode: run(upto=D), logits off);

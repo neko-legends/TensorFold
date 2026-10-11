@@ -1,0 +1,319 @@
+//! Host tests of the pipelined prompt reading's stage programs (block_prefill.emitStage, pipe.zig; docs/ZIG-PREFILL-PIPE.md):
+//! - the four stages' programs, end to end, ARE the one-rank encoder pass (`emitReplay` at world 1, `.encoder`): call
+//!   for call, argument for argument, but for the stages' own hand-off glue (`pipe_in` / `pipe_out`) and the encoder
+//!   pass's embedding (the line's round embeds the segment before stage 0). So a pipelined prompt's arithmetic is one
+//!   rank computing the encoder (Python's claim for pipe.py, here checked on the emitted programs);
+//! - what a stage hands on is what the next one takes (the same tensors, byte for byte);
+//! - a stage program in its namespace with the stage weights' names reads every replicated tensor, form and slot
+//!   state exactly as the TP=4 program of its layers does, and has its own copy of every name whose layout differs.
+const std = @import("std");
+const testing = std.testing;
+const calls = @import("calls.zig");
+const block = @import("block.zig");
+const bp = @import("block_prefill.zig");
+const buffers = @import("buffers.zig");
+const check = @import("m1_check.zig");
+const pipe = @import("pipe.zig");
+const Config = @import("config.zig").Config;
+
+fn widths(a: std.mem.Allocator) !block.Widths {
+    var w: block.Widths = .{};
+    try check.parseDense(a, &w, @embedFile("fixtures/q28v2-dense-k2.txt"));
+    try check.parseExperts(a, &w, @embedFile("fixtures/q28v2-expert-k2.txt"));
+    return w;
+}
+
+const limit: i64 = 420096; // TP=4's TF_DSV41_CONTEXT (1,641 pages)
+
+/// The boot's prefill options on TP=4 rank `rank` (config/tp4-zig.env.example's switches that reach the emitter), with
+/// the served pool (replicated: KV split off, which the pipeline needs).
+fn bootOptions(rank: u32) block.Options {
+    const pages = @divExact(limit, block.Pool.page);
+    return .{ .world = 4, .rank = rank, .gm_v2 = .one, .r1 = true, .branches = true, .mhc_defer = true, .expert_topp = 0.85, .limit = limit, .rope_rows = limit + 2048, .prefill_rows = 2048, .index_budget = 64 << 20, .pool = .{ .comp_pages = pages + 1, .ik_pages = pages + 1, .pts = pages } };
+}
+
+fn settings() !pipe.Settings {
+    const F = struct {
+        fn get(name: []const u8) ?[]const u8 {
+            return if (std.mem.eql(u8, name, "TF_DSV41_PREFILL_PIPE")) "1024" else null;
+        }
+    };
+    const cfg: Config = .{};
+    return (try pipe.settings(&F.get, &cfg, 4)).?;
+}
+
+fn stageIo(cfg: *const Config, s: *const pipe.Settings, r: u32) bp.StageIo {
+    const st = s.stage(r);
+    return .{ .entered = r > 0, .last = st.last, .sel_in = st.selIn(cfg), .sel_out = st.selOut(cfg, s.boundsSlice()) };
+}
+
+fn eqTensor(x: calls.Tensor, y: calls.Tensor) bool {
+    if (std.meta.activeTag(x.role) != std.meta.activeTag(y.role)) return false;
+    const rx = switch (x.role) {
+        .weight => |v| v,
+        .buf => |v| v,
+        .empty => "",
+    };
+    const ry = switch (y.role) {
+        .weight => |v| v,
+        .buf => |v| v,
+        .empty => "",
+    };
+    return std.mem.eql(u8, rx, ry) and x.dt == y.dt and std.mem.eql(i64, x.shape, y.shape) and std.mem.eql(i64, x.stride, y.stride) and x.offset == y.offset;
+}
+
+fn eqArg(x: calls.Arg, y: calls.Arg) bool {
+    if (std.meta.activeTag(x) != std.meta.activeTag(y)) return false;
+    return switch (x) {
+        .t => |t| eqTensor(t, y.t),
+        .opaque_table => |t| eqTensor(t, y.opaque_table),
+        .i => |v| v == y.i,
+        .f => |v| @as(u64, @bitCast(v)) == @as(u64, @bitCast(y.f)),
+        .b => |v| v == y.b,
+        .none => true,
+        .list => |l| blk: {
+            if (l.len != y.list.len) break :blk false;
+            for (l, y.list) |p, q| if (!eqArg(p, q)) break :blk false;
+            break :blk true;
+        },
+    };
+}
+
+/// The same launch (or glue step): name, kind, grid, streams and marks, every argument (`begin` is a scope marker of
+/// the program, not of the launch).
+fn sameCall(c: calls.Call, d: calls.Call) !void {
+    try testing.expectEqualStrings(c.name, d.name);
+    try testing.expectEqual(c.triton, d.triton);
+    try testing.expectEqual(c.glue, d.glue);
+    try testing.expectEqual(c.grid, d.grid);
+    try testing.expectEqual(c.side, d.side);
+    try testing.expectEqual(c.fork, d.fork);
+    try testing.expectEqual(c.join, d.join);
+    try testing.expectEqual(c.mark, d.mark);
+    try testing.expectEqual(c.wait, d.wait);
+    try testing.expectEqual(c.defer_side, d.defer_side);
+    try testing.expectEqual(c.defer_join, d.defer_join);
+    try testing.expectEqual(c.args.len, d.args.len);
+    for (c.args, d.args) |x, y| {
+        if (!eqArg(x.arg, y.arg)) {
+            std.debug.print("{s}: argument {s} differs\n", .{ c.name, x.name });
+            return error.TestUnexpectedResult;
+        }
+    }
+}
+
+fn isGlue(c: calls.Call, step: []const u8) bool {
+    return c.glue and std.mem.eql(u8, c.name["glue.".len..], step);
+}
+
+test "the four stages' programs are the one-rank encoder pass, call for call (2,048 / 1,000 / 33 rows, two starts)" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const aa = arena.allocator();
+    const cfg: Config = .{};
+    const w = try widths(aa);
+    const s = try settings();
+    var enc: [21]u32 = undefined;
+    for (&enc, 0..) |*l, i| l.* = @intCast(i);
+    for ([_]i64{ 2048, 1000, 33 }) |n| for ([_]i64{ 0, 300000 }) |start| {
+        const o1 = pipe.stageOptions(bootOptions(0), s.rows);
+        const whole = try bp.emitReplay(aa, &cfg, &w, o1, &enc, n, start, .encoder);
+        var line: std.ArrayList(calls.Call) = .empty;
+        var buf: [64]u32 = undefined;
+        for (0..4) |r| {
+            const st = s.stage(@intCast(r));
+            const cs = try bp.emitStage(aa, &cfg, &w, o1, st.layers(&buf), n, start, stageIo(&cfg, &s, @intCast(r)));
+            // a stage: its positions, its input, its layers, its output (the last: the encoder's end, the stash)
+            try testing.expect(isGlue(cs[0], "positions") and isGlue(cs[1], "pipe_in"));
+            try testing.expect(if (st.last) isGlue(cs[cs.len - 1], "ced_stash") else isGlue(cs[cs.len - 1], "pipe_out"));
+            for (cs, 0..) |c, i| {
+                if (isGlue(c, "pipe_in") or isGlue(c, "pipe_out")) continue;
+                if (r > 0 and i == 0) continue; // every stage's positions: the encoder pass's one
+                try line.append(aa, c);
+            }
+        }
+        var j: usize = 0;
+        for (whole) |c| {
+            if (isGlue(c, "embed")) continue; // the round's embedding, before stage 0
+            try testing.expect(j < line.items.len);
+            try sameCall(c, line.items[j]);
+            j += 1;
+        }
+        try testing.expectEqual(line.items.len, j);
+    };
+}
+
+test "4,096-row stages (TF_DSV41_PIPE_ROWS=4096) are the 4K encoder pass too" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const aa = arena.allocator();
+    const cfg: Config = .{};
+    const w = try widths(aa);
+    const s = try settings();
+    var enc: [21]u32 = undefined;
+    for (&enc, 0..) |*l, i| l.* = @intCast(i);
+    const o1 = pipe.stageOptions(bootOptions(0), 4096);
+    const whole = try bp.emitReplay(aa, &cfg, &w, o1, &enc, 4096, 8192, .encoder);
+    var n_line: usize = 0;
+    var buf: [64]u32 = undefined;
+    for (0..4) |r| {
+        const cs = try bp.emitStage(aa, &cfg, &w, o1, s.stage(@intCast(r)).layers(&buf), 4096, 8192, stageIo(&cfg, &s, @intCast(r)));
+        for (cs, 0..) |c, i| {
+            if (isGlue(c, "pipe_in") or isGlue(c, "pipe_out") or (r > 0 and i == 0)) continue;
+            n_line += 1;
+        }
+    }
+    var n_whole: usize = 0;
+    for (whole) |c| n_whole += @intFromBool(!isGlue(c, "embed"));
+    try testing.expectEqual(n_whole, n_line);
+}
+
+test "a stage hands on exactly what the next takes: pipe_out's tensors are the next pipe_in's, byte for byte" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const aa = arena.allocator();
+    const cfg: Config = .{};
+    const w = try widths(aa);
+    const s = try settings();
+    const o1 = pipe.stageOptions(bootOptions(0), s.rows);
+    var buf: [64]u32 = undefined;
+    for ([_]i64{ 2048, 33 }) |n| {
+        var outs: [4]?calls.Call = @splat(null);
+        var ins: [4]calls.Call = undefined;
+        for (0..4) |r| {
+            const cs = try bp.emitStage(aa, &cfg, &w, o1, s.stage(@intCast(r)).layers(&buf), n, 4096, stageIo(&cfg, &s, @intCast(r)));
+            ins[r] = cs[1];
+            if (r < 3) outs[r] = cs[cs.len - 1];
+        }
+        // stage 0 takes the embedded streams alone; the others the streams, the pending post and the selection
+        try testing.expectEqual(@as(usize, 1), ins[0].args.len);
+        for (1..4) |r| {
+            const o = outs[r - 1].?;
+            try testing.expectEqual(o.args.len, ins[r].args.len);
+            try testing.expectEqual(@as(usize, 7), o.args.len); // streams, partial, pre / post / comb, sel / cnt
+            for (o.args, ins[r].args) |x, y| {
+                try testing.expectEqual(x.arg.t.dt, y.arg.t.dt);
+                try testing.expectEqualSlices(i64, x.arg.t.shape, y.arg.t.shape);
+            }
+            // the streams [n, 4 D], the partial at world 1 [1, n, D]
+            try testing.expectEqualSlices(i64, &.{ n, 4 * @as(i64, cfg.hidden) }, o.args[0].arg.t.shape);
+            try testing.expectEqualSlices(i64, &.{ 1, n, @as(i64, cfg.hidden) }, o.args[1].arg.t.shape);
+        }
+    }
+    // the shortest segment a stage takes (pipe.min_seg): the mHC split programs' out-of-place streams never in a stage
+    try testing.expectError(error.Unsupported, bp.emitStage(aa, &cfg, &w, o1, s.stage(1).layers(&buf), 32, 0, stageIo(&cfg, &s, 1)));
+}
+
+fn roleName(t: calls.Tensor) []const u8 {
+    return switch (t.role) {
+        .weight => |v| v,
+        .buf => |v| v,
+        .empty => "",
+    };
+}
+
+const View = struct { dt: calls.Dt, shape: []const i64, stride: []const i64, offset: i64 };
+
+fn collect(a: std.mem.Allocator, cs: []const calls.Call, m: *std.StringHashMapUnmanaged(std.ArrayList(View))) !void {
+    for (cs) |c| for (c.args) |x| try note(a, x.arg, m);
+}
+
+fn note(a: std.mem.Allocator, x: calls.Arg, m: *std.StringHashMapUnmanaged(std.ArrayList(View))) !void {
+    switch (x) {
+        .t, .opaque_table => |t| {
+            if (t.role == .empty) return;
+            const g = try m.getOrPut(a, roleName(t));
+            if (!g.found_existing) g.value_ptr.* = .empty;
+            try g.value_ptr.append(a, .{ .dt = t.dt, .shape = t.shape, .stride = t.stride, .offset = t.offset });
+        },
+        .list => |l| for (l) |y| try note(a, y, m),
+        else => {},
+    }
+}
+
+fn hasView(vs: []const View, v: View) bool {
+    for (vs) |u| if (u.dt == v.dt and std.mem.eql(i64, u.shape, v.shape) and std.mem.eql(i64, u.stride, v.stride) and u.offset == v.offset) return true;
+    return false;
+}
+
+test "a stage program (its namespace, the P. names) reads every replicated tensor, form and slot state as TP=4 does" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const aa = arena.allocator();
+    const cfg: Config = .{};
+    const w = try widths(aa);
+    const s = try settings();
+    var buf: [64]u32 = undefined;
+    for (0..4) |r| {
+        const o4 = bootOptions(@intCast(r));
+        const o1 = pipe.stageOptions(o4, s.rows);
+        const st = s.stage(@intCast(r));
+        const layers = st.layers(&buf);
+        const plain = try bp.emitStage(aa, &cfg, &w, o1, layers, 2048, 300000, stageIo(&cfg, &s, @intCast(r)));
+        const stage = try pipe.rename(aa, try bp.ownCalls(aa, plain, pipe.tag));
+        const tp = try bp.emitReplay(aa, &cfg, &w, o4, layers, 2048, 300000, if (st.last) .encoder else .whole);
+        var sm: std.StringHashMapUnmanaged(std.ArrayList(View)) = .empty;
+        var tm: std.StringHashMapUnmanaged(std.ArrayList(View)) = .empty;
+        try collect(aa, stage, &sm);
+        try collect(aa, tp, &tm);
+        var own: usize = 0;
+        var renamed: usize = 0;
+        var shared: usize = 0;
+        var it = sm.iterator();
+        while (it.next()) |kv| {
+            const name = kv.key_ptr.*;
+            // the stage's window / layer / scratch roles: its namespace
+            if (std.mem.indexOf(u8, name, pipe.tag) != null) {
+                own += 1;
+                continue;
+            }
+            // the full-width copies: a tensor TP=4 has too (its shard, or a table of its shard's addresses)
+            const bare = if (std.mem.startsWith(u8, name, pipe.prefix)) name[pipe.prefix.len..] else if (std.mem.startsWith(u8, name, "s." ++ pipe.prefix)) try std.fmt.allocPrint(aa, "s.{s}", .{name[2 + pipe.prefix.len ..]}) else null;
+            if (bare) |b| {
+                if (tm.get(b) == null) {
+                    std.debug.print("rank {d}: {s} renamed, but TP=4 has no {s}\n", .{ r, name, b });
+                    return error.TestUnexpectedResult;
+                }
+                renamed += 1;
+                continue;
+            }
+            // anything else is TP=4's own tensor or state: every view the stage takes, TP=4 takes too
+            const tv = tm.get(name) orelse {
+                std.debug.print("rank {d}: the stage reads {s}, which the TP=4 program never names\n", .{ r, name });
+                return error.TestUnexpectedResult;
+            };
+            for (kv.value_ptr.items) |v| if (!hasView(tv.items, v)) {
+                std.debug.print("rank {d}: {s} viewed as {any} in the stage, not by TP=4 (a sharded layout under a shared name)\n", .{ r, name, v.shape });
+                return error.TestUnexpectedResult;
+            };
+            shared += 1;
+        }
+        try testing.expect(own > 0 and renamed > 0 and shared > 0);
+        // no unprefixed x3gm pointer table: its addresses are the TP shard's
+        it = sm.iterator();
+        while (it.next()) |kv| try testing.expect(!(std.mem.startsWith(u8, kv.key_ptr.*, "s.L") and std.mem.indexOf(u8, kv.key_ptr.*, ".gm.t") != null and !std.mem.endsWith(u8, kv.key_ptr.*, "k2g") and !std.mem.endsWith(u8, kv.key_ptr.*, "k2d")));
+        // the slot's state is the stage's own writes into the slot (rings, carries, the pool, the stash): shared names
+        for ([_][]const u8{ "s.kv.pt", "s.rope.comp" }) |x| try testing.expect(sm.get(x) != null);
+        if (st.last) try testing.expect(sm.get("s.ced.x") != null);
+    }
+}
+
+test "the stage programs' buffer plan: a namespace of its own, sized by world-1 views (heads, groups, expert columns)" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const aa = arena.allocator();
+    const cfg: Config = .{};
+    const w = try widths(aa);
+    const s = try settings();
+    var buf: [64]u32 = undefined;
+    const o1 = pipe.stageOptions(bootOptions(2), s.rows);
+    var plan: buffers.Plan = .{ .a = aa };
+    for (0..4) |r| {
+        const cs = try bp.emitStage(aa, &cfg, &w, o1, s.stage(@intCast(r)).layers(&buf), 2048, 300000, stageIo(&cfg, &s, @intCast(r)));
+        try plan.add(try pipe.rename(aa, try bp.ownCalls(aa, cs, pipe.tag)));
+    }
+    // the attention's q at 64 heads, x3gm's down input at 2,304 columns (6 pairs a row)
+    try testing.expectEqual(@as(u64, 2048 * 64 * 512 * 2), plan.sizes.get("L.pp~q").?);
+    try testing.expectEqual(@as(u64, 2048 * 6 * 2304 * 2), plan.sizes.get("s.pp~ex.xg").?);
+    try testing.expect(plan.sizes.get("L.q") == null and plan.sizes.get("s.ex.xg") == null);
+}
