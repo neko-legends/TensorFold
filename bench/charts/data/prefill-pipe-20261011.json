@@ -1,0 +1,311 @@
+{
+ "title": "DeepSeek V4.1 on 4× DGX Spark (TP=4): TensorFold Python vs Zig vs Zig + pipelined prefill",
+ "subtitle": "Bench of 2026-10-10 (Python) and 2026-10-11 window 7 (Zig, same image, pipelined prefill off vs on) · best of 3 repetitions",
+ "percent_note": "Small % above Zig bars: change vs Python TensorFold over the same transport (cross-session). Bracketed % ●: Zig pipelined prefill on vs off, same window.",
+ "artifact_root": "forge:~/zigtp4-run/out/zvp",
+ "statistic": "bench/zig_vs_python.py headline: best of the warm repetitions / long passes without a failed stream (TTFT: the lowest); median and n beside it",
+ "baseline": "python-nccl",
+ "controlled": [
+  {
+   "a": "zig-nccl-control",
+   "b": "zig-nccl-pipe",
+   "note": "window 7, same image and transport, one switch changed (pipelined prefill off -> on), same salt zvp-20261011w7"
+  }
+ ],
+ "footnotes": [
+  "● Same window, one variable changed: window 7, same image, NCCL, same prompts (salt zvp-20261011w7); only the pipelined-prefill switch differs.",
+  "Small %: vs Python over the same transport (NCCL), from a different session (2026-10-10) — cross-session, not a controlled comparison. Python over RoCE is shown alongside.",
+  "Best of 3 repetitions without a failed stream (TTFT: lowest of 3). Prompts: 37,986–37,987 (32K) and 154,195–154,196 (131K) tokens. Decode after a long prompt and the mix cells vary a lot between passes: indicative only.",
+  "Mix: code = mean per-stream rate of 4 code streams beside a 131K prompt. Raw per-cell JSONs: forge ~/zigtp4-run/out/zvp/{python-tp4-nccl, python-tp4-roce-live, w7/zig-tp4-nccl-control, w7/zig-tp4-nccl-pipe}."
+ ],
+ "series": [
+  {
+   "id": "python-nccl",
+   "label": "Python TensorFold",
+   "engine": "python",
+   "transport": "NCCL",
+   "window": "2026-10-10",
+   "salt_tag": "zvp-20261010b",
+   "started": "2026-10-10T14:41:55-0700",
+   "run_dir": "forge:~/zigtp4-run/out/zvp/python-tp4-nccl",
+   "values": {
+    "prefill-32k": {
+     "value": 4084.5,
+     "median": 4051.4,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/python-tp4-nccl/long.json"
+    },
+    "prefill-131k": {
+     "value": 4333.6,
+     "median": 4332.1,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/python-tp4-nccl/long.json"
+    },
+    "ttft-154k": {
+     "value": 35.581,
+     "median": 35.594,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/python-tp4-nccl/long.json"
+    },
+    "code-x1": {
+     "value": 101.71,
+     "median": 101.43,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/python-tp4-nccl/warm.json"
+    },
+    "code-x4": {
+     "value": 176.09,
+     "median": 174.96,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/python-tp4-nccl/warm.json"
+    },
+    "prose-x4": {
+     "value": 112.93,
+     "median": 111.69,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/python-tp4-nccl/warm.json"
+    },
+    "long-decode-32k": {
+     "value": 80.85,
+     "median": 73.33,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/python-tp4-nccl/long.json"
+    },
+    "mix-long": {
+     "value": 67.64,
+     "median": 66.68,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/python-tp4-nccl/mix.json"
+    },
+    "mix-code": {
+     "value": 64.25,
+     "median": 63.33,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/python-tp4-nccl/mix.json"
+    },
+    "mixwin": {
+     "value": 165.92,
+     "median": 161.21,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/python-tp4-nccl/mixwin.json"
+    }
+   }
+  },
+  {
+   "id": "python-roce",
+   "label": "Python TensorFold",
+   "engine": "python",
+   "transport": "RoCE",
+   "window": "2026-10-10",
+   "salt_tag": "zvp-20261010a",
+   "started": "2026-10-10T14:25:05-0700",
+   "run_dir": "forge:~/zigtp4-run/out/zvp/python-tp4-roce-live",
+   "values": {
+    "prefill-32k": {
+     "value": 4083.6,
+     "median": 4065.7,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/python-tp4-roce-live/long.json"
+    },
+    "prefill-131k": {
+     "value": 4354.1,
+     "median": 4352.2,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/python-tp4-roce-live/long.json"
+    },
+    "ttft-154k": {
+     "value": 35.414,
+     "median": 35.429,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/python-tp4-roce-live/long.json"
+    },
+    "code-x1": {
+     "value": 119.08,
+     "median": 117.92,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/python-tp4-roce-live/warm.json"
+    },
+    "code-x4": {
+     "value": 207.93,
+     "median": 205.75,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/python-tp4-roce-live/warm.json"
+    },
+    "prose-x4": {
+     "value": 129.78,
+     "median": 129.24,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/python-tp4-roce-live/warm.json"
+    },
+    "long-decode-32k": {
+     "value": 89.22,
+     "median": 86.31,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/python-tp4-roce-live/long.json"
+    },
+    "mix-long": {
+     "value": 94.57,
+     "median": 86.69,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/python-tp4-roce-live/mix.json"
+    },
+    "mix-code": {
+     "value": 74.88,
+     "median": 71.26,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/python-tp4-roce-live/mix.json"
+    },
+    "mixwin": {
+     "value": 192.08,
+     "median": 191.47,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/python-tp4-roce-live/mixwin.json"
+    }
+   }
+  },
+  {
+   "id": "zig-nccl-control",
+   "label": "Zig, pipelined prefill off",
+   "engine": "zig",
+   "transport": "NCCL",
+   "window": "window 7, 2026-10-11",
+   "salt_tag": "zvp-20261011w7",
+   "started": "2026-10-11T08:14:34-0700",
+   "run_dir": "forge:~/zigtp4-run/out/zvp/w7/zig-tp4-nccl-control",
+   "values": {
+    "prefill-32k": {
+     "value": 2774.4,
+     "median": 2744.5,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w7/zig-tp4-nccl-control/long.json"
+    },
+    "prefill-131k": {
+     "value": 2554.5,
+     "median": 2542.7,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w7/zig-tp4-nccl-control/long.json"
+    },
+    "ttft-154k": {
+     "value": 60.363,
+     "median": 60.642,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w7/zig-tp4-nccl-control/long.json"
+    },
+    "code-x1": {
+     "value": 111.61,
+     "median": 111.45,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w7/zig-tp4-nccl-control/warm.json"
+    },
+    "code-x4": {
+     "value": 181.91,
+     "median": 181.56,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w7/zig-tp4-nccl-control/warm.json"
+    },
+    "prose-x4": {
+     "value": 120.92,
+     "median": 120.63,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w7/zig-tp4-nccl-control/warm.json"
+    },
+    "long-decode-32k": {
+     "value": 74.85,
+     "median": 71.93,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w7/zig-tp4-nccl-control/long.json"
+    },
+    "mix-long": {
+     "value": 80.93,
+     "median": 74.86,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w7/zig-tp4-nccl-control/mix.json"
+    },
+    "mix-code": {
+     "value": 64.54,
+     "median": 63.94,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w7/zig-tp4-nccl-control/mix.json"
+    },
+    "mixwin": {
+     "value": 177.25,
+     "median": 176.52,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w7/zig-tp4-nccl-control/mixwin.json"
+    }
+   }
+  },
+  {
+   "id": "zig-nccl-pipe",
+   "label": "Zig + pipelined prefill",
+   "engine": "zig-pipe",
+   "transport": "NCCL",
+   "window": "window 7, 2026-10-11",
+   "salt_tag": "zvp-20261011w7",
+   "started": "2026-10-11T08:34:52-0700",
+   "run_dir": "forge:~/zigtp4-run/out/zvp/w7/zig-tp4-nccl-pipe",
+   "values": {
+    "prefill-32k": {
+     "value": 4825.6,
+     "median": 4823.1,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w7/zig-tp4-nccl-pipe/long.json"
+    },
+    "prefill-131k": {
+     "value": 5131.0,
+     "median": 5123.0,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w7/zig-tp4-nccl-pipe/long.json"
+    },
+    "ttft-154k": {
+     "value": 30.052,
+     "median": 30.099,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w7/zig-tp4-nccl-pipe/long.json"
+    },
+    "code-x1": {
+     "value": 111.52,
+     "median": 111.45,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w7/zig-tp4-nccl-pipe/warm.json"
+    },
+    "code-x4": {
+     "value": 182.13,
+     "median": 181.51,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w7/zig-tp4-nccl-pipe/warm.json"
+    },
+    "prose-x4": {
+     "value": 120.98,
+     "median": 120.44,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w7/zig-tp4-nccl-pipe/warm.json"
+    },
+    "long-decode-32k": {
+     "value": 85.34,
+     "median": 74.17,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w7/zig-tp4-nccl-pipe/long.json"
+    },
+    "mix-long": {
+     "value": 79.57,
+     "median": 76.36,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w7/zig-tp4-nccl-pipe/mix.json"
+    },
+    "mix-code": {
+     "value": 63.3,
+     "median": 62.94,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w7/zig-tp4-nccl-pipe/mix.json"
+    },
+    "mixwin": {
+     "value": 175.15,
+     "median": 173.38,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w7/zig-tp4-nccl-pipe/mixwin.json"
+    }
+   }
+  }
+ ]
+}

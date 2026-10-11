@@ -73,3 +73,50 @@ The [existing Python vs vLLM table](../README.md#historical-29-bpw-results-pytho
 code greedy ×1 41.9–45.0, prose greedy ×1 32.5, aggregate ×1/×2/×4 32.2/46.7/37.6, and cold prefill
 8K/32K/64K/128K 1,073/1,075/1,060/1,031 tok/s for vLLM. Those runs use the older 2.9 bpw pack and different
 workloads. There is no matched q28-v2 Zig vs vLLM run here, so no new ratio is claimed.
+
+## TP=4: Python vs Zig vs Zig + pipelined prefill (2026-10-11)
+
+DeepSeek V4.1 Flash on four DGX Spark nodes, TP=4, measured with `bench/zig_vs_python.py`. Python is the live
+Python TensorFold TP4 engine, benched on 2026-10-10 over NCCL and over RoCE. The Zig series come from one window
+(window 7, 2026-10-11): one image over NCCL, booted twice with the same prompts (salt `zvp-20261011w7`). The only
+difference between the two boots is the pipelined-prefill switch.
+
+![TP=4 comparison chart](img/prefill-pipe-comparison-20261011.png)
+
+([SVG](img/prefill-pipe-comparison-20261011.svg). Regenerate with
+`uv run --with matplotlib python bench/charts/prefill_pipe_comparison.py render`. The data is in
+[`bench/charts/data/prefill-pipe-20261011.json`](../bench/charts/data/prefill-pipe-20261011.json), with every value's
+source file. Add a series with that script's `add` subcommand.)
+
+| Cell | Python NCCL | Python RoCE | Zig, pipeline off (NCCL) | Zig + pipeline (NCCL) | Pipeline on vs off (same window) | Zig + pipeline vs Python NCCL (cross-session) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 32K prompt (prompt tok/s) | 4,084.5 | 4,083.6 | 2,774.4 | 4,825.6 | +73.9 % | +18.1 % |
+| 131K prompt (prompt tok/s) | 4,333.6 | 4,354.1 | 2,554.5 | 5,131.0 | +100.9 % | +18.4 % |
+| Time to first token, 154K-token prompt (s, lower is better) | 35.58 | 35.41 | 60.36 | 30.05 | −50.2 % | −15.5 % |
+| code T0 ×1 (tok/s) | 101.7 | 119.1 | 111.6 | 111.5 | −0.1 % | +9.6 % |
+| code T0 ×4 (aggregate tok/s) | 176.1 | 207.9 | 181.9 | 182.1 | +0.1 % | +3.4 % |
+| prose T0 ×4 (aggregate tok/s) | 112.9 | 129.8 | 120.9 | 121.0 | +0.0 % | +7.1 % |
+| decode after the 32K prompt (tok/s) | 80.85 | 89.22 | 74.85 | 85.34 | +14.0 % | +5.6 % |
+| mix: 131K decode beside code ×4 (tok/s) | 67.64 | 94.57 | 80.93 | 79.57 | −1.7 % | +17.6 % |
+| mix: code ×4, mean per stream (tok/s) | 64.25 | 74.88 | 64.54 | 63.30 | −1.9 % | −1.5 % |
+| mixed windows: aggregate (tok/s) | 165.92 | 192.08 | 177.25 | 175.15 | −1.2 % | +5.6 % |
+
+Each value is the best of 3 repetitions without a failed stream; time to first token is the lowest of 3. The data
+file also records the median and the repetition count. The 32K / 131K labels are workload sizes; the prompts are
+37,986–37,987 and 154,195–154,196 tokens.
+
+- **Controlled:** only the "pipeline on vs off" column. Both boots ran in the same window on the same image, transport
+  and prompts, with only the pipelined-prefill switch changed. Prefill gains +74 % at 32K and +101 % at 131K, and
+  time to first token on the 154K-token prompt halves. Short decode is unchanged (within ±1 %).
+- **Cross-session:** every comparison with Python. The Python runs come from a different session (2026-10-10), so
+  more than one variable differs, and these are not controlled comparisons. The percentages compare against Python
+  over the same transport (NCCL).
+- **Transport matters for Python decode.** Python over RoCE decodes 10–40 % faster than Python over NCCL in these
+  cells; on prefill the two transports are within 0.5 %. Zig over RoCE with the pipeline (window 8) is not in this
+  chart yet.
+- Decode after a long prompt and the mix cells vary a lot between passes. For example, Python over NCCL ran 61–81
+  tok/s on decode after the 32K prompt, so treat those cells as indicative only.
+- Sources (forge `~/zigtp4-run/out/zvp/`): `python-tp4-nccl/`, `python-tp4-roce-live/`, `w7/zig-tp4-nccl-control/`,
+  `w7/zig-tp4-nccl-pipe/` (`long.json`, `warm.json`, `mix.json`, `mixwin.json`). The on/off figures match
+  `w7/compare-control-vs-pipe.w7.md`, and the Python NCCL figures match `compare-nccl.w4b.md`. The Python prefill
+  figures (4,084 tok/s at 32K, 4,354 at 131K, 35.4–35.6 s time to first token) are these runs' own long cells.
