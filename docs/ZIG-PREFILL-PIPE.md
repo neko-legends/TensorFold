@@ -137,9 +137,16 @@ Every rank runs the same rounds from the same op stream. The leader sends the pr
   tensor parallel; it does not open a second line, unlike Python, which drains and switches. That keeps every round on
   the active slot's views, and "long prefills 1 at a time" already holds that case off. Multi-slot piece runs
   (`pf.runnable`) leave the line slot out.
-- **Fail-fast.** Any error inside a round or a drain aborts this rank's communicator (`comm.abort()`) before it
-  returns, so every other rank's pending collective fails instead of hanging. Followers exit as for any prefill error,
-  and the fate channel takes rank 0 down. No rank continues past a broken line.
+- **Fail-fast.** Any error from a segment's entry to the end of a drain goes through the tp session's fail-fast
+  (`tp.Session.fatal`): a FAIL frame on the fate channel, every rank's communicator aborted by its own hook, exit 70 on
+  every rank.
+  - A local `comm.abort()` would not wake a peer already waiting in an NCCL kernel.
+  - A drain inside a session op would otherwise be a follower's request-level error.
+
+  No rank continues, and none waits, past a broken line.
+- **The end of the line.** At boot the ranks agree, in one all-gather, on the end up to which every rank's stage emits a
+  segment (`pipe.lastEnd`). The route keeps rows past it tensor parallel, so no rank meets a segment its own stage
+  refuses. At the served config every stage emits up to the context's end, so the agreed end is the limit.
 
 ### 5. What is better than Python, and what is not
 
