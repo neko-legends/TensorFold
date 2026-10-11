@@ -29,6 +29,9 @@ pub const Key = struct {
     o_groups: u32,
     blocks: []const u32,
     dspark: bool,
+    /// a set of images other than the plan's whole layers (pipe_load.cache_variant: a pipeline stage's sharded copies);
+    /// hashed only when non-zero, so every existing folder keeps its key
+    variant: u32 = 0,
 };
 
 /// The builders' source, so a change to how images are made never reads an old folder.
@@ -66,6 +69,7 @@ pub const Cache = struct {
         h.update(&pack_digest);
         h.update(std.mem.asBytes(&[_]u32{ key.rank, key.world, key.o_groups, @intFromBool(key.dspark), @intCast(key.blocks.len) }));
         h.update(std.mem.sliceAsBytes(key.blocks));
+        if (key.variant != 0) h.update(std.mem.asBytes(&key.variant));
         var d: [32]u8 = undefined;
         h.final(&d);
         const hex = std.fmt.bytesToHex(d[0..8].*, .lower);
@@ -283,6 +287,16 @@ test "a layer's images round-trip through its prepared file, and another key mis
     var none: named.Builder = .{ .gpa = gpa, .io = io, .pack = &p };
     defer none.deinit();
     try std.testing.expect(!try other.get(&none, "L1"));
+    // a key variant (a pipeline stage's copies: pipe_load) is another folder; variant 0 is the key as it always was
+    var v0 = try Cache.open(gpa, io, root, try packDigest(io, &p), .{ .rank = 1, .world = 2, .o_groups = 8, .blocks = &.{ 0, 1, 2 }, .dspark = true, .variant = 0 }, false, false);
+    defer v0.deinit();
+    try std.testing.expectEqualStrings(c.root, v0.root);
+    var v1 = try Cache.open(gpa, io, root, try packDigest(io, &p), .{ .rank = 1, .world = 2, .o_groups = 8, .blocks = &.{ 0, 1, 2 }, .dspark = true, .variant = 0x50495045 }, false, false);
+    defer v1.deinit();
+    try std.testing.expect(!std.mem.eql(u8, c.root, v1.root));
+    var none1: named.Builder = .{ .gpa = gpa, .io = io, .pack = &p };
+    defer none1.deinit();
+    try std.testing.expect(!try v1.get(&none1, "L1"));
     // a damaged payload is refused with VERIFY and the builder stays empty
     var pbuf: [std.fs.max_path_bytes]u8 = undefined;
     const f = try Io.Dir.cwd().openFile(io, try c.path(&pbuf, "L1", ""), .{ .mode = .read_write });

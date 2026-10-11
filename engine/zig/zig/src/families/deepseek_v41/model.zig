@@ -42,6 +42,10 @@ const dspark_rows = @import("dspark_rows.zig");
 const dspark_slots = @import("dspark_slots.zig");
 const l2pf_mod = @import("l2pf.zig");
 const iface = @import("draft/iface.zig");
+const pipe = @import("pipe.zig");
+const pipe_load = @import("pipe_load.zig");
+const pipe_run = @import("pipe_run.zig");
+const prod_knobs = @import("prod_knobs.zig");
 
 pub const Options = struct {
     drafts: bool = false,
@@ -122,6 +126,8 @@ pub const Model = struct {
     l2pf: ?*l2pf_mod.L2pf = null,
     /// structured output, every rank with TF_DSV41_GRAMMAR=1 (grammar_gpu.zig: the masks and the followers' matchers)
     grammar: ?*grammar_gpu.Masks = null,
+    /// TF_DSV41_PREFILL_PIPE (pipe_load.zig): the plan of this rank's stage copies (the line itself is the forward's)
+    pipe_copies: ?plan.Plan = null,
 
     /// The served engine's DSpark pass: several slots' (slot_pass), else the one-slot pass; null without drafts.
     pub fn draftPass(m: *Model) ?iface.Pass {
@@ -147,6 +153,7 @@ pub const Model = struct {
         m.slots = 1;
         m.slot_set = null;
         m.rows = null;
+        m.pipe_copies = null;
         m.slot_pass = null;
         m.sampler = null;
         m.grammar = null;
@@ -240,8 +247,14 @@ pub const Model = struct {
             }
         }.of;
         if (cache) |c| std.log.info("dsv41 load: weights {d:.0} ms ({d:.0} ms images, {d:.0} ms upload + digest), {d:.1} GiB; prepared {s}: {d} read ({d:.1} GiB in {d:.0} ms), {d} built, {d} written ({d:.0} ms)", .{ ms(std.Io.Clock.awake.now(io).toNanoseconds() - t_load), ms(t_build), ms(t_upload), @as(f64, @floatFromInt(m.weights.bytes)) / (1 << 30), c.root, c.stats.hits, @as(f64, @floatFromInt(c.stats.read_bytes)) / (1 << 30), ms(c.stats.read_ns), c.stats.misses, c.stats.written, ms(c.stats.write_ns) }) else std.log.info("dsv41 load: weights {d:.0} ms ({d:.0} ms images from the pack, {d:.0} ms upload + digest), {d:.1} GiB; TF_DSV41_PREPARED unset", .{ ms(std.Io.Clock.awake.now(io).toNanoseconds() - t_load), ms(t_build), ms(t_upload), @as(f64, @floatFromInt(m.weights.bytes)) / (1 << 30) });
+        // TF_DSV41_PREFILL_PIPE (pipe.zig): this rank's stage copies (its encoder layers' sharded tensors at world 1),
+        // before the boot check so MemAvailable already holds them
+        const pipe_s = if (o.own_prefill) try pipe.settings(&prod_knobs.env, &m.cfg, world) else null;
+        if (pipe_s) |ps| m.pipe_copies = try pipe_load.loadStage(gpa, io, &m.driver, &m.pack, &m.cfg, ps, m.tcfg.rank, &m.weights);
         m.aot = try cuda.aot.Set.load(gpa, io, &m.driver, m.ctx.device, try std.fs.path.join(a, &.{ assets, "aot" }));
         m.widths = try m2a.widths(a, &m.weights, &m.pl);
+        // the stage programs ask every wo_a group's width by its bare name (a TP rank holds its own groups)
+        if (pipe_s != null) try pipe.widthsFromCopies(a, &m.widths);
         m.runner = .{ .gpa = gpa, .d = &m.driver, .stream = m.stream, .kernels = &m.kernels, .triton = &m.aot, .weights = &m.weights };
         // TF_DSV41_PROFILE=<file>: the served engine's eager windows and prefill segments timed (profile.zig), the JSON
         // written at close (before, only tf-dsv41-m1's gates set it: a served run wrote nothing)
@@ -257,17 +270,27 @@ pub const Model = struct {
             m.f.opts.rope_rows = c + 2048;
         }
         try @import("prod_knobs.zig").apply(&m.f, a, io, m.tcfg.rank);
+        // the line (pipe_run.zig) on every rank: its stage options are the forward's at world 1 (refreshed once the
+        // pool is up), its buffers bound after the forms
+        if (pipe_s) |ps| (try pipe_run.Line.create(gpa, &m.f, ps)).install(&m.f);
         m.slots = try slots_mod.countFromEnv();
         if (try kvs.optionsFromEnv(@intCast(m.f.opts.limit), world)) |ko_| {
             var ko = ko_;
             ko.slots = m.slots;
             // the long-prompt stream scratch the buffer plan will hold (Python's measured terms have none)
             ko.resident = @import("prod_knobs.zig").streamScratch(&m.cfg, m.f.opts.limit, m.f.opts.prefill_rows);
+            // TF_DSV41_PREFILL_PIPE: the stage programs' namespace, the stage copies' forms and the line's buffers
+            if (m.f.prefill_state.pipe) |ln| ko.resident += try pipe_run.residentBytes(&m.f, ln);
             // TF_DSV41_PF_4K / _PF_TBO: the prefill workspace a long prompt allocates, priced on top of the worst point
             if (o.own_prefill) ko.workspace = try @import("forward_prefill.zig").workspaceBytes(&m.f, @intCast(m.f.opts.prefill_rows));
             try kvs.bootCheck(&m.ctx, &m.cfg, ko, m.tcfg.rank, world);
             m.f.kv = try kvs.Kv.init(gpa, &m.driver, &m.ctx, &m.cfg, ko, &m.runner, comm);
             m.f.opts.pool = m.f.kv.?.options();
+        }
+        if (m.f.prefill_state.pipe) |ln| {
+            try pipe_run.check(&m.f, ln.s);
+            ln.o1 = pipe.stageOptions(m.f.opts, ln.s.rows);
+            if (m.tcfg.rank == 0) std.log.scoped(.dsv41).info("pipeline: prompts of {d}+ rows through stages {any} ({d} rows a segment)", .{ ln.s.min_rows, ln.s.boundsSlice(), ln.s.rows });
         }
         // the buffer plan: every window up to the prefill rows (a verify window is at most a block + 1), and DSpark's
         var buckets: [64]u32 = undefined;
@@ -310,6 +333,12 @@ pub const Model = struct {
         const ehb = try cwd.readFileAllocOptions(io, try std.fs.path.join(a, &.{ assets, "engram-host.bin" }), a, .limited(1 << 26), .@"4", null);
         m.host = try eh.Host.load(ehb, m.cfg.engram_heads, m.cfg.engram_pad, m.cfg.engram_vocab, &m.lbuf);
         m.f.engram = &m.host;
+        // TF_DSV41_PREFILL_PIPE: the line's buffers and the stage copies' x3gm tables (after the forms and the Engram
+        // host); its point-to-point connections made now, every rank
+        if (m.f.prefill_state.pipe) |ln| {
+            try ln.bind(&m.f, &m.weights, &m.pipe_copies.?);
+            try ln.warm(&m.f);
+        }
         if (world > 1) m.f.link = &m.session.plan;
         m.f.on_stop = .{ .ctx = &m.session, .run = announceStop };
         const so = try sg.optionsFromEnv();
@@ -426,6 +455,7 @@ pub const Model = struct {
         m.runner.deinit();
         m.aot.deinit();
         m.weights.deinit();
+        if (m.pipe_copies) |*p| p.deinit();
         m.pl.deinit();
         m.pack.deinit();
         m.session.close();

@@ -652,6 +652,7 @@ pub const Forward = struct {
     /// next request ran rank 1 from a stale slot): position 0, no Engram tail, no pending window, the pool's pages back.
     pub fn release(f: *Forward) !void {
         if (f.leads()) try f.link.?.send(&.{op_release});
+        if (f.prefill_state.pipe_release) |h| h(f); // TF_DSV41_PREFILL_PIPE: the slot's segments in the line are dropped
         if (f.sess) |x| return x.reset(x.ptr);
         if (f.kv) |k| try k.release();
         f.slot = .{};

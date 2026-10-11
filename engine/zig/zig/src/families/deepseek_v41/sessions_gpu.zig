@@ -442,6 +442,7 @@ pub const Sessions = struct {
         if (h.items.len != s.f.slot.pos or s.f.slot.pending != null) return error.BadWindow;
         try s.saveGate();
         try s.f.sendSess(.save, 0);
+        if (s.f.prefill_state.pipe_settle) |settle| try settle(s.f); // TF_DSV41_PREFILL_PIPE: the slot's line drained (every rank, in the op) first
         if (h.items.len == 0) return null;
         const snap = try s.snapshot();
         const id = s.store.save(s.kx.slot, snap.bounded(), h.items, s.tag(), 0) catch |e| {
@@ -463,6 +464,7 @@ pub const Sessions = struct {
         if (s.f.prefill_state.mode == .replay and s.f.slot.ced.hi != s.f.slot.pos) return error.BadWindow;
         try s.saveGate();
         try s.f.sendSess(.prompt, 0);
+        if (s.f.prefill_state.pipe_settle) |settle| try settle(s.f); // TF_DSV41_PREFILL_PIPE: the slot's line drained (every rank, in the op) first
         if (h.items.len == 0) return null;
         const snap = try s.snapshot();
         const id = s.store.save(s.kx.slot, snap.bounded(), h.items, s.tag(), prompt_kind) catch |e| {
@@ -491,6 +493,8 @@ pub const Sessions = struct {
 
     /// The entries' tag (sessions.Tag's CED field): replay entries never resume full ones, nor full ones replay's.
     fn tag(s: *const Sessions) u32 {
+        // TF_DSV41_PREFILL_PIPE: pipelined prompts hold one rank's (world-1) encoder bits, their own tag (Python's + 2)
+        if (s.f.prefill_state.mode == .replay and s.f.prefill_state.pipe_settle != null) return ced.tag_pipe;
         return if (s.f.prefill_state.mode == .replay) ced.tag else ced.tag_fast;
     }
 

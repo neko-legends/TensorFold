@@ -35,6 +35,7 @@ const eh = @import("engram_host.zig");
 const ced = @import("ced.zig");
 const graphs = @import("graphs.zig");
 const prod_knobs = @import("prod_knobs.zig");
+const pipe_run = @import("pipe_run.zig");
 const Forward = fwd.Forward;
 
 const log = std.log.scoped(.dsv41);
@@ -84,8 +85,16 @@ pub const State = struct {
     /// segment's, or the decoder replay's; an encoder segment writes none): the DSpark hand-off (ced.handoff)
     taps_at: u64 = 0,
     taps_rows: u32 = 0,
+    /// TF_DSV41_PREFILL_PIPE (pipe_run.zig, model.zig installs it): long prompts' encoder segments through the ranks'
+    /// stages; null: off
+    pipe: ?*pipe_run.Line = null,
+    /// with `pipe`: `settle` / `pipeRelease` for the session store's snapshots and the forward's release, called through
+    /// these (no static path from those files into the line's code; null: off)
+    pipe_settle: ?*const fn (f: *Forward) anyerror!void = null,
+    pipe_release: ?*const fn (f: *Forward) void = null,
 
     pub fn deinit(s: *State, gpa: std.mem.Allocator) void {
+        if (s.pipe) |p| p.deinit();
         s.long.deinit(gpa);
         if (s.masked) |*b| b.free();
         s.ids.deinit(gpa);
@@ -106,6 +115,8 @@ pub fn plan(f: *Forward, p: *buffers.Plan, rows: u32) !void {
     defer la.deinit();
     const layers = try f.backbone(la.allocator());
     try planPrograms(f, p, rows, layers);
+    // TF_DSV41_PREFILL_PIPE: the stage programs' roles (their own namespace, the stage copies' forms)
+    if (f.prefill_state.pipe) |ln| try pipe_run.planInto(f, ln, p);
     if (f.prefill_state.k4 or (f.prefill_state.mode == .replay and f.opts.pf_tbo)) {
         const ws = &f.prefill_state.k4ws;
         if (ws.plan == null) {
@@ -489,11 +500,20 @@ pub fn prompt(f: *Forward, ids_in: []const u32) !void {
     const ids = st.ids.items;
     st.taps_rows = 0;
     try ready(f);
+    defer st.next.clearRetainingCapacity();
+    // TF_DSV41_PREFILL_PIPE: the line routes the call (its rows through the stages, or tensor parallel: tpRows)
+    if (st.pipe) |ln| if (st.mode == .replay) return ln.call(f, ids);
+    return tpRows(f, ids);
+}
+
+/// Prompt rows `ids` from the slot's position as the forward's own segments (tensor parallel; `prompt` without the
+/// pipeline's route): the workspace's decision, then 4K / 2K segments or TBO pairs.
+pub fn tpRows(f: *Forward, ids: []const u32) !void {
+    const st = &f.prefill_state;
     // TF_DSV41_PF_4K / _PF_TBO: the workspace for this call, decided on every rank alike (else 2,048-row segments)
     st.ws_ok = true;
     if (st.k4 or (st.mode == .replay and f.opts.pf_tbo)) st.ws_ok = try wsAgreed(f);
     const seg: usize = segmentRows(f);
-    defer st.next.clearRetainingCapacity();
     var at: usize = 0;
     while (at < ids.len) {
         // TF_DSV41_PF_TBO: two segments at a time (the second at least tbo_min rows), else one
@@ -744,6 +764,11 @@ pub fn promptMulti(f: *Forward, segs: []const MultiSeg) !void {
 /// Whether a multi-segment run takes `segs` (promptMulti's refusals), checked before the leader sends it.
 pub fn runnable(f: *Forward, segs: []const MultiSeg) !bool {
     if (f.pf_switch == null or segs.len < 2 or segs.len > 16) return false;
+    // TF_DSV41_PREFILL_PIPE: a segment of the open line's slot, or one that would open a line, runs by itself (its route)
+    if (f.prefill_state.pipe) |ln| for (segs) |sg| {
+        if (ln.slot) |ls| if (ls == sg.slot) return false;
+        if (ln.slot == null and sg.ids.len >= ln.s.min_rows) return false;
+    };
     var sa = std.heap.ArenaAllocator.init(f.gpa);
     defer sa.deinit();
     const a = sa.allocator();
@@ -797,6 +822,11 @@ pub fn finishMulti(f: *Forward, slots: []const u32, out: []Replayed) !void {
     const st = &f.prefill_state;
     const sw = f.pf_switch orelse return error.Unsupported;
     if (st.mode != .replay or slots.len < 2 or slots.len > 16 or out.len < slots.len) return error.BadWindow;
+    // TF_DSV41_PREFILL_PIPE: a replayed slot's line drained first (on its own views)
+    if (st.pipe) |ln| if (ln.slot) |ls| if (std.mem.indexOfScalar(u32, slots, ls) != null) {
+        try sw.run(sw.ctx, ls);
+        try ln.drain(f);
+    };
     var sa = std.heap.ArenaAllocator.init(f.gpa);
     defer sa.deinit();
     const a = sa.allocator();
@@ -889,6 +919,7 @@ fn runPositions(f: *Forward, r: *run.Runner, c: *const calls.Call) !void {
 pub fn finish(f: *Forward) !void {
     const st = &f.prefill_state;
     if (st.mode != .replay) return;
+    try settle(f); // TF_DSV41_PREFILL_PIPE: the stash and the decoder's KV whole on every rank first
     if (f.slot.pending != null) return error.BadWindow;
     const end = f.slot.pos;
     const t = ced.tailOf(end);
@@ -977,6 +1008,37 @@ fn commitRoles(f: *Forward, n: u32, row0: usize, comptime pre: []const u8, adv: 
     f.slot.pos = p.start + adv;
     f.slot.pending = null;
     if (f.sess) |x| try x.commit(x.ptr, f.ids[0..adv]);
+}
+
+/// TF_DSV41_PREFILL_PIPE: a segment's host commit at its entry into the line (pipe_run.zig), every rank alike: the Engram
+/// tail, the position, the session's committed ids, the stash's ids. Its carries are its stage's own commit and its
+/// rows the stages' exchanges; the slot's device state is whole once the line drains (`settle`).
+pub fn advanceHost(f: *Forward, start: u64, ids: []const u32) !void {
+    if (f.slot.pending != null or f.slot.pos != start) return error.BadWindow;
+    if (f.engram) |h| tailOf(&f.slot, ids, h.max_ngram - 1);
+    f.slot.pos = start + ids.len;
+    if (f.sess) |x| try x.commit(x.ptr, ids);
+    f.slot.ced.extend(start, ids);
+}
+
+/// TF_DSV41_PREFILL_PIPE: the active slot's line drained before its state is read (the CED finish, a snapshot), on every
+/// rank at the same op (each runs this inside the op the leader sent).
+pub fn settle(f: *Forward) !void {
+    const ln = f.prefill_state.pipe orelse return;
+    const s = ln.slot orelse return;
+    if (s == pipe_run.activeSlot(f)) try ln.drain(f);
+}
+
+/// TF_DSV41_PREFILL_PIPE: the active slot is released (or reset): its segments in the line are dropped.
+pub fn pipeRelease(f: *Forward) void {
+    const ln = f.prefill_state.pipe orelse return;
+    const s = ln.slot orelse return;
+    if (s == pipe_run.activeSlot(f)) ln.abandon();
+}
+
+/// A prefill segment's glue step (the pipeline's stage programs hand theirs here, pipe_run.stageGlue).
+pub fn glueStep(ctx: *anyopaque, r: *run.Runner, c: *const calls.Call) anyerror!void {
+    return glueOne(ctx, r, c);
 }
 
 /// Engram's tail after committing `ids`: (tail + ids)[-keep:].

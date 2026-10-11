@@ -40,6 +40,9 @@ pub const session_min: u64 = 64;
 pub const tag_fast: u32 = 1 << 8;
 /// with the CED field (MODES.index("replay") << 4): replay entries never resume full ones
 pub const tag: u32 = tag_fast | 1 << 4;
+/// TF_DSV41_PREFILL_PIPE (pipe.zig): a pipelined prompt's encoder rows are one rank's (world-1) bits, so its entries
+/// carry their own tag (Python's tag_grid + 2) and never resume, nor are resumed by, tensor-parallel ones
+pub const tag_pipe: u32 = tag | 1 << 1;
 
 pub const Error = error{ NoDecoder, EngramInDecoder, StashGap };
 
