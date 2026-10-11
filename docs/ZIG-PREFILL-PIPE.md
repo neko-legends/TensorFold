@@ -199,7 +199,79 @@ clear it. The window's first check is that boot and the decode cells' numbers.
 - **AOT**: the stage programs add world-1 variants. aot-needs enumerates the rank's own stage at every row count and
   regime, and a host test checks that the boot's stage programs are a subset of that list.
 
-## Hardware-window plan
+## Implementation map
 
-The window plan, exact config and pass criteria are written up in the window plan (see the report and
-docs/ZIG-TP4-PLAN.md's status section once the implementation lands).
+| piece | where | host test |
+| --- | --- | --- |
+| knobs, stages, schedule, rows / hand-off / drain layouts, a call's route, page runs, stage options, the P. renaming | `pipe.zig`, `pipe_names.zig` | `pipe_test.zig` |
+| a stage as a world-1 encoder program (`pipe_in` / `pipe_out`, the entered first block) | `block_prefill.emitStage` | `pipe_emit_test.zig`: the four stages are the one-rank encoder pass call for call |
+| the AOT fill's stage variants | `aot_needs.enumerateStage` | `pipe_aot_test.zig`: at CONTEXT=420096 on every rank, boot ⊆ AOT through the served Triton signatures |
+| the stage copies | `pipe_load.zig`, `prepared.zig` (key variant) | `host_test.zig` (a synthetic pack at world 1), `prepared.zig` |
+| the shift | `Collective.sendRecv` (NCCL group) | `fabric/tp/host_test.zig` |
+| rounds, exchange, drain, fail-fast | `pipe_run.zig` | none possible on the host (device code); the route / layouts above are its decisions |
+| boot | `model.zig`; refusals in `pipe_run.check` | compile only |
+
+`aot-needs` with `config/tp4-zig.env.example` and `TF_DSV41_PREFILL_PIPE=1024` on this host gives these counts. Every
+rank's list is a superset of the window-4b fill (136 variants, none dropped), so the same assets also boot with the
+pipeline off.
+
+| rank | variants | new for the stages |
+| ---: | ---: | --- |
+| 0 | 163 | +27 (14 `_fused`, 6 `_gemm`, 6 `_site`, 1 `_kv_store`) |
+| 1 | 155 | +19 |
+| 2 | 159 | +23 |
+| 3 | 155 | +19 |
+
+## Hardware-window plan (for Depths; nothing here was run)
+
+**Before the window (build host, no GPU)**
+
+1. Build the image from `zig-tp4` HEAD.
+2. Regenerate the per-rank AOT fill with the pipeline knob in the config that `scripts/zig-tp4-assets.sh aot <r>` reads.
+   Add `TF_DSV41_PREFILL_PIPE=1024` to the copied `config/tp4-zig.env`, then run
+   `for r in 0 1 2 3; do scripts/zig-tp4-assets.sh aot $r /srv/zigtp4-assets/rank-$r; done`.
+   - Expect 163 / 155 / 159 / 155 variants in each rank's `needs.json`.
+   - The new kernels are world-1 `_fused` (BMQ 32), `_gemm`, `_site` and `_kv_store` variants, compiled with Triton 3.7.1
+     as before.
+3. Leave `TF_DSV41_PIPE_ROWS` unset (2,048). 4,096 needs its own fill (stages at x3gm one block); see A/B 3 below.
+
+**In the window.** Same image and assets for both boots. Use the RoCE transport if its check passes, else NCCL; pair it
+against the Python baseline on the same transport.
+
+1. **Control boot, pipeline off** (`TF_DSV41_PREFILL_PIPE` unset). Run `bench/zig_vs_python.py run` with a fresh salt
+   tag. Python's baselines from window 4b stand: same pack, cells and salt rules.
+2. **Pipeline boot**: `TF_DSV41_PREFILL_PIPE=1024` and `TF_DSV41_PIPE_TRACE=1` in every rank's `config/tp4-zig.env`.
+   - The first boot writes the stage copies' prepared files: a new key folder a rank, ~23 GiB of NVMe, a few minutes.
+   - Grep the boot logs for:
+     - `pipeline: rank r's stage copies (layers ...): N GiB`, about 23 GiB each;
+     - `pipeline: prompts of 1024+ rows through stages [0, 5, 10, 15, 21]`;
+     - the boot check's MemAvailable lines on all four ranks;
+     - no `MissingTritonVariant`, and no `refused` beyond today's x3gm variants.
+3. **Gates on the pipeline boot**:
+   - 17 × 23 = 391;
+   - `bench/structured.py --suites schemas` (drafted == plain, concurrent == solo);
+   - the code word at 30 / 60 / 85 % of 20k / 80k / 158k (Python's needle check: 3/3);
+   - one long salted prompt re-sent after a short wait (a session hit of a pipelined prompt) must reply the same.
+4. **Bench**: the same `zig_vs_python.py run` with a fresh salt tag. The cells that matter are `long 32768` and
+   `long 131072` (prompt tok/s, TTFT), every decode cell, `mix` and `mixwin`. Keep the `pipeline rank r: ... a round:
+   pre / stage / exchange` lines for every drain.
+5. **Optional A/B, time permitting**:
+   1. `TF_DSV41_PREFILL_PIPE_BOUNDS`. If the trace shows one stage slower than the others by more than 10 %, move a layer
+      away from it (Python's slowest stage held layer 14). If ranks 0/1 run short of memory, try `0,4,9,14,21`.
+   2. `TF_DSV41_PREFILL_PIPE=8192`. Prompts under ~8K stay tensor parallel: a short line's fill and drain cost more than
+      it gains.
+   3. `TF_DSV41_PIPE_ROWS=4096`, with its own AOT fill: `aot-needs` under that knob.
+
+**Pass criteria**
+
+- Boot: all four ranks up, the boot check passes on every rank, no Triton variant missing, and the transport line names
+  the intended backend.
+- Prefill: `long 32768` ≥ 4,084 prompt tok/s and `long 131072` ≥ 4,354 (Python pipelined, RoCE; NCCL pair: 4,084 /
+  4,334). TTFT at 154K ≤ 35.5 s.
+- No decode regression against the control boot: every decode and aggregate cell at ≥ −2 % (code / prose, T0 / T0.7,
+  x1 / x4, long decode, mix, mixwin 214.76 on RoCE). Expected: unchanged, because decode never runs the line's code. The
+  memory taken does show up in the boot check, the graph floor and MemAvailable at the prefill → decode hand-off.
+- Correctness: 391, structured PASS, needle 3/3, no fleet exits. Long-cell hashes against Python's pipelined ones are
+  recorded but are not a gate (the parity section above).
+- Rollback on any hang or regression: stop the ranks, boot again without the knob (same image and assets), then the
+  usual live restore.

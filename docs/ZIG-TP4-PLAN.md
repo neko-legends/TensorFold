@@ -126,7 +126,7 @@ not misread. Drain-first stop sends `op_stop` to every follower. Notes for TP=4:
 | 0003 trimmed draft head (`TF_DSV41_DRAFT_HEAD=q4`) | the DSpark pass reads a 4-bit copy of the head (+2.5% C1 code) | absent: DSpark reuses the backbone head (`ds/dspark_emit.zig:459`) | later; a separate speed feature |
 | 0003 BMQ 32 → 16 clamp | 16 heads a rank | absent (`Unsupported`) | step 1 |
 | 0003 world size in the NVMe session identity | | has it (`ds/sessions_gpu.zig:212`) | none |
-| 0003/0004 pipelined prompt reading (`TF_DSV41_PREFILL_PIPE`, `PIPE_P2P`) | long prompts through the four ranks as a pipeline (+~27 GB a node) | absent (NCCL send/recv exists, `fabric/tp/nccl.zig:117`) | large: new prefill scheduler; port after TP=4 parity |
+| 0003/0004 pipelined prompt reading (`TF_DSV41_PREFILL_PIPE`, `PIPE_P2P`) | long prompts through the four ranks as a pipeline (+~27 GB a node) | **ported on this branch, off by default, not run on a GPU**: [ZIG-PREFILL-PIPE.md](ZIG-PREFILL-PIPE.md) (`ds/pipe*.zig`, `block_prefill.emitStage`, `Collective.sendRecv`); +~23 GiB a rank (sharded tensors only) | the window plan in that doc |
 | 0003/0004 split selections (`TF_DSV41_INDEX_SPLIT`) | each rank selects a quarter of the rows | absent | medium |
 | 0003/0004 overlapped exchanges (`TF_DSV41_PREFILL_OVERLAP`) | exchanges behind compute | `TF_DSV41_PF_OVERLAP` exists but is TP=2 only (`ds/prod_knobs.zig:445`) | generalise its side-stream pieces to N peers |
 | 0003 `/health` draft counters | | has them (`server/spark.zig:173,236-237`) | none |
