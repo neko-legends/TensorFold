@@ -115,6 +115,21 @@ pub const Collective = struct {
         return c.vtable.recv(c.ptr, buf, count, t, peer, stream);
     }
 
+    /// A pipeline's shift (one group): this rank's send[send_count] to rank `to` and rank `from`'s into recv[recv_count];
+    /// either side may be null. Not implemented yet.
+    pub fn sendRecv(c: Collective, send_buf: DevicePtr, send_count: usize, to: ?u32, recv_buf: DevicePtr, recv_count: usize, from: ?u32, t: DType, stream: Stream) Error!void {
+        _ = c;
+        _ = send_buf;
+        _ = send_count;
+        _ = to;
+        _ = recv_buf;
+        _ = recv_count;
+        _ = from;
+        _ = t;
+        _ = stream;
+        return error.Unsupported;
+    }
+
     pub fn barrier(c: Collective) Error!void {
         return c.vtable.barrier(c.ptr);
     }

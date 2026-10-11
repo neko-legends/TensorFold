@@ -74,6 +74,35 @@ test "exchange, send and recv between two ranks, and in pairs of four" {
     try host.run(4, {}, Pairwise.go);
 }
 
+const Shift = struct {
+    fn go(c: Collective, rank: u32, _: void) !void {
+        const world = c.world();
+        var mine: [256]u8 = @splat(@intCast(rank + 1));
+        var got: [256]u8 = @splat(0);
+        // a pipeline's hand-off (dsv41 TF_DSV41_PREFILL_PIPE): rank r sends to r + 1 and receives from r - 1 in one
+        // call, the first rank only sends, the last only receives; the counts differ by direction (a segment's rows)
+        const to: ?u32 = if (rank + 1 < world) rank + 1 else null;
+        const from: ?u32 = if (rank > 0) rank - 1 else null;
+        try c.sendRecv(addr(&mine), 64 + rank, to, addr(&got), 64 + rank -| 1, from, .u8, null);
+        if (from) |f| {
+            // rank f sent 64 + f bytes, all of them landed, nothing past them
+            for (got[0 .. 64 + f]) |x| try std.testing.expectEqual(@as(u8, @intCast(f + 1)), x);
+            try std.testing.expectEqual(@as(u8, 0), got[64 + f]);
+        } else try std.testing.expectEqualSlices(u8, &@as([256]u8, @splat(0)), &got);
+        // nothing either way is a no-op; a peer that is this rank or out of range is refused
+        try c.sendRecv(addr(&mine), 0, null, addr(&got), 0, null, .u8, null);
+        try std.testing.expectError(error.Invalid, c.sendRecv(addr(&mine), 4, rank, addr(&got), 4, null, .u8, null));
+        try std.testing.expectError(error.Invalid, c.sendRecv(addr(&mine), 4, null, addr(&got), 4, world, .u8, null));
+        try c.barrier();
+    }
+};
+
+test "a pipeline's shift: send to the next rank and receive from the previous in one call, 2 / 3 / 4 ranks" {
+    try host.run(2, {}, Shift.go);
+    try host.run(3, {}, Shift.go);
+    try host.run(4, {}, Shift.go);
+}
+
 const Desync = struct {
     fn go(c: Collective, rank: u32, _: void) !void {
         var a: [64]u8 = @splat(0);
