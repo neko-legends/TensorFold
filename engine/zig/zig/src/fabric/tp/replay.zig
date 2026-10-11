@@ -53,6 +53,8 @@ test "replayed request-level errors are survivable; process, device and transpor
     // a request priced the pool out (rank 0 ends the request; every rank's pool agreed on it)
     try std.testing.expect(!processFatal(error.PoolExhausted));
     try std.testing.expect(!processFatal(error.SlotTooShort));
+    // rank 0's tier gate refused the admission pre-broadcast (nothing was applied, on any rank)
+    try std.testing.expect(!processFatal(error.TierFull));
     // a spill's park that failed on this rank only: the ranks' pools diverged by construction (the entry's
     // pages freed where the write landed, held here) — the fate channel's clean restart, as a replica's OOM
     try std.testing.expect(processFatal(error.ParkFailed));

@@ -331,3 +331,67 @@ test "4 slots, interleaved resumes, spills, RAM trims and NVMe parks decide as p
     try testing.expect(spills >= 2 and hits[0] >= 2 and hits[1] >= 3);
     try testing.expect(w.store.stats.parks >= 3 and w.store.stats.drops >= 2);
 }
+
+test "a full NVMe tier refuses the admission pre-broadcast (the ParkFailed crash loop's gate)" {
+    // the 2026-10-10 review's F2: with a spill park's failure process-fatal (ParkFailed, tp/replay.zig),
+    // accepts() pricing tokens only (sessions/disk.zig) meant a tier full on every rank turned one
+    // admission into a fleet crash loop — the parks met the full tier at write time, every follower died,
+    // and the restart's empty start freed nothing (boots never scan the tier), so the next admission's
+    // spills met the same wall. Rank 0's planner now prices the spills' files against the tier's real
+    // free space (Store.tierAdmits, over Disk.freeBytes' statfs) before anything is broadcast and refuses
+    // the request instead: every rank's store untouched, the failure request-level.
+    const gpa = testing.allocator;
+    const page = 64;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(testing.io, "tier");
+    const root = try tmp.dir.realPathFileAlloc(testing.io, "tier", gpa);
+    defer gpa.free(root);
+    var pool = try Pool.init(gpa, .{ .families = &fams, .page = page }, 128 * page, 1, 0);
+    defer pool.deinit();
+    var host = try sessions.HostPool.init(gpa, &pool);
+    defer host.deinit();
+    const disk = try sessions.Disk.open(gpa, testing.io, .{ .root = root, .compat = @splat(9), .min_tokens = 1, .chunk = 64 << 10, .staging = 4, .lanes = 2, .direct = false });
+    defer disk.close();
+    var store = try Store.init(gpa, testing.io, &pool, host.store(), disk, .{});
+    defer store.deinit();
+    // a chat idle in RAM, 80 of the pool's 128 pages
+    const s = try pool.newSlot(128 * page);
+    const ids = try gpa.alloc(i32, 80 * page);
+    defer gpa.free(ids);
+    chatIds(ids, 1, 0);
+    try s.ensure(ids.len);
+    const id = (try store.save(s, try HostBounded.make(gpa, .{ .gpa = undefined, .pos = 5120, .ds_rows = 0, .stash_from = 0, .measure = 24 }), ids, 1, 0)).?;
+    _ = try s.releaseAll();
+    var spills: std.ArrayList(u32) = .empty;
+    defer spills.deinit(gpa);
+    const held: []const u32 = &.{};
+    // the statfs probe itself answers on a real tier dir
+    try testing.expect(try disk.freeBytes() > 0);
+    // ample space: the admission plans and spills the idle chat, as before
+    disk.opts.free_bytes = 1 << 40;
+    const plan = try sess.admit(&store, null, 60 * page, 0, 128 * page, held, 0, &spills);
+    try testing.expect(!plan.wait);
+    try testing.expectEqualSlices(u32, &.{id}, spills.items);
+    const need = store.parkBytes(id);
+    try testing.expect(need > 0);
+    // the boundary: exactly the spills' bytes fits; one byte less refuses the request
+    disk.opts.free_bytes = need;
+    _ = try sess.admit(&store, null, 60 * page, 0, 128 * page, held, 0, &spills);
+    disk.opts.free_bytes = need - 1;
+    const free_pages = pool.freePages();
+    try testing.expectError(error.TierFull, sess.admit(&store, null, 60 * page, 0, 128 * page, held, 0, &spills));
+    // the refusal decided nothing: the entry still holds its pages in RAM, the tier untouched
+    try testing.expect(store.entry(id).ram);
+    try testing.expectEqual(free_pages, pool.freePages());
+    try testing.expectEqual(@as(u64, 0), disk.used);
+    // the crash loop's condition itself — a full tier on every rank — is the same request-level refusal
+    disk.opts.free_bytes = 0;
+    try testing.expectError(error.TierFull, sess.admit(&store, null, 60 * page, 0, 128 * page, held, 0, &spills));
+    // what still serves on a full tier: an admission the pool holds without spilling never parks
+    const small = try sess.admit(&store, null, 10 * page, 0, 128 * page, held, 0, &spills);
+    try testing.expect(!small.wait);
+    try testing.expectEqual(@as(usize, 0), spills.items.len);
+    // an empty spill list never refuses, probed or not
+    try store.tierAdmits(&.{});
+}

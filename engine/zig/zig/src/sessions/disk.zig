@@ -41,6 +41,8 @@ pub const Options = struct {
     lanes: u32 = 4,
     /// delta files a chain may stack before a park writes the entry whole
     max_chain: u32 = 8,
+    /// test hook: freeBytes reports this instead of probing the tier's filesystem
+    free_bytes: ?u64 = null,
 };
 
 /// A piece of bounded state (rings, carries, taps): small, host bytes.
@@ -180,6 +182,35 @@ pub const Disk = struct {
 
     pub fn accepts(d: *const Disk, pos: u64) bool {
         return pos >= d.opts.min_tokens;
+    }
+
+    /// x86-64 / aarch64 Linux's `struct statfs` (std keeps the syscall number, not the struct).
+    const Statfs = extern struct {
+        f_type: i64,
+        bsize: i64,
+        blocks: u64,
+        bfree: u64,
+        bavail: u64,
+        files: u64,
+        ffree: u64,
+        fsid: [2]i32,
+        namelen: i64,
+        frsize: i64,
+        flags: i64,
+        spare: [4]i64,
+    };
+
+    /// The tier filesystem's free bytes an unprivileged write may still take (f_bavail of the tier dir's
+    /// filesystem): real space, which the budget's accounting over registered files cannot see (a device
+    /// smaller than the budget, an external writer, the files a previous boot left behind — boots never
+    /// scan the tier).
+    pub fn freeBytes(d: *const Disk) !u64 {
+        if (d.opts.free_bytes) |n| return n;
+        var st: Statfs = undefined;
+        const rc = linux.syscall2(.fstatfs, @as(usize, @intCast(d.dir.handle)), @intFromPtr(&st));
+        if (linux.errno(rc) != .SUCCESS) return error.StatfsFailed;
+        const bs: u64 = @intCast(if (st.frsize > 0) st.frsize else st.bsize);
+        return st.bavail * bs;
     }
 
     pub fn get(d: *Disk, key: Digest) ?*Rec {

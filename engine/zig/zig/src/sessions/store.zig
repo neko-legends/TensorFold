@@ -568,6 +568,45 @@ pub const Store = struct {
         return avail >= need;
     }
 
+    /// The bytes a park of `id` asks of the tier: the entry's ids segment, this rank's pages of every
+    /// family (split families sharded as beginPark's familyLists) and its bounded state. A whole-entry
+    /// count (a delta's base pages ride along as slack): an overestimate only ever refuses earlier.
+    pub fn parkBytes(s: *Store, id: u32) u64 {
+        const e = s.index.get(id);
+        const w = s.pool.world;
+        const npages = pool_mod.pagesFor(e.pos, s.pool.page);
+        var n: u64 = 4 * e.pos;
+        for (s.pool.layout.families) |f| {
+            var k: u64 = npages;
+            if (f.split and w > 1) {
+                var by: [pool_mod.max_world]u32 = undefined;
+                pool_mod.span(0, npages, w, &by);
+                k = by[s.pool.rank];
+            }
+            n += k * f.pageBytes(s.pool.page);
+        }
+        if (e.extra.bounded) |b| n += b.vtable.nbytes(b.ptr);
+        return n;
+    }
+
+    /// The admission's spills must fit the tier's real free space: a park that meets a full tier on a
+    /// follower is the process-fatal ParkFailed (settle's arm: the pools diverged by construction), and
+    /// a tier full on every rank turns one admission into a fleet crash loop — the restart's empty
+    /// start frees nothing (boots never scan the tier), so the next spill meets the same wall. Rank 0's
+    /// planner calls this before anything is broadcast and refuses the request instead (kv/sess.zig's
+    /// admit): every rank's store untouched, the failure request-level. A probe failure refuses
+    /// nothing: the park's own error stays the guard.
+    pub fn tierAdmits(s: *Store, spills: []const u32) !void {
+        const d = s.disk orelse return;
+        if (spills.len == 0) return;
+        const free = d.freeBytes() catch return;
+        var need: u64 = 0;
+        for (spills) |id| need += s.parkBytes(id);
+        if (free >= need) return;
+        std.log.warn("sessions: the tier's {d} free bytes cannot hold this admission's {d} spill file(s) ({d} bytes); the request is refused, not parked into a fleet crash loop", .{ free, spills.len, need });
+        return error.TierFull;
+    }
+
     /// Rebuilds the NVMe entries after a restart (an empty store): every valid file indexed, deltas on their bases' paths; returns how many.
     /// Two ranks then intersect what they hold (the engine's plan link) and drop the rest, so a plan never names an entry one rank lacks.
     pub fn reconcile(s: *Store) !u32 {
