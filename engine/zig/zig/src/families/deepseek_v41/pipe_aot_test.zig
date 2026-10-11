@@ -54,6 +54,8 @@ test "TP=4 (CONTEXT=420096): the boot's and the prompts' stage programs are in t
         defer needs.deinit();
         try aot.enumerateStage(gpa, &needs, &cfg, &w, o1, s, @intCast(r), &discard.writer);
         try testing.expect(needs.keys.count() > 0);
+        // every stage emits up to the context's end at the served config (the boot's agreed end is the limit)
+        try testing.expectEqual(@as(u64, limit), try pipe.lastEnd(&cfg, &w, o1, &s, @intCast(r)));
         const st = s.stage(@intCast(r));
         const io: bp.StageIo = .{ .entered = r > 0, .last = st.last, .sel_in = st.selIn(&cfg), .sel_out = st.selOut(&cfg, s.boundsSlice()) };
         // the boot's plan, then prompt segments: whole ones, a piece's or a resumed prompt's ragged ones, the shortest
