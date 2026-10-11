@@ -7,16 +7,20 @@ NVMe, 4 request slots of up to 420K tokens, image input, NVMe sessions, structur
 This is the four-Spark fork of **[jayleaton/deepseek-v41-tensorfold-spark](https://github.com/jayleaton/deepseek-v41-tensorfold-spark)**.
 The engine, the DeepSeek-V4.1-Flash family and nearly everything in this repository are Jay Leaton's work on
 [TensorFold](https://github.com/ashhart/TensorFold); this fork adds what four Sparks need (`patches/0003`), a
-four-node launcher, and the measurements. Since 2026-10-07 it runs Jay's G19 engine. **Two Sparks? Use Jay's
-repository**: it is the maintained two-Spark recipe.
+four-node launcher, and the measurements. Its Python engine ran Jay's G19 build from 2026-10-07; since 2026-10-11
+the serving engine is the CUDA Zig one (below). **Two Sparks? Use Jay's repository**: it is the maintained
+two-Spark recipe.
 
 > Measured on one cluster (four GB10s, one switch), one boot a configuration. Read [What is not solved](#what-is-not-solved)
 > before relying on it.
 
 Jay's [CUDA Zig serving path](docs/ZIG-SERVE.md) (TensorFold 1.0.2 plus the DeepSeek CUDA port, source in
-[`engine/zig`](engine/zig)) is merged here as he ships it: **two Sparks (TP=2) and his q28-v2 2.8 bpw pack**. It
-does not yet run on four Sparks; [ZIG-TP4-PLAN](docs/ZIG-TP4-PLAN.md) is the port plan. The four-Spark service on this
-page is the Python engine.
+[`engine/zig`](engine/zig)) is merged here as he ships it for **two Sparks (TP=2) and his q28-v2 2.8 bpw pack** —
+and this fork extends it to four Sparks on the 2.9 bpw pack: **since 2026-10-11 the four-Spark service is the Zig
+engine, TP=4 over RoCE, with pipelined prompt reading** ([ZIG-RESULTS](docs/ZIG-RESULTS.md); the port was planned
+in [ZIG-TP4-PLAN](docs/ZIG-TP4-PLAN.md), the pipeline's design and proofs are in
+[ZIG-PREFILL-PIPE](docs/ZIG-PREFILL-PIPE.md)). The Python engine it replaced stays on this page as the previous
+engine, its numbers kept as history.
 
 ## Results (four Sparks)
 
@@ -24,7 +28,35 @@ Weights: [`dealignai/DeepSeek-V4.1-Flash-UNCENSORED-EXL3-2.9bpw`](https://huggin
 Configuration: [`config/prod.env.example`](config/prod.env.example) + [`config/tp4.env.example`](config/tp4.env.example)
 (expert pruning on, `TF_DSV41_EXPERT_TOPP=0.85`), thinking off, temperature 0, 512-token replies, isolated runs.
 
-### At a glance (live, 2026-10-07)
+### At a glance (live: the Zig engine, 2026-10-11)
+
+The serving build since 2026-10-11: the CUDA Zig engine at TP=4 over RoCE with pipelined prompt reading, on the
+same EXL3 2.9 bpw pack. Measured with `bench/zig_vs_python.py` (window 8, salt `zvp-20261011w8`; best of 3
+repetitions without a failed stream, time to first token the lowest; the prompts are 37,987 and 154,196 tokens).
+
+| | **Zig + pipelined prefill (live)** | same build, pipeline off (same window) | previous engine (Python, RoCE) |
+| --- | ---: | ---: | ---: |
+| cold prompt reading, 32K / 131K (prompt tok/s) | **4,851.5 / 5,148.1** | 2,778.9 / 2,548.9 | 4,083.6 / 4,354.1 |
+| cold first token, 154K-token prompt | **29.95 s** | 60.5 s | 35.4 s |
+| decode after the 131K prompt (tok/s) | **99.6** | 90.7 | 79.5 |
+| short code prompt, 1 / 4 streams (cold, tok/s) | **129.1 / 218.3** | 130.5 / 215.2 | 113.0 / 204.9 (cold) |
+| short prose prompt, 1 / 4 streams (cold, tok/s) | **66.2 / 138.2** | 66.6 / 136.6 | 65.2 / 128.2 (cold) |
+
+Pipeline off → on is the controlled comparison (one window, one image, the same prompts): prompt reading **+74.6 %
+at 32K and +102.0 % at 131K**, first token on the 154K prompt halved, decode unchanged (±1 %). Every Python
+comparison is cross-session (benched 2026-10-10, the day it was the serving build); the short cells compare **cold
+against cold** (one cold repetition a side — the window measured no warm repetitions and no mix cells; the NCCL
+window-7 numbers and the full table: [ZIG-RESULTS](docs/ZIG-RESULTS.md)). Two honesty notes: the mixed-window
+aggregate moved 219.2 → 212.2 (−3.2 %), and the long stream's rate in that cell follows the reply's text, which
+legitimately differs ([ZIG-PREFILL-PIPE](docs/ZIG-PREFILL-PIPE.md)); and a long prompt read through the pipeline
+carries one rank's arithmetic rather than the four-rank reduction's, so its greedy reply differs from the
+non-pipelined path's — short-prompt replies are bit-identical either way (101/101 in window 7, 29/29 in window 8).
+
+![TP=4: TensorFold Python vs Zig vs Zig + pipelined prefill](docs/img/prefill-pipe-comparison-20261011.png)
+
+![Every engine on four Sparks: TensorFold Python, Zig, vLLM, SGLang](docs/img/engines-dsv41-comparison-20261011.png)
+
+### At a glance (previous engine: Python, live 2026-10-07 → 2026-10-11)
 
 | | four Sparks (this fork) | two Sparks (Jay's) |
 | --- | ---: | ---: |
@@ -34,11 +66,12 @@ Configuration: [`config/prod.env.example`](config/prod.env.example) + [`config/t
 | code / prose, 1k-160k prompts (geometric mean, tok/s) | **104 / 67** | |
 | cold 160k-token prompt | **36 s** | |
 
-Live build: Jay's G19 engine with `0003` (four Sparks), `0004` (rotated expert split, `TF_DSV41_EXPERT_ROTATE=1`) and
-the 4-bit draft head (`TF_DSV41_DRAFT_HEAD=q4`), on RoCE; every reply exact (drafted == serial). Two-Spark figures are
-Jay's published `m2bench` C1 numbers for his build.
+The build that served 2026-10-07 → 2026-10-11: Jay's G19 engine with `0003` (four Sparks), `0004` (rotated expert
+split, `TF_DSV41_EXPERT_ROTATE=1`) and the 4-bit draft head (`TF_DSV41_DRAFT_HEAD=q4`), on RoCE; every reply exact
+(drafted == serial). Two-Spark figures are Jay's published `m2bench` C1 numbers for his build. No `m2bench` or
+1k-160k depth-sweep run exists for the Zig engine yet, so these rows end with the Python engine.
 
-### G19 on four Sparks (2026-10-07)
+### G19 on four Sparks (2026-10-07, previous engine)
 
 Jay's G19 engine (engine `7bd2d67`) with this fork's `0003`, live since 2026-10-07, against the G13 build it replaced,
 one boot each in the same window:
@@ -60,7 +93,7 @@ Both columns of this table ran on the NCCL fallback, not RoCE (see the note unde
 why they sit below the decode sweep. The harness also differs (1-stream, 512-token replies, 2 trials). Both columns
 were measured the same way, so the comparison between them holds.
 
-### Decode (2026-10-07, G19 on RoCE)
+### Decode (2026-10-07, G19 on RoCE, previous engine)
 
 | prompt | 1k | 20k | 40k | 80k | 160k | geometric mean |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -81,7 +114,7 @@ behind on 2026-10-05, and our server ran on NCCL for two days without an error. 
 Rank 0's log should say `all-gathers of up to ... over RoCE` and `plan link: rdma`. If it doesn't, look for the file,
 fix the cause and move the file aside.
 
-### Reading a new prompt (2026-10-05)
+### Reading a new prompt (2026-10-05, previous engine)
 
 | cold time to first token | 20k prompt | 160k prompt |
 | --- | ---: | ---: |
@@ -312,8 +345,9 @@ build was also tested on the same wide request: it crashed ranks 2 and 3. All of
 | --- | --- |
 | [FOUR_SPARKS](docs/FOUR_SPARKS.md) | the TP=4 port: what changes, setup, first-boot lessons, results |
 | [PREFILL_SPEED](docs/PREFILL_SPEED.md) | the prompt pipeline, split selections, overlapped exchanges, what did not work |
-| [ZIG-SERVE](docs/ZIG-SERVE.md) / [ZIG-RESULTS](docs/ZIG-RESULTS.md) | Jay's Zig engine: build, TP=2 launch, exact settings, q28-v2 comparisons (two Sparks only) |
-| [ZIG-TP4-PLAN](docs/ZIG-TP4-PLAN.md) | what the Zig engine needs for four Sparks, and the like-for-like bench recipe |
+| [ZIG-SERVE](docs/ZIG-SERVE.md) / [ZIG-RESULTS](docs/ZIG-RESULTS.md) | Jay's Zig engine: build, TP=2 launch, exact settings, q28-v2 comparisons; the TP=4 results of the live Zig engine (windows 7-8) |
+| [ZIG-PREFILL-PIPE](docs/ZIG-PREFILL-PIPE.md) | the Zig pipeline's design, proofs and window pass criteria |
+| [ZIG-TP4-PLAN](docs/ZIG-TP4-PLAN.md) | what the Zig engine needed for four Sparks (done: serving since 2026-10-11), and the like-for-like bench recipe |
 | [INSTALL](docs/INSTALL.md) | requirements, weights, Engram shards, build, start, watchdog |
 | [API](docs/API.md) / [IMAGES](docs/IMAGES.md) | endpoints, thinking and effort, image input |
 | [OPERATIONS](docs/OPERATIONS.md) | settings, memory gates, turning each lever off |

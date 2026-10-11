@@ -1,6 +1,6 @@
 {
  "title": "DeepSeek V4.1 on 4× DGX Spark (TP=4): TensorFold Python vs Zig vs Zig + pipelined prefill",
- "subtitle": "Bench of 2026-10-10 (Python) and 2026-10-11 window 7 (Zig, same image, pipelined prefill off vs on) · best of 3 repetitions",
+ "subtitle": "Bench of 2026-10-10 (Python) and 2026-10-11 windows 7 (NCCL) / 8 (RoCE), pipeline off vs on · Zig + pipeline on RoCE: live since 2026-10-11",
  "percent_note": "Small % above Zig bars: change vs Python TensorFold over the same transport (cross-session). Bracketed % ●: Zig pipelined prefill on vs off, same window.",
  "artifact_root": "forge:~/zigtp4-run/out/zvp",
  "statistic": "bench/zig_vs_python.py headline: best of the warm repetitions / long passes without a failed stream (TTFT: the lowest); median and n beside it",
@@ -10,13 +10,19 @@
    "a": "zig-nccl-control",
    "b": "zig-nccl-pipe",
    "note": "window 7, same image and transport, one switch changed (pipelined prefill off -> on), same salt zvp-20261011w7"
+  },
+  {
+   "a": "zig-roce-control",
+   "b": "zig-roce-pipe",
+   "note": "window 8, same image and transport, one switch changed (pipelined prefill off -> on), same salt zvp-20261011w8"
   }
  ],
  "footnotes": [
-  "● Same window, one variable changed: window 7, same image, NCCL, same prompts (salt zvp-20261011w7); only the pipelined-prefill switch differs.",
-  "Small %: vs Python over the same transport (NCCL), from a different session (2026-10-10) — cross-session, not a controlled comparison. Python over RoCE is shown alongside.",
-  "Best of 3 repetitions without a failed stream (TTFT: lowest of 3). Prompts: 37,986–37,987 (32K) and 154,195–154,196 (131K) tokens. Decode after a long prompt and the mix cells vary a lot between passes: indicative only.",
-  "Mix: code = mean per-stream rate of 4 code streams beside a 131K prompt. Raw per-cell JSONs: forge ~/zigtp4-run/out/zvp/{python-tp4-nccl, python-tp4-roce-live, w7/zig-tp4-nccl-control, w7/zig-tp4-nccl-pipe}."
+  "● Same window, one variable changed: window 7 (NCCL, salt zvp-20261011w7) and window 8 (RoCE, salt zvp-20261011w8); the w8 Zig + pipeline build is the live engine since 2026-10-11, Python the previous one.",
+  "Small %: vs Python over the same transport, from a different session (2026-10-10) — cross-session, not a controlled comparison.",
+  "Best of 3 repetitions without a failed stream (TTFT: lowest of 3). Prompts: 37,986–37,987 (32K) and 154,195–154,196 (131K) tokens. Long-decode and mix cells vary a lot between passes: indicative only.",
+  "Window 8 was trimmed to the cold, long and mixwin parts: its warm short cells and mix cells are not measured (not zero), so it has no bars there. Mix: code = mean per-stream rate of 4 code streams beside a 131K prompt.",
+  "Raw per-cell JSONs: forge ~/zigtp4-run/out/zvp/{python-tp4-nccl, python-tp4-roce-live, w7/zig-tp4-nccl-{control, pipe}, w8/zig-tp4-roce-{control, pipe}}."
  ],
  "series": [
   {
@@ -304,6 +310,90 @@
      "median": 173.38,
      "n": 3,
      "source": "forge:~/zigtp4-run/out/zvp/w7/zig-tp4-nccl-pipe/mixwin.json"
+    }
+   }
+  },
+  {
+   "id": "zig-roce-control",
+   "label": "Zig, pipelined prefill off",
+   "engine": "zig",
+   "transport": "RoCE",
+   "window": "window 8, 2026-10-11",
+   "salt_tag": "zvp-20261011w8",
+   "started": "2026-10-11T09:47:09-0700",
+   "run_dir": "forge:~/zigtp4-run/out/zvp/w8/zig-tp4-roce-control",
+   "values": {
+    "prefill-32k": {
+     "value": 2778.9,
+     "median": 2758.7,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w8/zig-tp4-roce-control/long.json"
+    },
+    "prefill-131k": {
+     "value": 2548.9,
+     "median": 2546.5,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w8/zig-tp4-roce-control/long.json"
+    },
+    "ttft-154k": {
+     "value": 60.496,
+     "median": 60.551,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w8/zig-tp4-roce-control/long.json"
+    },
+    "long-decode-32k": {
+     "value": 94.58,
+     "median": 90.88,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w8/zig-tp4-roce-control/long.json"
+    },
+    "mixwin": {
+     "value": 219.2,
+     "median": 215.24,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w8/zig-tp4-roce-control/mixwin.json"
+    }
+   }
+  },
+  {
+   "id": "zig-roce-pipe",
+   "label": "Zig + pipelined prefill",
+   "engine": "zig-pipe",
+   "transport": "RoCE",
+   "window": "window 8, 2026-10-11",
+   "salt_tag": "zvp-20261011w8",
+   "started": "2026-10-11T09:38:01-0700",
+   "run_dir": "forge:~/zigtp4-run/out/zvp/w8/zig-tp4-roce-pipe",
+   "values": {
+    "prefill-32k": {
+     "value": 4851.5,
+     "median": 4842.2,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w8/zig-tp4-roce-pipe/long.json"
+    },
+    "prefill-131k": {
+     "value": 5148.1,
+     "median": 5133.5,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w8/zig-tp4-roce-pipe/long.json"
+    },
+    "ttft-154k": {
+     "value": 29.952,
+     "median": 30.037,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w8/zig-tp4-roce-pipe/long.json"
+    },
+    "long-decode-32k": {
+     "value": 96.33,
+     "median": 88.08,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w8/zig-tp4-roce-pipe/long.json"
+    },
+    "mixwin": {
+     "value": 212.24,
+     "median": 208.92,
+     "n": 3,
+     "source": "forge:~/zigtp4-run/out/zvp/w8/zig-tp4-roce-pipe/mixwin.json"
     }
    }
   }

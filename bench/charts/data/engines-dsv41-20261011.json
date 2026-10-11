@@ -1,14 +1,14 @@
 {
  "title": "DeepSeek V4.1 Flash on 4× DGX Spark: every engine we have run — TensorFold Python, Zig (four configs), vLLM, SGLang",
- "subtitle": "TensorFold series: bench/zig_vs_python.py, 2026-10-10 (Python) and 2026-10-11 windows 7 / 8 (Zig), best of 3. vLLM and SGLang: their own harness, September 2026, another checkpoint precision.",
+ "subtitle": "TensorFold: bench/zig_vs_python.py, 2026-10-10 (Python) and 2026-10-11 windows 7 / 8 (Zig), best of 3 · Zig + pipelined prefill on RoCE: live since 2026-10-11",
  "tier_key": [
   "Same window, one variable changed (controlled): Zig pipelined prefill off → on, the box round the pair.",
-  "Same harness, different session: % vs live Python TensorFold (RoCE), 2026-10-10. Not a controlled comparison.",
+  "Same harness, different session: % vs Python TensorFold (RoCE, the previous engine), 2026-10-10. Not a controlled comparison.",
   "Different harness, prompts, date and weights (vLLM, SGLang): hollow bars, italic values, indicative only, no %."
  ],
  "footnotes": [
-  "● Controlled: Zig pipelined prefill off → on, same window, image, transport and prompts (w7: NCCL, salt zvp-20261011w7; w8: RoCE, salt zvp-20261011w8). w8 is under independent review: pending review.",
-  "Small %: vs live Python TensorFold over RoCE (2026-10-10), same harness (bench/zig_vs_python.py), different session. TensorFold 'RoCE' = its own RoCE all-gather; 'NCCL' = NCCL over the same ConnectX-7 RoCE links (as vLLM and SGLang use).",
+  "● Controlled: Zig pipelined prefill off → on, same window, image, transport and prompts (w7: NCCL, salt zvp-20261011w7; w8: RoCE, salt zvp-20261011w8). The w8 Zig + pipelined prefill build is the live engine since 2026-10-11.",
+  "Small %: vs Python TensorFold over RoCE (the previous engine, 2026-10-10), same harness (bench/zig_vs_python.py), different session. TensorFold 'RoCE' = its own RoCE all-gather; 'NCCL' = NCCL over the same ConnectX-7 RoCE links (as vLLM and SGLang use).",
   "Not measured: w8 was trimmed to the cold, long and mixwin parts. Its short cells have only a single cold pass (n = 1, the first requests after boot); that is not plotted against anyone's warm best of 3.",
   "vLLM: phase-4 champion (CHAMPION.env: greedy DSpark draft k = 5, max batched 16,384, 430K context), run final-champion, n = 1 decode / n = 2 prefill. SGLang: dev-dsv41 image + MiaAI TP4 kit, EP = 4, DSpark on, 3 reps + 1 probe. Both on the native FP8 + MXFP4 checkpoint; all their correctness gates passed.",
   "Their cells are matched only where the metric is defined alike: cold prefill tok/s on a unique prompt (46.7–46.8K and 145.5–145.9K tokens vs ours 38.0K and 154.2K), and single-stream decode = (tokens − 1) / (last − first token), but on their own 36–47-token prompts with ≤ 200-token replies (ours 384).",
@@ -194,7 +194,7 @@
   },
   {
    "id": "python-roce",
-   "label": "Python TensorFold (live)",
+   "label": "Python TensorFold (previous engine)",
    "engine": "python",
    "transport": "RoCE",
    "tp": "TP=4",
@@ -498,7 +498,6 @@
    "quant": "EXL3 2.9 bpw",
    "date": "2026-10-11",
    "window": "w8",
-   "review": "pending review",
    "salt_tag": "zvp-20261011w8",
    "tier": "tensorfold",
    "harness": "bench/zig_vs_python.py (Jay's bench_http cells: 384-token replies, distinct prompt a stream)",
@@ -596,7 +595,7 @@
    "quant": "EXL3 2.9 bpw",
    "date": "2026-10-11",
    "window": "w8",
-   "review": "pending review",
+   "review": "live since 2026-10-11",
    "salt_tag": "zvp-20261011w8",
    "tier": "tensorfold",
    "harness": "bench/zig_vs_python.py (Jay's bench_http cells: 384-token replies, distinct prompt a stream)",

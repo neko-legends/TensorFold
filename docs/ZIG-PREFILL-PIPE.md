@@ -1,7 +1,9 @@
 # Pipelined prompt reading on the Zig TP=4 engine (`TF_DSV41_PREFILL_PIPE`)
 
-Status: design and host-side implementation on `zig-tp4`, **off by default, not run on a GPU**. The hardware window
-plan is in the last section. Paths are relative to `engine/zig/zig/src/families/deepseek_v41/` unless they start with
+Status: **run on the four Sparks in windows 7-8 (2026-10-11); the serving engine since 2026-10-11 runs with it on
+(TP=4 over RoCE)** — the window results are in [ZIG-RESULTS](ZIG-RESULTS.md). Off by default in the config. This
+page is the design, the host-side proofs and the window plan (the last section, written before the windows ran).
+Paths are relative to `engine/zig/zig/src/families/deepseek_v41/` unless they start with
 `docs/`, `config/`, `patches/` or `fabric/`.
 
 ## Why
@@ -340,7 +342,7 @@ pipeline off.
 | 2 | 159 | +23 |
 | 3 | 155 | +19 |
 
-## Hardware-window plan (for Depths; nothing here was run)
+## Hardware-window plan (for Depths; written before the windows — windows 7-8 ran it on 2026-10-11)
 
 **Before the window (build host, no GPU)**
 

@@ -1,5 +1,9 @@
 # The Zig engine on four Sparks (TP=4): port plan
 
+> 2026-10-11: **done** — the Zig engine serves the four Sparks (TP=4 over RoCE, pipelined prefill;
+> [ZIG-RESULTS](ZIG-RESULTS.md)). This page is the plan as written, kept for the record; "live" below means the
+> Python engine that served until 2026-10-11.
+
 Jay's Zig engine (`engine/zig`, TensorFold 1.0.2 + the DeepSeek-V4.1 CUDA port, merged from `jay/main` at
 `199ea205`) serves DeepSeek-V4.1-Flash on **two** Sparks. This page lists every place it assumes two ranks, what each
 of this fork's Python patches does and whether Zig has it, the order to port in, and the risks. Paths are relative

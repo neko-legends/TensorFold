@@ -1,6 +1,8 @@
 # Results
 
-Current q28-v2 Zig vs Python measurements are in [ZIG-RESULTS](ZIG-RESULTS.md). The tables below are the historical 2.9 bpw campaign; they are not a new q28-v2 vLLM comparison.
+Current q28-v2 Zig vs Python measurements are in [ZIG-RESULTS](ZIG-RESULTS.md), which also carries the four-Spark
+(TP=4) numbers of the Zig engine that has served since 2026-10-11. The tables below are the historical 2.9 bpw
+campaign (two Sparks, the Python engine); they are not a new q28-v2 vLLM comparison.
 
 Everything measured on one pair of DGX Sparks (GB10, 128 GB each, CX7 link, RoCE), 2026-10-01 to 10-05, on
 `dealignai/DeepSeek-V4.1-Flash-UNCENSORED-EXL3-2.9bpw`. Development ran in numbered test windows (G1-G19); the window

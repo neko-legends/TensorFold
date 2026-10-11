@@ -205,7 +205,7 @@ def cmd_render(a: argparse.Namespace) -> int:
     fig = plt.figure(figsize=(13, 14.8), facecolor=SURFACE)
     rows = (len(series) + 1) // 2  # legend rows; the panels move down for each row past two
     gs = fig.add_gridspec(2, 2, width_ratios=[2.15, 1], height_ratios=[1, 1.05],
-                          left=0.07, right=0.985, top=0.755 - 0.0225 * max(rows - 2, 0), bottom=0.225, hspace=0.36, wspace=0.17)
+                          left=0.07, right=0.985, top=0.755 - 0.0225 * max(rows - 2, 0), bottom=0.25, hspace=0.36, wspace=0.17)
     axes = [fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1]), fig.add_subplot(gs[1, :])]
 
     n = len(series)
@@ -233,9 +233,10 @@ def cmd_render(a: argparse.Namespace) -> int:
             for ia in [next((i for i, s in enumerate(series) if s["id"] == c["a"]), None)]
             for ib in [next((i for i, s in enumerate(series) if s["id"] == c["b"]), None)]
             if ia is not None and ib is not None]
-        # the y limit that leaves the tallest stack (and the tab above a box) inside the axes
+        # the y limit that leaves the tallest stack (and the tab above a box) inside the axes; with more
+        # than one controlled pair their boxes interleave (NCCL then RoCE), so each later pair nests higher
         h_pts = ax.get_position().height * fig.get_figheight() * 72
-        need = (box_pts + tab_pts + 6) if controlled else (stack_pts + 6)
+        need = (box_pts + tab_pts + 6 + (len(controlled) - 1) * (tab_pts + 10)) if controlled else (stack_pts + 6)
         ymax = vmax / (1 - need / h_pts)
         ax.set_ylim(0, ymax)
         per_pt = ymax / h_pts
@@ -255,20 +256,24 @@ def cmd_render(a: argparse.Namespace) -> int:
                 base = base_of[s["id"]]
                 if s["engine"] != "python" and cid in base["values"]:
                     p = pct(v, base["values"][cid]["value"])
-                    ax.annotate(signed(p) + ("\nvs Python" if pill_lines == 2 else ""), (x, v),
+                    # the pill stands on the group's tallest bar, not its own: with six bars a group a pill
+                    # anchored to its own bar lands on the neighbour's value label
+                    gmax = max(o["values"][cid]["value"] for o in series if cid in o["values"])
+                    ax.annotate(signed(p) + ("\nvs Python" if pill_lines == 2 else ""), (x, gmax),
                                 xytext=(0, pill_at + (zig.index(s["id"]) % pill_rows) * (pill_h + 4)),
                                 textcoords="offset points", ha="center", va="bottom", fontsize=pct_fs,
                                 linespacing=1.1, multialignment="center", zorder=4,
                                 **(CROSS_STYLE_TIGHT if small else CROSS_STYLE))
-        # same-window, one-variable-changed comparisons: a box round the pair, its delta on an ink tab above
-        for ia, ib in controlled:
+        # same-window, one-variable-changed comparisons: a box round the pair, its delta on an ink tab above.
+        # Two pairs (NCCL and RoCE) interleave under the engine-first sort, so each later pair nests higher.
+        for k, (ia, ib) in enumerate(controlled):
             for g, cid in enumerate(cells):
                 va, vb = series[ia]["values"].get(cid), series[ib]["values"].get(cid)
                 if not va or not vb:
                     continue
-                x0 = g - group_w / 2 + w * min(ia, ib) + 0.004
-                x1 = g - group_w / 2 + w * (max(ia, ib) + 1) - 0.004
-                y = max(va["value"], vb["value"]) + box_pts * per_pt
+                x0 = g - group_w / 2 + w * min(ia, ib) + 0.004 - k * 0.004
+                x1 = g - group_w / 2 + w * (max(ia, ib) + 1) - 0.004 + k * 0.004
+                y = max(va["value"], vb["value"]) + (box_pts + k * (tab_pts + 10)) * per_pt
                 ax.add_patch(Rectangle((x0, 0), x1 - x0, y, fill=False, ec=INK, lw=1.6, zorder=3, clip_on=False))
                 p = pct(vb["value"], va["value"])
                 ax.annotate(f"● {signed(p)}  pipeline off → on\nsame window, one variable", ((x0 + x1) / 2, y),

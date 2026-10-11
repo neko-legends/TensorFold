@@ -3,6 +3,10 @@
 > 2026-10-05: prompt reading is now pipelined across the four ranks (`patches/0004`, [PREFILL_SPEED.md](PREFILL_SPEED.md):
 > cold 160k 99.8 s -> 39 s), and `patches/0005` fixes the uneven-slice bugs jayleaton's review found
 > ([README](../README.md#fixed-in-0005-2026-10-05)). The tables below are the 2026-10-04 measurement of 0003 alone.
+>
+> 2026-10-11: **the serving engine on the four Sparks is now the CUDA Zig engine** (TP=4 over RoCE, pipelined
+> prompt reading) — its numbers are in [ZIG-RESULTS](ZIG-RESULTS.md). This page's tables are the Python engine's,
+> kept as the previous engine's history.
 
 The same engine on four GB10s instead of two: `patches/0003-four-sparks.patch` on top of 0001 and 0002,
 `scripts/serve4.sh` to run the four ranks, `config/tp4.env.example` for the overrides. Same EXL3 2.9 bpw pack, same

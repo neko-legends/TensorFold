@@ -15,8 +15,8 @@ Three subcommands:
 
 The chart mixes harnesses, so it encodes three tiers, in chart 1's language:
   same-window controlled   Zig pipelined prefill off -> on in one window: a solid ink box round the pair, an ink tab.
-  same harness, other day  Python vs Zig (bench/zig_vs_python.py): solid bars, a grey dashed pill with the % vs live
-                           Python (Python over RoCE, the service as it runs).
+  same harness, other day  Python vs Zig (bench/zig_vs_python.py): solid bars, a grey dashed pill with the % vs
+                           Python over RoCE (the previous engine, live until 2026-10-11).
   different harness        vLLM and SGLang (v41bench.py / prefillprobe.py, other prompts, other dates, another
                            checkpoint precision): hollow outlined bars, italic values, no % — indicative only. They
                            get a value only where the metric is defined the same way; elsewhere the slot says why.
@@ -176,16 +176,17 @@ def cmd_build(a: argparse.Namespace) -> int:
     series = [
         tf_series("python-tp4-nccl", id="python-nccl", label="Python TensorFold", engine="python",
                   transport="NCCL", tp=tp4, quant=exl3, date="2026-10-10", window="2026-10-10"),
-        tf_series("python-tp4-roce-live", id="python-roce", label="Python TensorFold (live)", engine="python",
+        tf_series("python-tp4-roce-live", id="python-roce", label="Python TensorFold (previous engine)", engine="python",
                   transport="RoCE", tp=tp4, quant=exl3, date="2026-10-10", window="2026-10-10"),
         tf_series("w7/zig-tp4-nccl-control", id="zig-nccl-control", label="Zig", engine="zig",
                   transport="NCCL", tp=tp4, quant=exl3, date="2026-10-11", window="w7"),
         tf_series("w7/zig-tp4-nccl-pipe", id="zig-nccl-pipe", label="Zig + pipelined prefill", engine="zig-pipe",
                   transport="NCCL", tp=tp4, quant=exl3, date="2026-10-11", window="w7"),
         tf_series("w8/zig-tp4-roce-control", id="zig-roce-control", label="Zig", engine="zig",
-                  transport="RoCE", tp=tp4, quant=exl3, date="2026-10-11", window="w8", review="pending review"),
+                  transport="RoCE", tp=tp4, quant=exl3, date="2026-10-11", window="w8"),
         tf_series("w8/zig-tp4-roce-pipe", id="zig-roce-pipe", label="Zig + pipelined prefill", engine="zig-pipe",
-                  transport="RoCE", tp=tp4, quant=exl3, date="2026-10-11", window="w8", review="pending review"),
+                  transport="RoCE", tp=tp4, quant=exl3, date="2026-10-11", window="w8",
+                  review="live since 2026-10-11"),
         v41_series(["vllm/dsv41-vllm/phase4/final-champion/bench-final-champion.json"],
                    ["vllm/dsv41-vllm/phase4/final-champion/prefill-probe.json"],
                    id="vllm", label="vLLM champion", engine="vllm", transport="NCCL", tp=tp4,
@@ -399,8 +400,8 @@ def cmd_table(a: argparse.Namespace) -> int:
     data = json.loads(a.data.read_text())
     series = data["series"]
     base = next(s for s in series if s["id"] == data["baseline"])
-    short = {"python-nccl": "Python NCCL", "python-roce": "Python RoCE (live)", "zig-nccl-control": "Zig NCCL",
-             "zig-nccl-pipe": "Zig + pipe NCCL", "zig-roce-control": "Zig RoCE ‡", "zig-roce-pipe": "Zig + pipe RoCE ‡",
+    short = {"python-nccl": "Python NCCL", "python-roce": "Python RoCE (previous)", "zig-nccl-control": "Zig NCCL",
+             "zig-nccl-pipe": "Zig + pipe NCCL", "zig-roce-control": "Zig RoCE", "zig-roce-pipe": "Zig + pipe RoCE (live)",
              "vllm": "vLLM † (2026-09-11)", "sglang": "SGLang † (2026-09-14)"}
     print("| Cell | " + " | ".join(short[s["id"]] for s in series) + " |")
     print("| --- |" + " ---: |" * len(series))
