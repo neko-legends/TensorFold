@@ -210,11 +210,18 @@ pub const Line = struct {
         const steps = pipe.route(ln.s, ln.at(), activeSlot(f), start, ids.len, images, buf);
         for (steps, 0..) |st, i| switch (st) {
             .enter => |sg| {
-                // the next segment's Engram reads ahead of this round (stage 0's layer: a wrong guess costs a read)
-                if (i + 1 < steps.len) switch (steps[i + 1]) {
-                    .enter => |nx| ln.readAhead(f, ids[@intCast(nx.start - start)..][0..nx.n], ids[0..@intCast(nx.start - start)]),
-                    else => {},
-                };
+                // the next segment's Engram reads ahead of this round (a wrong guess costs a read, never a bit): the
+                // call's next, or past the call's last the next prompt piece's (op 60, Forward.prefillAhead)
+                const nxt: ?pipe.Seg = if (i + 1 < steps.len) switch (steps[i + 1]) {
+                    .enter => |nx| nx,
+                    else => null,
+                } else null;
+                if (nxt) |nx| {
+                    ln.readAhead(f, ids[@intCast(nx.start - start)..][0..nx.n], ids[0..@intCast(nx.start - start)]);
+                } else if (i + 1 == steps.len and f.prefill_state.next.items.len > 0) {
+                    const piece = f.prefill_state.next.items;
+                    ln.readAhead(f, piece[0..@min(piece.len, ln.s.rows)], ids);
+                }
                 try ln.enter(f, ids[@intCast(sg.start - start)..][0..sg.n]);
             },
             .drain => try ln.drain(f),
