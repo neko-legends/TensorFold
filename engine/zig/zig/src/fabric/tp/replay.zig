@@ -14,9 +14,19 @@ const std = @import("std");
 /// tier's I/O, a pool a request priced out — is a request-level error rank 0 already ends only the request
 /// for, so the follower logs it and serves on.
 pub fn processFatal(err: anyerror) bool {
-    _ = &err;
-    // the follow()'s old inline behaviour (every replayed error fatal), kept for the red of the classes' tests
-    return true;
+    return switch (err) {
+        // the process itself cannot mirror rank 0's work
+        error.OutOfMemory => true,
+        // the operations stream: a peer or a framing failure is not a request's
+        error.PeerClosed, error.TooLarge, error.BadPlan => true,
+        // the device and its libraries: a replica whose GPU faulted pairs no more collectives
+        error.DriverUnavailable, error.MissingSymbol, error.Unsupported, error.CudaFailed, error.OutOfDeviceMemory, error.NotReady, error.NotFound, error.Invalid, error.CublasFailed, error.NoAlgorithm, error.NcclFailed => true,
+        // pool integrity: state that can only mean the ranks' pools diverged (fail-fast's own)
+        error.ResidueMismatch, error.DoubleFree, error.PastCapacity, error.SlotNotEmpty, error.BadPool => true,
+        // request-level: session-store state, the NVMe tier's I/O, a request's pool price — rank 0 ends the
+        // request for these and serves on, so the follower does too
+        else => false,
+    };
 }
 
 test "replayed request-level errors are survivable; process, device and transport faults fatal" {
