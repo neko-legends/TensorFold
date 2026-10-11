@@ -73,6 +73,7 @@ pub const Nccl = struct {
         .barrier = barrier,
         .check = check,
         .abort = abort,
+        .send_recv = sendRecv,
     };
 
     fn self_(ptr: *anyopaque) *Nccl {
@@ -116,6 +117,19 @@ pub const Nccl = struct {
         try n.call(n.lib.api.ncclGroupStart(), "ncclGroupStart");
         const a = n.lib.api.ncclSend(s, count, dataType(t), @intCast(peer), n.comm, stream);
         const b = n.lib.api.ncclRecv(r, count, dataType(t), @intCast(peer), n.comm, stream);
+        const e = n.lib.api.ncclGroupEnd();
+        try n.call(a, "ncclSend");
+        try n.call(b, "ncclRecv");
+        try n.call(e, "ncclGroupEnd");
+    }
+
+    /// A pipeline's shift as one group: the send to `to` and the receive from `from` progress together.
+    pub fn sendRecv(ptr: *anyopaque, s: DevicePtr, sc: usize, to: ?u32, r: DevicePtr, rc: usize, from: ?u32, t: DType, stream: collective.Stream) Error!void {
+        const n = self_(ptr);
+        try n.live();
+        try n.call(n.lib.api.ncclGroupStart(), "ncclGroupStart");
+        const a = if (to) |p| n.lib.api.ncclSend(s, sc, dataType(t), @intCast(p), n.comm, stream) else 0;
+        const b = if (from) |p| n.lib.api.ncclRecv(r, rc, dataType(t), @intCast(p), n.comm, stream) else 0;
         const e = n.lib.api.ncclGroupEnd();
         try n.call(a, "ncclSend");
         try n.call(b, "ncclRecv");

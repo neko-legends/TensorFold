@@ -62,6 +62,9 @@ pub const Collective = struct {
         /// Host: whether every rank's transport takes device lengths (`var_fits(16)` on all), agreed once per communicator by an
         /// int all-gather and kept on the implementation. Null: false.
         var_agreed: ?*const fn (ptr: *anyopaque) Error!bool = null,
+        /// One group of a send to `to` and a receive from `from` (either null; the peers checked by `sendRecv`). Null:
+        /// `sendRecv` orders the two plain calls.
+        send_recv: ?*const fn (ptr: *anyopaque, send: DevicePtr, send_count: usize, to: ?u32, recv: DevicePtr, recv_count: usize, from: ?u32, t: DType, stream: Stream) Error!void = null,
     };
 
     pub fn kind(c: Collective) Kind {
@@ -115,19 +118,23 @@ pub const Collective = struct {
         return c.vtable.recv(c.ptr, buf, count, t, peer, stream);
     }
 
-    /// A pipeline's shift (one group): this rank's send[send_count] to rank `to` and rank `from`'s into recv[recv_count];
-    /// either side may be null. Not implemented yet.
+    /// A pipeline's shift (dsv41's TF_DSV41_PREFILL_PIPE): this rank's send[send_count] to rank `to` and rank `from`'s
+    /// send into recv[recv_count], either side null for none. One group where the backend has it (`send_recv`: NCCL),
+    /// else the two calls in an order no chain can deadlock on: even ranks send first, odd ranks receive first.
     pub fn sendRecv(c: Collective, send_buf: DevicePtr, send_count: usize, to: ?u32, recv_buf: DevicePtr, recv_count: usize, from: ?u32, t: DType, stream: Stream) Error!void {
-        _ = c;
-        _ = send_buf;
-        _ = send_count;
-        _ = to;
-        _ = recv_buf;
-        _ = recv_count;
-        _ = from;
-        _ = t;
-        _ = stream;
-        return error.Unsupported;
+        const me = c.rank();
+        const w = c.world();
+        if (to) |p| try checkPeer(me, w, p);
+        if (from) |p| try checkPeer(me, w, p);
+        if (to == null and from == null) return;
+        if (c.vtable.send_recv) |f| return f(c.ptr, send_buf, send_count, to, recv_buf, recv_count, from, t, stream);
+        if (me % 2 == 0) {
+            if (to) |p| try c.send(send_buf, send_count, t, p, stream);
+            if (from) |p| try c.recv(recv_buf, recv_count, t, p, stream);
+        } else {
+            if (from) |p| try c.recv(recv_buf, recv_count, t, p, stream);
+            if (to) |p| try c.send(send_buf, send_count, t, p, stream);
+        }
     }
 
     pub fn barrier(c: Collective) Error!void {
