@@ -201,6 +201,16 @@ test "a stage hands on exactly what the next takes: pipe_out's tensors are the n
             // the streams [n, 4 D], the partial at world 1 [1, n, D]
             try testing.expectEqualSlices(i64, &.{ n, 4 * @as(i64, cfg.hidden) }, o.args[0].arg.t.shape);
             try testing.expectEqualSlices(i64, &.{ 1, n, @as(i64, cfg.hidden) }, o.args[1].arg.t.shape);
+            // the runtime's packing (pipe.HandoffLayout) is these tensors' bytes, contiguous views each
+            const lay = pipe.HandoffLayout.of(&cfg, @intCast(n), true, true);
+            try testing.expectEqual(o.args.len, lay.parts);
+            for (o.args, 0..) |x, i| {
+                const t = x.arg.t;
+                var numel: u64 = 1;
+                for (t.shape) |d| numel *= @intCast(d);
+                try testing.expectEqual(lay.bytes[i], numel * buffers.dtSize(t.dt));
+                try testing.expect(std.mem.eql(i64, t.stride, try calls.contiguous(aa, t.shape)));
+            }
         }
     }
     // the shortest segment a stage takes (pipe.min_seg): the mHC split programs' out-of-place streams never in a stage

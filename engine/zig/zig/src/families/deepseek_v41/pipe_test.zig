@@ -208,6 +208,74 @@ test "stage weights: only the TP-sharded tensors and their run-time forms take t
     try testing.expect(!pipe.sharded("attn.wq_a") and !pipe.sharded("moe.gate") and !pipe.sharded("engram.wkv") and !pipe.sharded("hc_attn.fn"));
 }
 
+fn routeOf(s: pipe.Settings, line: ?pipe.LineAt, slot: u32, start: u64, n: usize, images: bool) ![]const pipe.Step {
+    var buf: [64]pipe.Step = undefined;
+    const steps = pipe.route(s, line, slot, start, n, images, &buf);
+    return testing.allocator.dupe(pipe.Step, steps);
+}
+
+fn expectSteps(want: []const pipe.Step, got: []const pipe.Step) !void {
+    defer testing.allocator.free(got);
+    try testing.expectEqual(want.len, got.len);
+    for (want, got) |x, y| try testing.expectEqual(x, y);
+}
+
+test "a prompt call's route: which rows enter the line, which run tensor parallel, where the line drains" {
+    const s = (try settingsOf(&.{.{ "TF_DSV41_PREFILL_PIPE", "1024" }}, 4)).?;
+    // no line: a piece of 4,096 rows opens one, two whole segments
+    try expectSteps(&.{ .{ .enter = .{ .start = 0, .n = 2048 } }, .{ .enter = .{ .start = 2048, .n = 2048 } } }, try routeOf(s, null, 1, 0, 4096, false));
+    // the line's slot goes on (a whole piece, then one cut at a snapshot point, then a short tail: drain, tensor parallel)
+    const at: pipe.LineAt = .{ .slot = 1, .next = 4096 };
+    try expectSteps(&.{ .{ .enter = .{ .start = 4096, .n = 2048 } }, .{ .enter = .{ .start = 6144, .n = 1000 } } }, try routeOf(s, at, 1, 4096, 3048, false));
+    try expectSteps(&.{ .{ .enter = .{ .start = 4096, .n = 2048 } }, .drain, .{ .tp = .{ .start = 6144, .n = 16 } } }, try routeOf(s, at, 1, 4096, 2064, false));
+    try expectSteps(&.{ .drain, .{ .tp = .{ .start = 4096, .n = 32 } } }, try routeOf(s, at, 1, 4096, 32, false));
+    // a segment below TF_DSV41_PREFILL_PIPE never opens a line; a ragged segment past min_seg goes on in an open one
+    try expectSteps(&.{.{ .tp = .{ .start = 0, .n = 1000 } }}, try routeOf(s, null, 1, 0, 1000, false));
+    try expectSteps(&.{.{ .enter = .{ .start = 4096, .n = 33 } }}, try routeOf(s, at, 1, 4096, 33, false));
+    // another slot's prompt while the line is open: tensor parallel, the line untouched
+    try expectSteps(&.{.{ .tp = .{ .start = 0, .n = 4096 } }}, try routeOf(s, at, 2, 0, 4096, false));
+    // image rows never enter a line (their slot's line drains first)
+    try expectSteps(&.{ .drain, .{ .tp = .{ .start = 4096, .n = 4096 } } }, try routeOf(s, at, 1, 4096, 4096, true));
+    try expectSteps(&.{.{ .tp = .{ .start = 0, .n = 4096 } }}, try routeOf(s, null, 1, 0, 4096, true));
+    // the line's slot at another position (a reset the op stream should have abandoned): the line goes, the call starts
+    // afresh
+    try expectSteps(&.{ .abandon, .{ .enter = .{ .start = 0, .n = 2048 } } }, try routeOf(s, at, 1, 0, 2048, false));
+    try expectSteps(&.{ .abandon, .{ .tp = .{ .start = 64, .n = 500 } } }, try routeOf(s, at, 1, 64, 500, false));
+    // 4,096-row stages
+    const t = (try settingsOf(&.{ .{ "TF_DSV41_PREFILL_PIPE", "1024" }, .{ "TF_DSV41_PIPE_ROWS", "4096" } }, 4)).?;
+    try expectSteps(&.{ .{ .enter = .{ .start = 0, .n = 4096 } }, .{ .enter = .{ .start = 4096, .n = 4096 } } }, try routeOf(t, null, 0, 0, 8192, false));
+}
+
+test "the stage hand-off's packed parts: streams, pending post, coefficients, selection (16-byte aligned)" {
+    const cfg: Config = .{};
+    const D: u64 = cfg.hidden;
+    const p = pipe.HandoffLayout.of(&cfg, 2048, true, true);
+    const sizes = [_]u64{ 2048 * 4 * D * 2, 2048 * D * 2, 2048 * 4 * 4, 2048 * 4 * 4, 2048 * 16 * 4, 2048 * 512 * 4, 2048 * 4 };
+    var off: u64 = 0;
+    for (sizes, 0..) |b, i| {
+        try testing.expectEqual(b, p.bytes[i]);
+        try testing.expectEqual(off, p.offset[i]);
+        off += std.mem.alignForward(u64, b, 16);
+    }
+    try testing.expectEqual(@as(usize, 7), p.parts);
+    try testing.expectEqual(off, p.total);
+    // stage 0's input: the streams alone; a stage whose next takes no selection: five parts
+    try testing.expectEqual(@as(usize, 1), pipe.HandoffLayout.of(&cfg, 100, false, false).parts);
+    const q = pipe.HandoffLayout.of(&cfg, 33, true, false);
+    try testing.expectEqual(@as(usize, 5), q.parts);
+    try testing.expectEqual(@as(u64, 33 * 4), q.bytes[3] / 4); // post [33, 4] fp32
+}
+
+test "a family's logical rows through the slot's page table as runs of physical rows (one copy a run)" {
+    // pages of 128 rows (ratio 2 of 256-token pages): logical pages 0..3 at physical 7, 8, 2, 3
+    const table = [_]u32{ 7, 8, 2, 3 };
+    var buf: [8]pipe.Run = undefined;
+    const runs = pipe.pageRuns(&table, 7, 100, 400, &buf);
+    try testing.expectEqualSlices(pipe.Run, &.{ .{ .row = 100, .phys = 7 * 128 + 100, .n = 156 }, .{ .row = 256, .phys = 2 * 128, .n = 144 } }, runs);
+    try testing.expectEqualSlices(pipe.Run, &.{.{ .row = 5, .phys = 7 * 128 + 5, .n = 10 }}, pipe.pageRuns(&table, 7, 5, 15, &buf));
+    try testing.expectEqual(@as(usize, 0), pipe.pageRuns(&table, 7, 9, 9, &buf).len);
+}
+
 test "a stage's options: world 1 rank 0, the line's rows, no taps / TBO / exchange pieces / images" {
     var o: block.Options = .{ .world = 4, .rank = 2, .taps = true, .pf_tbo = true, .pf_overlap = 2, .pf_overlap_site = true, .image_keep = true, .image_rows = 5, .prefill_rows = 2048, .gm_v2 = .one, .r1 = true, .limit = 420096 };
     const x = pipe.stageOptions(o, 2048);

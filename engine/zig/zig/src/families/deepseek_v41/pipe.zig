@@ -322,6 +322,46 @@ pub const FinalsLayout = struct {
     }
 };
 
+// -- a prompt call's route, the hand-off's packing, a family's rows (not written yet) -----------------------------
+
+pub const LineAt = struct { slot: u32, next: u64 };
+pub const Step = union(enum) { enter: Seg, drain, abandon, tp: Seg };
+
+pub fn route(s: Settings, line: ?LineAt, slot: u32, start: u64, n: usize, images: bool, buf: []Step) []const Step {
+    _ = s;
+    _ = line;
+    _ = slot;
+    _ = start;
+    _ = n;
+    _ = images;
+    return buf[0..0];
+}
+
+pub const HandoffLayout = struct {
+    parts: usize = 0,
+    bytes: [7]u64 = @splat(0),
+    offset: [7]u64 = @splat(0),
+    total: u64 = 0,
+
+    pub fn of(cfg: *const Config, n: u32, post: bool, sel: bool) HandoffLayout {
+        _ = cfg;
+        _ = n;
+        _ = post;
+        _ = sel;
+        return .{};
+    }
+};
+
+pub const Run = struct { row: u64, phys: u64, n: u64 };
+
+pub fn pageRuns(table: []const u32, shift: u6, a: u64, b: u64, buf: []Run) []const Run {
+    _ = table;
+    _ = shift;
+    _ = a;
+    _ = b;
+    return buf[0..0];
+}
+
 // -- the stage weights' names --------------------------------------------------------------------------------------
 
 pub const sharded = names.sharded;
