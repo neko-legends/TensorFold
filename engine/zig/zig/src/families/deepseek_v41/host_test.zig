@@ -8,6 +8,7 @@ const exl3 = @import("exl3.zig");
 const Pack = @import("pack.zig").Pack;
 const plan = @import("plan.zig");
 const named = @import("named.zig");
+const pipe_names = @import("pipe_names.zig");
 
 test "the release config.json: topology, routing and rope" {
     const c = try Config.parse(testing.allocator, @embedFile("fixtures/config.json"));
@@ -300,6 +301,61 @@ test "a synthetic pack on disk: every planned tensor named in the Python loader'
     try testing.expectEqual(@as(usize, 2 * c.vocab / 2 * c.hidden), b.find("embed").?.bytes.len);
     try testing.expect(b.find("L4.attn.wo_a.0.svh") != null and b.find("L4.attn.wo_a.1.svh") == null);
     try testing.expect(b.find("head.trellis") != null and b.find("norm") != null);
+}
+
+test "a pipeline stage's weights (TF_DSV41_PREFILL_PIPE): its layers at world 1, only the sharded tensors, P.-named" {
+    // pipe_load.zig loads each stage layer's world-1 images and keeps the TP-sharded tensors as "P.<name>": every head's
+    // wq_b columns and sinks, every wo_a group, wo_b's whole input, the routed and shared experts' every column; the
+    // replicated tensors (the TP copy serves them) are not uploaded twice
+    const a = testing.allocator;
+    const io = testing.io;
+    const c = config.tiny();
+    var n: u64 = 0;
+    const json = try tinyPackLen(a, &c, "", "", &n, "F32");
+    defer a.free(json);
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    {
+        var f = try tmp.dir.createFile(io, "model.safetensors", .{});
+        defer f.close(io);
+        var len: [8]u8 = undefined;
+        std.mem.writeInt(u64, &len, json.len, .little);
+        try f.writePositionalAll(io, &len, 0);
+        try f.writePositionalAll(io, json, 8);
+        try f.setLength(io, 8 + json.len + n);
+    }
+    const dir = try tmp.dir.realPathFileAlloc(io, ".", a);
+    defer a.free(dir);
+    var p = try Pack.open(a, io, dir);
+    defer p.deinit();
+    var pl = try plan.build(a, &c, &p, .{ .rank = 0, .world = 1, .blocks = &.{ 1, 2, 3 } });
+    defer pl.deinit();
+    for (pl.layers) |*l| {
+        var b: named.Builder = .{ .gpa = a, .io = io, .pack = &p };
+        defer b.deinit();
+        try b.layer(l, c.o_groups, 0, 1);
+        const all = b.out.items.len;
+        try pipe_names.keepSharded(&b);
+        try testing.expect(b.out.items.len > 0 and b.out.items.len < all);
+        for (b.out.items) |t| {
+            try testing.expect(std.mem.startsWith(u8, t.name, pipe_names.prefix));
+            try testing.expect(pipe_names.sharded(pipe_names.fieldOf(t.name[pipe_names.prefix.len..]).?));
+        }
+        var nb: [64]u8 = undefined;
+        const L = l.index;
+        // the full width: every head (sink, wq_b's columns), every wo_a group, every expert column
+        try testing.expectEqual(@as(usize, 4 * c.heads), b.find(try std.fmt.bufPrint(&nb, "P.L{d}.attn.sink", .{L})).?.bytes.len);
+        try testing.expectEqual(@as(usize, c.heads * c.head_dim / 16), b.find(try std.fmt.bufPrint(&nb, "P.L{d}.attn.wq_b.trellis", .{L})).?.shape[1]);
+        for (0..c.o_groups) |g| try testing.expect(b.find(try std.fmt.bufPrint(&nb, "P.L{d}.attn.wo_a.{d}.svh", .{ L, g })) != null);
+        try testing.expect(b.find(try std.fmt.bufPrint(&nb, "P.L{d}.attn.wo_b.trellis", .{L})) != null);
+        try testing.expectEqual(@as(usize, c.expert_width), b.find(try std.fmt.bufPrint(&nb, "P.L{d}.moe.shared.0.w1.svh", .{L})).?.shape[0]);
+        try testing.expectEqual(@as(usize, c.expert_width), b.find(try std.fmt.bufPrint(&nb, "P.L{d}.moe.w1.svh", .{L})).?.shape[1]);
+        // replicated: not a stage copy
+        for ([_][]const u8{ "attn.wq_a.trellis", "attn.wkv.trellis", "moe.gate", "moe.bias", "attn_norm", "hc_attn.fn", "attn.q_norm" }) |f| {
+            try testing.expect(b.find(try std.fmt.bufPrint(&nb, "P.L{d}.{s}", .{ L, f })) == null);
+            try testing.expect(b.find(try std.fmt.bufPrint(&nb, "L{d}.{s}", .{ L, f })) == null);
+        }
+    }
 }
 
 /// One fixture histogram ("4:383,6:1") as rank-0 parts of a TP=2 projection with full shape `kn`.
