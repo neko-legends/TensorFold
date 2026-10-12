@@ -147,7 +147,10 @@ fn planPrograms(f: *Forward, p: *buffers.Plan, rows: u32, layers: []const u32) !
     var ra = std.heap.ArenaAllocator.init(f.gpa);
     defer ra.deinit();
     const replay = f.prefill_state.mode == .replay;
-    const runs = try block_prefill.planRuns(ra.allocator(), f.cfg, f.widths, vision_rows.planOptions(f), if (replay) try encoderLayers(f, layers) else layers, if (replay) try decoderLayers(f, layers) else null, rows, if (replay) .encoder else .whole);
+    // f.opts, not planOptions: a run never holds an image segment (emitMulti refuses image rows; the caller runs those
+    // one at a time), so its roles are the text options' (with planOptions' image_rows -1 every run is refused and
+    // its roles, w.mpos64 among them, drop out of the plan: Unbound on the first multi-slot run, 2026-10-12)
+    const runs = try block_prefill.planRuns(ra.allocator(), f.cfg, f.widths, f.opts, if (replay) try encoderLayers(f, layers) else layers, if (replay) try decoderLayers(f, layers) else null, rows, if (replay) .encoder else .whole);
     for (runs.items) |cs| try p.add(cs);
 }
 
@@ -208,7 +211,8 @@ fn planWorkspace(f: *Forward, wp: *buffers.Plan, rows: u32, layers: []const u32)
     if (replay and f.opts.pf_tbo and rows >= 2 * block_prefill.tbo_min) {
         const enc = try encoderLayers(f, layers);
         const k4 = f.prefill_state.k4;
-        const op = if (k4) k4Options(vision_rows.planOptions(f)) else vision_rows.planOptions(f);
+        // a TBO pair never holds image rows (emitTbo refuses them): the text options, as planRuns'
+        const op = if (k4) k4Options(f.opts) else f.opts;
         const seg: u32 = if (k4) K4.rows else rows;
         const top = @max(0, try lastStartWith(f, op, enc, seg, .encoder) - seg); // B at the last start a segment takes
         for ([_]i64{ 0, top }) |start| {

@@ -125,3 +125,64 @@ test "TP=2 keeps Python's limit: past what the scratch holds without 4K is refus
     o.prefill_rows = 2048;
     _ = try bp.emitPrefill(aa, &cfg, &w, o, &layers, 2048, 0, true);
 }
+
+/// Every role `need` sizes, at least as large in `have`.
+fn covers(have: *const buffers.Plan, need: *const buffers.Plan) !void {
+    var it = need.sizes.iterator();
+    while (it.next()) |e| {
+        const h = have.sizes.get(e.key_ptr.*) orelse {
+            std.debug.print("role {s} ({d} bytes) is not in the plan\n", .{ e.key_ptr.*, e.value_ptr.* });
+            return error.TestUnexpectedResult;
+        };
+        if (h < e.value_ptr.*) {
+            std.debug.print("role {s}: the plan holds {d} bytes, the call needs {d}\n", .{ e.key_ptr.*, h, e.value_ptr.* });
+            return error.TestUnexpectedResult;
+        }
+    }
+}
+
+// The live image window's two plan failures (2026-10-12): the buffer plan sized before the image flags were set (an
+// image prompt: `w.out.img` Unbound), then the multi-segment runs planned at the image options, which emitMulti refuses
+// (a three-slot run of text tails: `w.mpos64` Unbound). The plan's image options (vision_rows.planOptions: keep, image
+// rows -1) must cover an image segment's roles at any split; the runs stay planned at the text options.
+test "TP=4 images: the plan's image options cover an image segment at any split; runs are planned at the text options" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const aa = arena.allocator();
+    const cfg: Config = .{};
+    const w = try widths(aa);
+    const layers = [_]u32{ 1, 2, 3 };
+    var enc: [21]u32 = undefined;
+    for (&enc, 0..) |*l, i| l.* = @intCast(i);
+    for ([_]u32{ 0, 2 }) |r| {
+        const o = bootOptions(r);
+        var po = o;
+        po.image_keep = true;
+        po.image_rows = -1;
+        for ([_]i64{ 237, 2048 }) |n| {
+            var plan: buffers.Plan = .{ .a = aa };
+            try plan.add(try bp.emitPrefill(aa, &cfg, &w, po, &layers, n, 0, true));
+            try plan.add(try bp.emitReplay(aa, &cfg, &w, po, &enc, n, 0, .encoder));
+            for ([_]i64{ 1, 184, n - 1, n }) |ni| {
+                var so = o;
+                so.image_keep = true;
+                so.image_rows = ni;
+                var seg: buffers.Plan = .{ .a = aa };
+                try seg.add(try bp.emitPrefill(aa, &cfg, &w, so, &layers, n, 0, true));
+                try seg.add(try bp.emitReplay(aa, &cfg, &w, so, &enc, n, 0, .encoder));
+                try covers(&plan, &seg);
+            }
+            // and without the plan's image options the image segment's roles are missing (the first failure)
+            var text: buffers.Plan = .{ .a = aa };
+            try text.add(try bp.emitPrefill(aa, &cfg, &w, o, &layers, n, 0, true));
+            try testing.expect(text.sizes.get("w.out.img") == null and plan.sizes.get("w.out.img") != null);
+        }
+        // the runs: refused at the image options, planned (their positions' role among them) at the text options
+        try testing.expectEqual(@as(usize, 0), (try bp.planRuns(aa, &cfg, &w, po, &enc, null, 2048, .encoder)).items.len);
+        const runs = try bp.planRuns(aa, &cfg, &w, o, &enc, null, 2048, .encoder);
+        try testing.expect(runs.items.len > 0);
+        var rp: buffers.Plan = .{ .a = aa };
+        for (runs.items) |cs| try rp.add(cs);
+        try testing.expect(rp.sizes.get("w.mpos64") != null);
+    }
+}
