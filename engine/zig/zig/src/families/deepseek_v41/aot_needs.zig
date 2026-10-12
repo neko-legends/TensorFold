@@ -196,6 +196,17 @@ fn envOn(name: [:0]const u8, default: bool) bool {
     return !std.mem.eql(u8, std.mem.span(v), "0");
 }
 
+/// TF_DSV41_IMAGES=native, as vision/mode.zig parses it (trimmed, any case).
+fn imagesNative() bool {
+    const v = std.c.getenv("TF_DSV41_IMAGES") orelse return false;
+    return std.ascii.eqlIgnoreCase(std.mem.trim(u8, std.mem.span(v), " \t"), "native");
+}
+
+fn envSet(name: [:0]const u8) bool {
+    const v = std.c.getenv(name) orelse return false;
+    return std.mem.trim(u8, std.mem.span(v), " ").len > 0;
+}
+
 pub const Served = struct {
     o: block.Options,
     slots: u32,
@@ -211,6 +222,9 @@ pub const Served = struct {
     replay_runs: bool = false,
     /// TF_DSV41_PREFILL_PIPE (replay): this rank's pipeline stage programs too (enumerateStage)
     pipe: ?pipe.Settings = null,
+    /// TF_DSV41_IMAGES=native: the image segments' prefill / CED programs too (TF_DSV41_BIAS_VL: their own MoE call)
+    images: bool = false,
+    image_bias: bool = false,
 
     /// The engine's knobs as model.zig / prod_knobs.zig read them (the dense prefill's table and image paths aside:
     /// PF_DENSE's fused kernel is CUDA, so the `_gemm` variants it replaces are listed too).
@@ -263,6 +277,8 @@ pub const Served = struct {
             .runs = slots > 1 and envOn("TF_DSV41_PIECE_RUNS", false) and try knobs.prefillMode(&knobs.env) == .replay,
             .replay_runs = slots > 1 and envOn("TF_DSV41_REPLAY_RUNS", false) and try knobs.prefillMode(&knobs.env) == .replay,
             .pipe = if (try knobs.prefillMode(&knobs.env) == .replay) try pipe.settings(&knobs.env, &Config{}, o.world) else null,
+            .images = imagesNative(),
+            .image_bias = imagesNative() and envSet("TF_DSV41_BIAS_VL"),
         };
     }
 };
@@ -430,12 +446,24 @@ pub fn enumerate(gpa: std.mem.Allocator, n: *Needs, cfg: *const Config, w: *cons
     // differ from the 4,096-row workspace set (block_prefill.emitMarked's staging ring, the rowsCap segment cap), so
     // the fill enumerates both option sets (forward_prefill.k4Options is the workspace's).
     const defaults: block.Options = .{};
-    var pf_sets: [2]block.Options = .{ sv.o, sv.o };
-    const pf_n: usize = if (sv.o.pf4k) pf: {
+    var pf_sets: [4]block.Options = .{ sv.o, sv.o, sv.o, sv.o };
+    var pf_n: usize = if (sv.o.pf4k) pf: {
         pf_sets[1].pf4k = false;
         pf_sets[1].prefill_rows = defaults.prefill_rows;
         break :pf 2;
     } else 1;
+    // TF_DSV41_IMAGES=native: a segment holding an image runs with vision_rows.segmentOptions' set (Engram's keep:
+    // `_fuse_dec` HAS_KEEP; with TF_DSV41_BIAS_VL the image rows' own MoE call, enumerated as the buffer plan does at
+    // image_rows -1: both calls at the segment's rows, every other split's row counts being the plain segments'). The
+    // multi-segment runs refuse image segments (forward_prefill), so they are not enumerated with these sets.
+    if (sv.images) {
+        for (0..pf_n) |i| {
+            pf_sets[pf_n + i] = pf_sets[i];
+            pf_sets[pf_n + i].image_keep = true;
+            if (sv.image_bias) pf_sets[pf_n + i].image_rows = -1;
+        }
+        pf_n *= 2;
+    }
     for (pf_sets[0..pf_n]) |o| {
         const P = o.prefill_rows;
         {
@@ -461,7 +489,7 @@ pub fn enumerate(gpa: std.mem.Allocator, n: *Needs, cfg: *const Config, w: *cons
                 try log.print("aot-needs: prefill from {d} (pf4k {}, {d} rows), {d} programs, {d} variants\n", .{ s0, o.pf4k, P, n.programs, n.keys.count() });
                 try log.flush();
             }
-            if (sv.runs) {
+            if (sv.runs and !o.image_keep) {
                 const enc = layers[0 .. try ced.decoderStart(cfg) + 1];
                 for (starts.items) |s0| {
                     var k: i64 = 17;
@@ -501,7 +529,7 @@ pub fn enumerate(gpa: std.mem.Allocator, n: *Needs, cfg: *const Config, w: *cons
             }
             try log.print("aot-needs: CED decoder (pf4k {}, {d} rows), {d} programs, {d} variants\n", .{ o.pf4k, o.prefill_rows, n.programs, n.keys.count() });
             try log.flush();
-            if (sv.replay_runs) {
+            if (sv.replay_runs and !o.image_keep) {
                 var k: i64 = 33;
                 while (k <= ced.keep) : (k += 1) {
                     try run(n, cfg, w, o, dec, .decoder, &.{ .{ .slot = 0, .start = 0, .n = 33 }, .{ .slot = 1, .start = 0, .n = k } });
