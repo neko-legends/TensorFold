@@ -263,7 +263,7 @@ upstream TensorFold settings.
 | `TF_DSV41_THINKING` | 1 | `1` | Default thinking mode; requests can override |
 | `TF_DSV41_DEFAULT_EFFORT` | high | `high` | Default effort (high = 75) |
 | `TF_DSV41_SCHEMA_PROMPT` | 1 | `1` | Include response-format schema in the prompt |
-| `TF_DSV41_IMAGES` | placeholder | `placeholder` | Replace image parts with an omission notice; this profile does not serve native vision |
+| `TF_DSV41_IMAGES` | placeholder | `placeholder` | Replace image parts with an omission notice; this profile does not serve native vision. `native` (the TP=4 live profile) needs `TF_DSV41_BIAS_VL` on every rank, libcublas 13 in the image (rank 0's tower opens it), an AOT fill made with `TF_DSV41_IMAGES=native` exported, and the image gate in ZIG-TP4-PLAN.md's runbook |
 | `TF_DSV41_GRAMMAR` | 0 | `1` | Grammar-constrained structured output |
 | `TF_DSV41_TOOL_GRAMMAR` | 0 | `0` | Automatic tool-schema constraint; remains off |
 

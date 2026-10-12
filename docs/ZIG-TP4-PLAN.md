@@ -141,7 +141,7 @@ not misread. Drain-first stop sends `op_stop` to every follower. Notes for TP=4:
 | 0005 candidate warmup at boot | CUDA lazy loading mid-window caused wide top_k timeouts | not needed: Triton kernels are AOT and resolved at boot (`cuda/aot.zig:80-105`); a missing variant is `MissingTritonVariant`, not a JIT | none (verify `CUDA_MODULE_LOADING` in the window) |
 | 0005/0003 pinned candidate buffer grown before the forward | | grown lazily after the forward is queued (`ds/sampling_gpu.zig:144,162-168`), bounded (`W*k <= 2048`) | low risk; grow at init |
 | 0006 logprobs / top_logprobs (not live) | | refused explicitly (`server/fields.zig:276-286`) | medium: per-rank log-sum-exp parts in the candidates' gather, as 0006 |
-| images (`TF_DSV41_IMAGES=native`, live) | DeepSeek's ViT on rank 0 | has it (`server/deepseek.zig:12-14`, `ds/vision_rows.zig:298-306`); jay's profile sets `placeholder` | set `native` and `TF_DSV41_BIAS_VL` on every rank |
+| images (`TF_DSV41_IMAGES=native`, live) | DeepSeek's ViT on rank 0 | has it (`server/deepseek.zig:12-14`, `ds/vision_rows.zig`); jay's profile sets `placeholder`. Live on TP=4 since 2026-10-12 after three fixes the first native boots found: the image flags set before the buffer plan (dd07ddb5; `w.out.img` Unbound), runs / TBO pairs planned at the text options (3c5b773b; `w.mpos64` Unbound), aot-needs enumerating the image programs (ced6dcb3; `_fuse_dec` HAS_KEEP was missing), and libcublas in the runtime image | set `native` and `TF_DSV41_BIAS_VL` on every rank; fill AOT with `TF_DSV41_IMAGES=native` exported; run the modality gate below |
 
 ## Order of work
 
@@ -326,6 +326,9 @@ docker run --rm --name zigtp4-assets -v "$PWD:/repo:ro" -v "$MODEL:/pack:ro" -v 
   --entrypoint bash dsv41-tensorfold:tp4rot /repo/scripts/zig-tp4-assets.sh host /out /pack
 #    then each node's ASSETS_DIR = its rank's aot/ + those two files; CACHE_DIR gets config/pfdense-table.json and the
 #    image routing bias (the live cache volume's dsv41-bias-vl, copied read-only)
+#    With native images served, export TF_DSV41_IMAGES=native (and TF_DSV41_BIAS_VL) for the aot step: aot-needs
+#    enumerates the image segments' programs only then (one extra `_fuse_dec` HAS_KEEP variant a rank at 3c5b773b);
+#    a fill made without it boots and then fails the first image prompt with MissingTritonVariant.
 ```
 
 The window. Depths runs it. The Python engine's own scripts stop and restart the live ranks.
@@ -349,6 +352,18 @@ until curl -fsS localhost:8000/v1/models; do sleep 10; done
 curl -fsS localhost:8000/v1/chat/completions -H 'Content-Type: application/json' \
   -d '{"messages":[{"role":"user","content":"What is 17 * 23?"}],"temperature":0,"reasoning_effort":"low"}'   # 391
 docker logs zigtp4-r0 2>&1 | grep -iE 'world|nccl|roce|slots|calib|error' | tail -40
+# MODALITY GATE (2026-10-12): an engine swap must not drop a modality the outgoing engine served. The Python live
+# engine served images (TF_DSV41_IMAGES=native) and DGX-dash declares the group multimodal; the 2026-10-11 Zig
+# migration gated on /health, 391, needle, schemas only, booted in placeholder mode, and images silently became "I
+# can't see the image" (HTTP 200) for a day. Before calling a swap live:
+#  1. diff the effective knobs: comm -3 <(grep -oE '^TF_DSV41_[A-Z0-9_]+' OLD.env | sort -u) \
+#     <(docker exec <new-r0> env | grep -oE '^TF_DSV41_[A-Z0-9_]+' | sort -u)   # every one-sided key explained
+#  2. rank 0's log says `images: native` and `tower 0.97 GB on rank 0; image routing bias loaded`, no `placeholder`
+#  3. a red-left / blue-right 64x64 PNG at T=0 is described correctly (direct AND through eva-core's sparks/auto)
+#  4. then the TEXT suites again on the image-enabled boot, concurrently (bench/structured.py schemas,tools): an image
+#     knob changes the buffer plan for every prompt, and the 2026-10-12 window-3 crash was a text-only multi-slot run
+#  5. a photo, two images in one request, and a >50K-token prompt plus an image
+# An image prompt that fails takes every rank down (tp fail-fast): restore the configs and restart at once.
 # bench (same salt tag for both engines of a pair; Python's run happens in its own window or before the swap)
 python3 bench/zig_vs_python.py run --url http://127.0.0.1:8000 --label zig-tp4 --out results/zvp/zig-tp4 --salt-tag zvp-<date>
 ```
