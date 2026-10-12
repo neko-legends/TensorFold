@@ -270,6 +270,9 @@ pub const Model = struct {
             m.f.opts.rope_rows = c + 2048;
         }
         try @import("prod_knobs.zig").apply(&m.f, a, io, m.tcfg.rank);
+        // TF_DSV41_IMAGES=native's flags before the KV pricing and the buffer plan size the image rows' roles (the
+        // tower and gate.bias_vl load at vision_rows.boot, below)
+        _ = try vision_rows.flags(&m.f);
         // the line (pipe_run.zig) on every rank: its stage options are the forward's at world 1 (refreshed once the
         // pool is up), its buffers bound after the forms
         if (pipe_s) |ps| (try pipe_run.Line.create(gpa, &m.f, ps)).install(&m.f);

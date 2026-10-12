@@ -37,9 +37,11 @@ RUN set -eu; \
 
 FROM ${CUDA_RUNTIME}
 ARG ZIG_COMMIT=unknown
-# libnccl2 from the CUDA apt repo the nvidia images ship configured; libibverbs + the mlx5 provider for RoCE
+# libnccl2 from the CUDA apt repo the nvidia images ship configured; libibverbs + the mlx5 provider for RoCE;
+# libcublas-13-0 (libcublas + libcublasLt): TF_DSV41_IMAGES=native's vision tower opens both at run time on rank 0
+# (vision_tower.zig init) — without them native boots and then refuses (LibraryUnavailable)
 RUN apt-get update && apt-get install -y --no-install-recommends libnccl2 libibverbs1 ibverbs-providers rdma-core \
-        curl ca-certificates \
+        libcublas-13-0 curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 # tf-tp-test: the transport's own gate on the nodes (scripts/zig-tp4-roce-check.sh), no model needed
 COPY --from=build /out/bin/tensorfold-dsv41 /out/bin/tf-dsv41-m1 /out/bin/tf-tp-test /opt/tensorfold/bin/

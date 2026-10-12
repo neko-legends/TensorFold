@@ -278,23 +278,32 @@ const load = @import("load.zig");
 const pack_mod = @import("pack.zig");
 const mode_mod = @import("dsv41_serve").vision.mode;
 
+/// TF_DSV41_IMAGES / TF_DSV41_BIAS_VL as the forward's flags (`f.images`, `f.image_bias`), no loading: the model sets
+/// them before its buffer plan and KV pricing (planOptions sizes the image MoE split's roles, w.out.img and the rest,
+/// only when they are on; set at `boot` alone, after the plan, the first image prompt failed Unbound). True: native.
+pub fn flags(f: *fwd.Forward) !bool {
+    const raw: ?[]const u8 = if (std.c.getenv("TF_DSV41_IMAGES")) |v| std.mem.span(v) else null;
+    const mode = mode_mod.parse(raw) orelse return error.BadImagesMode;
+    if (mode != .native) return false;
+    f.images = true;
+    f.image_bias = biasDir() != null;
+    return true;
+}
+
+fn biasDir() ?[]const u8 {
+    const v = std.c.getenv("TF_DSV41_BIAS_VL") orelse return null;
+    const dir = std.mem.trim(u8, std.mem.span(v), " ");
+    return if (dir.len > 0) dir else null;
+}
+
 /// TF_DSV41_IMAGES at boot, every rank: native sets `f.images` (Engram's keep at image positions, the same program on
 /// every rank) and, on rank 0, loads the tower and the rows (`f.vision`). TF_DSV41_BIAS_VL (a folder holding the
 /// release's `layers.<i>.ffn.gate.bias_vl`, as bias_vl_fetch.py writes it) is loaded on every rank as
 /// "L<i>.moe.bias_vl" (the router is replicated): image rows then take their own MoE call routed with it
 /// (vision.moe, block_prefill's moeSplit).
 pub fn boot(gpa: Allocator, io: std.Io, f: *fwd.Forward, pack: *const pack_mod.Pack, d: *const cuda.Driver, rank: u32, w: *load.Weights) !void {
-    const raw: ?[]const u8 = if (std.c.getenv("TF_DSV41_IMAGES")) |v| std.mem.span(v) else null;
-    const mode = mode_mod.parse(raw) orelse return error.BadImagesMode;
-    if (mode != .native) return;
-    f.images = true;
-    if (std.c.getenv("TF_DSV41_BIAS_VL")) |v| {
-        const dir = std.mem.trim(u8, std.mem.span(v), " ");
-        if (dir.len > 0) {
-            try loadBiasVl(gpa, io, f, d, dir, w);
-            f.image_bias = true;
-        }
-    }
+    if (!try flags(f)) return;
+    if (f.image_bias) try loadBiasVl(gpa, io, f, d, biasDir().?, w);
     if (rank != 0) return;
     const t = try tower_mod.Tower.load(gpa, io, d, pack, .{});
     errdefer t.deinit();
