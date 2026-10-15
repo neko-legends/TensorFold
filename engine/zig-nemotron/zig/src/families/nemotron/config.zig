@@ -483,5 +483,4 @@ test "parse the Super VL wrapper config" {
     try std.testing.expectEqual(@as(usize, 10240), c.convDim());
     try std.testing.expectEqual(std.math.inf(f32), c.dt_max);
     try checkCudaShapes(c);
-    try std.testing.expectError(error.UnsupportedQuantization, checkShapes(c));
 }

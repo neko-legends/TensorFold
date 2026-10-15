@@ -139,6 +139,7 @@ def main():
     ap.add_argument("dump")
     ap.add_argument("--rows", type=int, required=True)
     ap.add_argument("--layers", default="0,1,7")
+    ap.add_argument("--steps", action="store_true", help="DUMP holds stepNNN/ dirs of one-row decode windows (tensorfold teacher): rows are assembled across steps")
     a = ap.parse_args()
     cj = json.load(open(os.path.join(a.model, "config.json")))["llm_config"]
     cj = {k: v for k, v in cj.items() if k not in ("architectures", "auto_map")}
@@ -148,8 +149,12 @@ def main():
     ck = Ckpt(a.model)
     ok = True
     for i in [int(x) for x in a.layers.split(",")]:
-        h_in = bf16_file(f"{a.dump}/{i:03d}_h.bin", a.rows, cfg.hidden_size)
-        h_out = bf16_file(f"{a.dump}/{i + 1:03d}_h.bin", a.rows, cfg.hidden_size)
+        if a.steps:
+            rd = lambda n: torch.cat([bf16_file(f"{a.dump}/step{s:03d}/{n:03d}_h.bin", 1, cfg.hidden_size) for s in range(a.rows)])
+            h_in, h_out = rd(i), rd(i + 1)
+        else:
+            h_in = bf16_file(f"{a.dump}/{i:03d}_h.bin", a.rows, cfg.hidden_size)
+            h_out = bf16_file(f"{a.dump}/{i + 1:03d}_h.bin", a.rows, cfg.hidden_size)
         blk = load_block(ck, cfg, i)
         with torch.no_grad():
             kwargs = {}
@@ -162,7 +167,7 @@ def main():
         cos_h, rel_h, _, _ = stats(h_out, ref)
         print(f"layer {i:2d} {cfg.layers_block_type[i]:9s} delta: cos {cos:.5f} rel_l2 {rel:.4f} max_abs {mx:.4f} (ref max {ref_mx:.3f}) | h: cos {cos_h:.6f} rel {rel_h:.5f}", flush=True)
         ok &= cos > 0.99
-        if cfg.layers_block_type[i] == "moe":
+        if cfg.layers_block_type[i] == "moe" and not a.steps:
             moe_detail(blk, cfg, a.dump, i, a.rows)
         del blk
     sys.exit(0 if ok else 1)
