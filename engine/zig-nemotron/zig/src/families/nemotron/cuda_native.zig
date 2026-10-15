@@ -75,6 +75,12 @@ pub fn plainShared(arena: std.mem.Allocator, io: std.Io, dir: []const u8) !?[]co
 
 const Owned = struct { gpa: std.mem.Allocator, e: *engine.Engine, head: ?*Head, lanes: Lanes, target: reuse.Target, carve: ?*cuda.Carveout, living: ?@import("cuda_sites.zig").Sites = null, store: ?*vstore.Store = null, vision: ?*vstore.Vision = null, mirror: ?*mirror.Mirror = null };
 
+/// Tensor parallelism's image path: every rank embeds the image (cuda_mirror.zig).
+fn mirroredEmbed(p: *anyopaque, img: *const vstore.HeldImage) anyerror!void {
+    const own: *Owned = @ptrCast(@alignCast(p));
+    return own.mirror.?.embedImage(img);
+}
+
 fn visionEmbed(p: *anyopaque, img: *const vstore.HeldImage) anyerror!void {
     const own: *Owned = @ptrCast(@alignCast(p));
     return own.vision.?.embed(img);
@@ -125,13 +131,15 @@ pub fn open(gpa: std.mem.Allocator, io: std.Io, ctx: *const cuda.Context, dir: [
 }
 
 /// Tensor parallelism: rank 0 serves through the mirror (cuda_mirror.zig); every other rank follows its calls here
-/// until rank 0 stops, then exits (it never serves). Images, lone drivers and the prompt cache stay off for now.
+/// until rank 0 stops, then exits (it never serves). Each rank embeds images itself; lone drivers and the prompt cache
+/// stay off.
 fn tensorParallel(gpa: std.mem.Allocator, own: *Owned, o: Options, drafting: bool) !Loaded {
     const e = own.e;
     const link = &e.tp.session.?.plan;
     if (e.tp.rank != 0) {
         std.log.info("nemotron tp: rank {d} follows rank 0's calls", .{e.tp.rank});
-        const result = mirror.follow(gpa, own.lanes.backend(), link);
+        const images: ?mirror.Images = if (own.vision != null) .{ .ctx = own, .embed = visionEmbed } else null;
+        const result = mirror.follow(gpa, own.lanes.backend(), link, images);
         release(own);
         result catch |err| {
             std.log.err("nemotron tp: rank following failed: {t}", .{err});
@@ -141,6 +149,7 @@ fn tensorParallel(gpa: std.mem.Allocator, own: *Owned, o: Options, drafting: boo
     }
     const m = try gpa.create(mirror.Mirror);
     m.* = mirror.Mirror.init(gpa, own.lanes.backend(), link);
+    if (own.vision != null) m.images = .{ .ctx = own, .embed = visionEmbed };
     own.mirror = m;
     _ = o;
     return .{
@@ -151,7 +160,7 @@ fn tensorParallel(gpa: std.mem.Allocator, own: *Owned, o: Options, drafting: boo
         .ctx = own,
         .deinit = release,
         .target = &own.target,
-        .vision = null,
+        .vision = if (own.vision != null) .{ .ctx = own, .embed = mirroredEmbed } else null,
         .lone = null,
         .tp = true,
     };

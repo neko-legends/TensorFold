@@ -13,7 +13,12 @@ const be = lanes.backend;
 const Stream = lanes.Stream;
 const PlanLink = tp.planlink.PlanLink;
 
-const Op = enum(i64) { prefill = 1, verify, keep, draft, first_masked, release, stop };
+const Op = enum(i64) { prefill = 1, verify, keep, draft, first_masked, release, image, stop };
+
+const vstore = @import("vision_store.zig");
+
+/// The family's image path on this rank (cuda_native.zig's VisionHook).
+pub const Images = struct { ctx: *anyopaque, embed: *const fn (ctx: *anyopaque, img: *const vstore.HeldImage) anyerror!void };
 
 /// Rank 0's side: the family's backend behind one that sends each call first.
 pub const Mirror = struct {
@@ -25,6 +30,7 @@ pub const Mirror = struct {
     next_id: i64 = 1,
     buf: std.ArrayList(i64) = .empty,
     vt: be.Backend.VTable = undefined,
+    images: ?Images = null, // rank 0's own image path, which `embedImage` runs after sending the image on
 
     /// Calls arrive from the round loop (one thread at a time in practice); a spin keeps any other in line.
     fn lock(m: *Mirror) void {
@@ -245,6 +251,35 @@ pub const Mirror = struct {
         return m.inner.vtable.first_masked.?(m.inner.ptr, s, position, mask);
     }
 
+    /// An image's rows on every rank: its pixels and ids go to the others (each runs the tower on its own GPU: the
+    /// rows land in every rank's image table before any prompt that reads them), then this rank embeds it.
+    pub fn embedImage(m: *Mirror, img: *const vstore.HeldImage) !void {
+        const own = m.images orelse return error.NoVision;
+        {
+            m.lock();
+            defer m.mutex.unlock();
+            try m.begin(.image);
+            try m.put(img.rows);
+            try m.put(img.cols);
+            for (0..4) |i| try m.put(@as(i64, @bitCast(std.mem.readInt(u64, img.digest[i * 8 ..][0..8], .little))));
+            try m.putSlice(img.vids[0..img.n_vids]);
+            const n = 3 * 256 * @as(usize, img.rows) * img.cols;
+            try m.put(n);
+            const words = (n + 3) / 4;
+            try m.buf.ensureUnusedCapacity(m.gpa, words);
+            var i: usize = 0;
+            while (i < n) : (i += 4) {
+                var w: u64 = 0;
+                for (0..4) |j| if (i + j < n) {
+                    w |= @as(u64, img.pixels[i + j]) << @intCast(16 * j);
+                };
+                m.buf.appendAssumeCapacity(@bitCast(w));
+            }
+            try m.send();
+        }
+        try own.embed(own.ctx, img);
+    }
+
     fn releaseFn(ptr: *anyopaque, s: *Stream) void {
         const m = of(ptr);
         m.lock();
@@ -286,7 +321,7 @@ const Reader = struct {
 };
 
 /// A rank above 0: makes rank 0's calls on `inner` until rank 0 stops (or its link closes).
-pub fn follow(gpa: std.mem.Allocator, inner: be.Backend, link: *PlanLink) !void {
+pub fn follow(gpa: std.mem.Allocator, inner: be.Backend, link: *PlanLink, images: ?Images) !void {
     var streams: std.AutoHashMapUnmanaged(i64, *Stream) = .empty;
     defer {
         var it = streams.valueIterator();
@@ -319,7 +354,7 @@ pub fn follow(gpa: std.mem.Allocator, inner: be.Backend, link: *PlanLink) !void 
             return;
         }
         calls += 1;
-        apply(gpa, inner, op, &r, &streams, &scratch) catch |e| {
+        apply(gpa, inner, images, op, &r, &streams, &scratch) catch |e| {
             // rank 0 met the same failure at the same point (the calls are deterministic); keep following
             std.log.warn("tp follower: {t} call {d} failed: {t}", .{ op, calls, e });
         };
@@ -345,8 +380,26 @@ const Scratch = struct {
 
 const max_windows = 8;
 
-fn apply(gpa: std.mem.Allocator, inner: be.Backend, op: Op, r: *Reader, streams: *std.AutoHashMapUnmanaged(i64, *Stream), x: *Scratch) !void {
+fn apply(gpa: std.mem.Allocator, inner: be.Backend, images: ?Images, op: Op, r: *Reader, streams: *std.AutoHashMapUnmanaged(i64, *Stream), x: *Scratch) !void {
     switch (op) {
+        .image => {
+            const own = images orelse return error.NoVision;
+            var img: vstore.HeldImage = undefined;
+            img.rows = try r.int(u32);
+            img.cols = try r.int(u32);
+            for (0..4) |i| std.mem.writeInt(u64, img.digest[i * 8 ..][0..8], @bitCast(try r.int(i64)), .little);
+            const vids = try r.slice(u32, gpa, &x.prompt);
+            img.vids = vids.ptr;
+            img.n_vids = vids.len;
+            const n = try r.int(usize);
+            if (n != 3 * 256 * @as(usize, img.rows) * img.cols or r.at + (n + 3) / 4 > r.w.len) return error.BadMirrorFrame;
+            const px = try gpa.alloc(u16, n);
+            defer gpa.free(px);
+            for (0..n) |i| px[i] = @truncate(@as(u64, @bitCast(r.w[r.at + i / 4])) >> @intCast(16 * (i % 4)));
+            r.at += (n + 3) / 4;
+            img.pixels = px.ptr;
+            try own.embed(own.ctx, &img);
+        },
         .prefill => {
             const id = try r.int(i64);
             const max_new = try r.int(u32);
