@@ -175,6 +175,11 @@ pub fn main(init: std.process.Init) !u8 {
     }
     defer if (carve) |*c| c.close();
     const cmd = args[1];
+    // the vision tower alone (1.7 GB): no engine, so it runs beside whatever else holds the GPU
+    if (std.mem.eql(u8, cmd, "vision") and positional.items.len == 4) {
+        const rest_v = positional.items;
+        return nemotron.vision.check(gpa, init.io, &ctx, &driver, opts.model, rest_v[0], try std.fmt.parseInt(usize, rest_v[1], 10), try std.fmt.parseInt(usize, rest_v[2], 10), rest_v[3], opts.repeat);
+    }
     const bench = std.mem.eql(u8, cmd, "segments");
     const decoding = std.mem.eql(u8, cmd, "run") or std.mem.eql(u8, cmd, "lanes") or bench;
     const mtp = std.mem.eql(u8, cmd, "check-weights") or std.mem.eql(u8, cmd, "rounds") or std.mem.eql(u8, cmd, "check-draws") or std.mem.eql(u8, cmd, "widths") or std.mem.eql(u8, cmd, "check-kernels") or (decoding and opts.drafts);
