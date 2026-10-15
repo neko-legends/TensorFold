@@ -1,0 +1,4 @@
+VISION: Based on the image provided:
+
+*   **Title:** The title of the table is **"Quarterly asset output (units)"**.
+*   **Props Q1 value:** The value for Props in Q1 is **325**.

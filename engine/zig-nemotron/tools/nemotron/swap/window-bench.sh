@@ -6,7 +6,9 @@ set -u
 MODEL=${1:?served model id}; TAG=${2:-nemotron-tp4-$(date +%Y%m%d)}
 OUT=$(cd "$(dirname "$0")/../../.." && pwd)/results; mkdir -p "$OUT"
 URL=http://forge:8100/v1
+HERE=$(cd "$(dirname "$0")" && pwd)   # before the cd below
 curl -sf -m 10 $URL/models >/dev/null || { echo "no server at $URL"; exit 1; }
 cd /home/jun/git/spark-bench && python3 bench/qbench.py --base-url $URL --model "$MODEL" --areas all --workers 4 --tag "$TAG" --out "$OUT/qbench-$TAG.json"
-python3 "$(dirname "$0")/window-vision.py" $URL "$MODEL" "$OUT/vision-$TAG.json"
+python3 "$HERE/window-vision.py" $URL "$MODEL" "$OUT/vision-$TAG.json"
+python3 "$HERE/window-speed.py" forge 8100 "$MODEL" "$OUT/speed-$TAG.json"
 echo "results: $OUT/qbench-$TAG.json $OUT/vision-$TAG.json"

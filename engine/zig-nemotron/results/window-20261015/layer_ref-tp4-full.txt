@@ -1,0 +1,23 @@
+[transformers] The fast path is not available because one of `(selective_state_update, causal_conv1d_fn, causal_conv1d_update)` is None. Falling back to the naive implementation. To install follow https://github.com/state-spaces/mamba/#installation and https://github.com/Dao-AILab/causal-conv1d
+layer  0 mamba     delta: cos 0.99997 rel_l2 0.0048 max_abs 0.0020 (ref max 0.345) | h: cos 0.999991 rel 0.00363
+[transformers] You tried to access the `ExpertsInterface` with a `config._experts_implementation` set to `None`. This is expected if you use an Expert Module as a standalone Module. If this is not the case, something went wrong with the dispatch of `config._experts_implementation`
+layer  1 moe       delta: cos 0.99951 rel_l2 0.0286 max_abs 0.0022 (ref max 0.058) | h: cos 0.999993 rel 0.00534
+   router: 19/19 rows pick the identical expert set, 418/418 picks shared, max rel weight diff 3.58e-06
+   shared expert alone: cos 0.41715 rel_l2 0.9089
+   routed path vs HF's own picks: cos 0.48785 rel_l2 0.8730
+   routed path vs HF experts on OUR picks: cos 0.48785 rel_l2 0.8730
+layer  7 attention delta: cos 0.99936 rel_l2 0.0339 max_abs 0.0039 (ref max 0.035) | h: cos 0.999812 rel 0.00015
+layer 40 mamba     delta: cos 0.99995 rel_l2 0.0093 max_abs 0.2500 (ref max 24.250) | h: cos 1.000001 rel 0.00177
+layer 41 moe       delta: cos 0.99994 rel_l2 0.0099 max_abs 0.5000 (ref max 35.000) | h: cos 1.000000 rel 0.00229
+   router: 19/19 rows pick the identical expert set, 418/418 picks shared, max rel weight diff 4.22e-06
+   shared expert alone: cos 0.46969 rel_l2 0.9121
+   routed path vs HF's own picks: cos 0.46764 rel_l2 0.8841
+   routed path vs HF experts on OUR picks: cos 0.46764 rel_l2 0.8841
+layer 47 attention delta: cos 0.99995 rel_l2 0.0106 max_abs 0.2500 (ref max 51.500) | h: cos 1.000004 rel 0.00360
+layer 86 mamba     delta: cos 0.99999 rel_l2 0.0095 max_abs 4.0000 (ref max 160.000) | h: cos 1.000002 rel 0.00304
+layer 87 moe       delta: cos 1.00001 rel_l2 0.0050 max_abs 4.0000 (ref max 576.000) | h: cos 1.000012 rel 0.00384
+   router: 19/19 rows pick the identical expert set, 418/418 picks shared, max rel weight diff 5.81e-06
+   shared expert alone: cos 0.73515 rel_l2 0.8791
+   routed path vs HF's own picks: cos 0.60770 rel_l2 0.8175
+   routed path vs HF experts on OUR picks: cos 0.60770 rel_l2 0.8175
+layer_ref exit 0

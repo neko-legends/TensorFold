@@ -1,0 +1,95 @@
+[
+ {
+  "secs": 0.61,
+  "usage": {
+   "prompt_tokens": 27,
+   "completion_tokens": 58,
+   "total_tokens": 85,
+   "prompt_tokens_details": {
+    "cached_tokens": 0
+   },
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "finish": "stop",
+  "reasoning": "",
+  "content": "The sky is blue because of a phenomenon called Rayleigh scattering. As sunlight enters Earth's atmosphere, it collides with gas molecules and scatters in all directions. Shorter blue wavelengths are scattered much more strongly than longer red wavelengths, making the sky appear blue to our eyes.",
+  "prompt": "Explain in three sentences why the sky is blue.",
+  "thinking": false
+ },
+ {
+  "secs": 2.85,
+  "usage": {
+   "prompt_tokens": 36,
+   "completion_tokens": 361,
+   "total_tokens": 397,
+   "prompt_tokens_details": {
+    "cached_tokens": 0
+   },
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "finish": "stop",
+  "reasoning": "",
+  "content": "Here is a clean, efficient Python function that returns the n-th Fibonacci number using an iterative approach:\n\n```python\ndef fibonacci(n):\n    \"\"\"\n    Return the n-th Fibonacci number using an iterative approach.\n\n    The Fibonacci sequence is defined as:\n        F(0) = 0, F(1) = 1, and F(n) = F(n-1) + F(n-2) for n >= 2.\n\n    Args:\n        n (int): The index of the Fibonacci number to return. Must be a non-negative integer.\n\n    Returns:\n        int: The n-th Fibonacci number.\n\n    Raises:\n        ValueError: If n is negative.\n        TypeError: If n is not an integer.\n    \"\"\"\n    if not isinstance(n, int):\n        raise TypeError(\"n must be an integer\")\n    if n < 0:\n        raise ValueError(\"n must be a non-negative integer\")\n\n    a, b = 0, 1\n    for _ in range(n):\n        a, b = b, a + b\n    return a\n```\n\n### Example usage:\n```python\nprint(fibonacci(0))   # 0\nprint(fibonacci(1))   # 1\nprint(fibonacci(10))  # 55\nprint(fibonacci(20))  # 6765\n```\n\n### Why this works:\n- It uses **O(n)** time and **O(1)** space.\n- It avoids the exponential time complexity of naive recursion and the recursion-depth limits of recursive solutions.\n- Python handles arbitrarily large integers, so this wo",
+  "prompt": "Write a Python function that returns the n-th Fibonacci number iteratively, with a docstring.",
+  "thinking": false
+ },
+ {
+  "secs": 3.73,
+  "usage": {
+   "prompt_tokens": 50,
+   "completion_tokens": 493,
+   "total_tokens": 543,
+   "prompt_tokens_details": {
+    "cached_tokens": 0
+   },
+   "completion_tokens_details": {
+    "reasoning_tokens": 335
+   }
+  },
+  "finish": "stop",
+  "reasoning": "The user is asking the classic \"bat and ball\" problem.\n\nLet:\n- Bat cost = B\n- Ball cost = b\n\nGiven:\n1. B + b = 1.10\n2. B = b + 1.00\n\nSubstitute (2) into (1):\n(b + 1.00) + b = 1.10\n2b + 1.00 = 1.10\n2b = 0.10\nb = 0.05\n\nSo the ball costs $0.05 (5 cents).\nThe bat costs $1.05.\n\nCheck: 1.05 + 0.05 = 1.10. And 1.05 is 1.00 more than 0.05. Correct.\n\nThe intuitive but wrong answer is 10 cents, but that would make the bat $1.10, total $1.20, or if bat is $1.00 more than ball and ball is $0.10, bat is $1.10, total $1.20. Wait, if ball is $0.10 and bat is $1.00 more, bat is $1.10, total $1.20. So that's w",
+  "content": "The ball costs **$0.05** (5 cents).\n\nHere's the breakdown:\n\n- Let the ball cost \\( x \\).\n- Then the bat costs \\( x + \\$1.00 \\).\n- Together they cost \\$1.10:\n\n\\[\nx + (x + 1.00) = 1.10\n\\]\n\n\\[\n2x = 0.10\n\\]\n\n\\[\nx = 0.05\n\\]\n\nSo the ball is **5 cents** and the bat is **$1.05**.\n\n(The common intuitive answer of 10 cents is incorrect: if the ball were $0.10, the bat would be $1.10, making the total $1.20.)",
+  "prompt": "A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost?",
+  "thinking": true
+ },
+ {
+  "secs": 3.99,
+  "usage": {
+   "prompt_tokens": 2196,
+   "completion_tokens": 247,
+   "total_tokens": 2443,
+   "prompt_tokens_details": {
+    "cached_tokens": 0
+   },
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "finish": "stop",
+  "reasoning": "",
+  "content": "This image presents data on quarterly asset output for different teams, displayed in both a table and a bar chart.\n\nThe table, titled \"Quarterly asset output (units)\", shows the output for five teams (Props, Characters, Vehicles, Terrain, FX) across four quarters (Q1, Q2, Q3, Q4).\n\nThe bar chart, titled \"Q4 by team\", visualizes the Q4 output for each team.\n\nHere is the data from the table:\n\n| Team | Q1 | Q2 | Q3 | Q4 |\n| :--- | :--- | :--- | :--- | :--- |\n| Props | 325 | 383 | 930 | 965 |\n| Characters | 825 | 891 | 50 | 930 |\n| Vehicles | 376 | 225 | 708 | 265 |\n| Terrain | 692 | 115 | 372 | 808 |\n| FX | 583 | 915 | 905 | 426 |",
+  "prompt": "image a4_table_chart.png"
+ },
+ {
+  "secs": 8.88,
+  "usage": {
+   "prompt_tokens": 24936,
+   "completion_tokens": 7,
+   "total_tokens": 24943,
+   "prompt_tokens_details": {
+    "cached_tokens": 0
+   },
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "finish": "stop",
+  "reasoning": "",
+  "content": "PELICAN-42",
+  "prompt": "20K-token needle"
+ }
+]

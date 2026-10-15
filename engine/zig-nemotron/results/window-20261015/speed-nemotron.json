@@ -1,0 +1,184 @@
+{
+ "c1": {
+  "code": [
+   {
+    "ttft_s": 0.123,
+    "completion_tokens": 250,
+    "wall_s": 1.65,
+    "decode_s": 1.531,
+    "decode_tok_s": 162.63,
+    "wall_tok_s": 151.16,
+    "server_tf": {
+     "enable_thinking": false,
+     "reasoning_effort": "none",
+     "engine": "lanes",
+     "tokens_per_second": 162.23335751303165,
+     "seconds": 1.534826153,
+     "prefill_seconds": 0.102363591,
+     "prefill_widths": [],
+     "prefill_raised": [],
+     "time_to_first_token": 0.103466305,
+     "sampling": "greedy",
+     "drafts": true,
+     "token_sha": "6335d6c43e0c",
+     "min_rows": 5
+    }
+   },
+   {
+    "ttft_s": 0.176,
+    "completion_tokens": 250,
+    "wall_s": 1.7,
+    "decode_s": 1.527,
+    "decode_tok_s": 163.1,
+    "wall_tok_s": 146.83,
+    "server_tf": {
+     "enable_thinking": false,
+     "reasoning_effort": "none",
+     "engine": "lanes",
+     "tokens_per_second": 160.01490398094583,
+     "seconds": 1.556105049,
+     "prefill_seconds": 0.100414417,
+     "prefill_widths": [],
+     "prefill_raised": [],
+     "time_to_first_token": 0.100897839,
+     "sampling": "greedy",
+     "drafts": true,
+     "token_sha": "6335d6c43e0c",
+     "min_rows": 4
+    }
+   },
+   {
+    "ttft_s": 0.186,
+    "completion_tokens": 250,
+    "wall_s": 1.69,
+    "decode_s": 1.507,
+    "decode_tok_s": 165.2,
+    "wall_tok_s": 147.65,
+    "server_tf": {
+     "enable_thinking": false,
+     "reasoning_effort": "none",
+     "engine": "lanes",
+     "tokens_per_second": 168.0279261279542,
+     "seconds": 1.481896526,
+     "prefill_seconds": 0.102913813,
+     "prefill_widths": [],
+     "prefill_raised": [],
+     "time_to_first_token": 0.103359315,
+     "sampling": "greedy",
+     "drafts": true,
+     "token_sha": "6335d6c43e0c",
+     "min_rows": 4
+    }
+   }
+  ],
+  "prose": [
+   {
+    "ttft_s": 0.108,
+    "completion_tokens": 233,
+    "wall_s": 2.81,
+    "decode_s": 2.697,
+    "decode_tok_s": 86.01,
+    "wall_tok_s": 83.05,
+    "server_tf": {
+     "enable_thinking": false,
+     "reasoning_effort": "none",
+     "engine": "lanes",
+     "tokens_per_second": 86.12724136674444,
+     "seconds": 2.693688969,
+     "prefill_seconds": 0.10006917,
+     "prefill_widths": [],
+     "prefill_raised": [],
+     "time_to_first_token": 0.100448881,
+     "sampling": "greedy",
+     "drafts": true,
+     "token_sha": "4b72eee552cc",
+     "min_rows": 3
+    }
+   },
+   {
+    "ttft_s": 0.237,
+    "completion_tokens": 233,
+    "wall_s": 2.7,
+    "decode_s": 2.461,
+    "decode_tok_s": 94.25,
+    "wall_tok_s": 86.35,
+    "server_tf": {
+     "enable_thinking": false,
+     "reasoning_effort": "none",
+     "engine": "lanes",
+     "tokens_per_second": 89.87573235017753,
+     "seconds": 2.58134197,
+     "prefill_seconds": 0.095844999,
+     "prefill_widths": [],
+     "prefill_raised": [],
+     "time_to_first_token": 0.096702019,
+     "sampling": "greedy",
+     "drafts": true,
+     "token_sha": "4b72eee552cc",
+     "min_rows": 3
+    }
+   },
+   {
+    "ttft_s": 0.105,
+    "completion_tokens": 233,
+    "wall_s": 2.75,
+    "decode_s": 2.64,
+    "decode_tok_s": 87.87,
+    "wall_tok_s": 84.86,
+    "server_tf": {
+     "enable_thinking": false,
+     "reasoning_effort": "none",
+     "engine": "lanes",
+     "tokens_per_second": 87.90781863673067,
+     "seconds": 2.639128164,
+     "prefill_seconds": 0.096567204,
+     "prefill_widths": [],
+     "prefill_raised": [],
+     "time_to_first_token": 0.09707245,
+     "sampling": "greedy",
+     "drafts": true,
+     "token_sha": "4b72eee552cc",
+     "min_rows": 3
+    }
+   }
+  ]
+ },
+ "c4": {
+  "runs": [
+   {
+    "completion_tokens": 966,
+    "wall_s": 4.93,
+    "aggregate_tok_s": 195.97,
+    "per_stream_decode_tok_s": [
+     104.59,
+     48.3,
+     92.08,
+     51.73
+    ],
+    "ttft_s": [
+     0.598,
+     0.117,
+     0.273,
+     0.431
+    ]
+   },
+   {
+    "completion_tokens": 966,
+    "wall_s": 4.85,
+    "aggregate_tok_s": 199.32,
+    "per_stream_decode_tok_s": [
+     92.15,
+     48.98,
+     98.08,
+     54.54
+    ],
+    "ttft_s": [
+     0.274,
+     0.108,
+     0.433,
+     0.588
+    ]
+   }
+  ]
+ }
+}
