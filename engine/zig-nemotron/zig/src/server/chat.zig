@@ -480,6 +480,11 @@ const Generation = struct {
         for (m.raised, raised) |r, *slot| slot.* = .{ .bool = r };
         try runtime.put(a, "prefill_raised", .{ .array = raised });
         try runtime.put(a, "time_to_first_token", if (g.first_ns) |t| .{ .float = seconds(t - received) } else .null);
+        // the Spark server's names for the same clocks (spark-bench's qbench reads these on either engine)
+        try runtime.put(a, "prompt", try json.intValue(a, prompt_len));
+        if (g.first_ns) |t| try runtime.put(a, "ttft_s", .{ .float = @max(0, seconds(t - received)) });
+        if (m.stats.prefill_seconds) |p| try runtime.put(a, "prefill_s", .{ .float = p });
+        if (prefilled != null) try runtime.put(a, "decode_s", .{ .float = decode_s });
         try runtime.put(a, "sampling", .{ .string = if (exact) "exact" else "greedy" });
         try runtime.put(a, "drafts", .{ .bool = drafts });
         const sha = @import("tokens.zig").tokenSha(g.collected.items);

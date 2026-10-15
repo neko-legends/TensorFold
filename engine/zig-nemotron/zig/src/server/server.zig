@@ -225,7 +225,7 @@ pub const Server = struct {
         return .{ .kind = kind, .text = text, .after = if (thinking) srv.text.tokenId(srv.markers.close) else null, .compiler = c };
     }
 
-    /// The model's grammar compiler: tokenizer.json, config.json's vocab_size (text_config first), the eos ids.
+    /// The model's grammar compiler: tokenizer.json, config.json's vocab_size (configVocab), the eos ids.
     fn grammarCompiler(srv: *Server) ?*api.grammar.Compiler {
         srv.grammar_mutex.lockUncancelable(srv.io);
         defer srv.grammar_mutex.unlock(srv.io);
@@ -240,10 +240,7 @@ pub const Server = struct {
                 .ok => |v| v,
                 .err => break :blk "config.json is not JSON",
             };
-            var vocab: ?u32 = null;
-            for ([_]?json.Value{ cfg.get("text_config"), cfg }) |part| if (vocab == null) if (part) |p| if (p.get("vocab_size")) |v| if (v.int64()) |n| {
-                vocab = @intCast(n);
-            };
+            const vocab = configVocab(cfg);
             if (vocab == null) break :blk "structured output needs the checkpoint's config.json vocab_size";
             var err: [512]u8 = undefined;
             const c = a.create(api.grammar.Compiler) catch break :blk "out of memory";
@@ -394,4 +391,24 @@ fn lateSystem(a: Allocator, text: model_text.Text) ![]const u8 {
 /// ``needs_user_after_tool``: the template raises "No user query found" when the conversation has no user query, which a conversation whose user turn became tool results no longer has; such templates gain a user turn after a trailing tool message.
 fn needsUserAfterTool(source: []const u8) bool {
     return std.mem.indexOf(u8, source, "No user query found") != null;
+}
+
+/// config.json's vocab_size (the logits' width): text_config's, Nemotron 3.5 Super VL's llm_config's, else the root's.
+fn configVocab(cfg: Value) ?u32 {
+    for ([_]?Value{ cfg.get("text_config"), cfg.get("llm_config"), cfg }) |part| if (part) |p| if (p.get("vocab_size")) |v| if (v.int64()) |n| if (n > 0 and n <= std.math.maxInt(u32)) return @intCast(n);
+    return null;
+}
+
+test "configVocab reads text_config, llm_config (Nemotron 3.5 Super VL) and the root" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const cases = [_]struct { []const u8, ?u32 }{
+        .{ "{\"vocab_size\": 151936}", 151936 },
+        .{ "{\"text_config\": {\"vocab_size\": 262144}, \"vocab_size\": 7}", 262144 },
+        .{ "{\"model_type\": \"nemotron_h_omni\", \"llm_config\": {\"model_type\": \"nemotron_h\", \"vocab_size\": 131072}}", 131072 },
+        .{ "{\"llm_config\": {\"hidden_size\": 4096}}", null },
+        .{ "{\"vocab_size\": null}", null },
+    };
+    for (cases) |c| try std.testing.expectEqual(c[1], configVocab((try json.parse(a, c[0])).ok));
 }
