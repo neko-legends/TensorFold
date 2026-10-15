@@ -36,6 +36,63 @@ extern "C" __global__ void __launch_bounds__(256) tf_nemo_router(const __nv_bflo
     if (row0 + rr < R && e0 + ee < E) PART[(static_cast<int64_t>(blockIdx.z) * R + row0 + rr) * E + e0 + ee] = acc;
 }
 
+// Prompt rows: tf_nemo_router's sums, bit for bit (each output one fma chain over its slice in index order, from 0),
+// a block 64 rows x 64 experts of slice blockIdx.z and a thread a 4 x 4 tile of them, staged 64 elements at a time as
+// fp32 in [k][row] order: two 16-byte shared loads feed sixteen fmas instead of two loads one, as the 16 x 16 tile's.
+extern "C" __global__ void __launch_bounds__(256) tf_nemo_router_tiles(const __nv_bfloat16* __restrict__ X, const __nv_bfloat16* __restrict__ W,
+                                                                         float* __restrict__ PART, int R, int D, int E, int SK) {
+    constexpr int T = 64, KC = 64;
+    __shared__ __align__(16) float xs[KC][T], ws[KC][T];
+    const int per = D / SK, row0 = blockIdx.x * T, e0 = blockIdx.y * T, k0 = blockIdx.z * per;
+    const int tr = threadIdx.x / 16, te = threadIdx.x % 16;
+    float acc[4][4];
+#pragma unroll
+    for (int i = 0; i < 4; ++i)
+#pragma unroll
+        for (int j = 0; j < 4; ++j) acc[i][j] = 0.0f;
+    for (int kc = 0; kc < per; kc += KC) {
+        const int n = min(KC, per - kc);
+        __syncthreads();
+        // 64 rows x 64 elements of each, 8 elements (16 bytes) a load: 512 loads, two a thread
+        for (int c = threadIdx.x; c < T * (KC / 8); c += 256) {
+            const int r = c % T, k8 = (c / T) * 8;  // a warp's lanes on 32 rows: its shared stores never collide
+            uint4 xv = make_uint4(0u, 0u, 0u, 0u), wv = make_uint4(0u, 0u, 0u, 0u);
+            if (k8 < n) {
+                if (row0 + r < R) xv = *reinterpret_cast<const uint4*>(X + static_cast<int64_t>(row0 + r) * D + k0 + kc + k8);
+                if (e0 + r < E) wv = *reinterpret_cast<const uint4*>(W + static_cast<int64_t>(e0 + r) * D + k0 + kc + k8);
+            }
+            const uint32_t xw[4] = {xv.x, xv.y, xv.z, xv.w}, ww[4] = {wv.x, wv.y, wv.z, wv.w};
+#pragma unroll
+            for (int q = 0; q < 4; ++q) {
+                xs[k8 + 2 * q][r] = __uint_as_float(xw[q] << 16);
+                xs[k8 + 2 * q + 1][r] = __uint_as_float(xw[q] & 0xFFFF0000u);
+                ws[k8 + 2 * q][r] = __uint_as_float(ww[q] << 16);
+                ws[k8 + 2 * q + 1][r] = __uint_as_float(ww[q] & 0xFFFF0000u);
+            }
+        }
+        __syncthreads();
+        for (int k = 0; k < n; ++k) {
+            const float4 a = *reinterpret_cast<const float4*>(&xs[k][4 * tr]);
+            const float4 b = *reinterpret_cast<const float4*>(&ws[k][4 * te]);
+            const float av[4] = {a.x, a.y, a.z, a.w}, bv[4] = {b.x, b.y, b.z, b.w};
+#pragma unroll
+            for (int i = 0; i < 4; ++i)
+#pragma unroll
+                for (int j = 0; j < 4; ++j) acc[i][j] = __fmaf_rn(av[i], bv[j], acc[i][j]);
+        }
+    }
+#pragma unroll
+    for (int i = 0; i < 4; ++i) {
+        const int row = row0 + 4 * tr + i;
+        if (row >= R) continue;
+#pragma unroll
+        for (int j = 0; j < 4; ++j) {
+            const int e = e0 + 4 * te + j;
+            if (e < E) PART[(static_cast<int64_t>(blockIdx.z) * R + row) * E + e] = acc[i][j];
+        }
+    }
+}
+
 // Window rows (R <= 16, D a multiple of 256): a warp an expert reads its weight row once in 16-byte loads against every
 // row, PART[row][e] (one slice). Decode reads the 4 MB router at full bandwidth instead of staging 16-row tiles.
 extern "C" __global__ void __launch_bounds__(256) tf_nemo_router_rows(const __nv_bfloat16* __restrict__ X, const __nv_bfloat16* __restrict__ W,

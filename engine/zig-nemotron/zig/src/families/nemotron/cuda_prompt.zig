@@ -18,6 +18,7 @@ const lesson_route = @import("lesson_route.zig");
 const heat = @import("heat");
 const pin_sampled = engine.pin_sampled;
 const pin_prompt = engine.pin_prompt;
+const Profile = @import("cuda_prompt_profile.zig").Profile;
 
 /// decode.prefill: a fresh state, the prompt in passes of up to 4,096 rows or in segments (the head too); the token.
 pub fn prefill(e: *Engine, prompt: []const u32, dump: ?*Dump, head: ?*Head) !u32 {
@@ -74,6 +75,11 @@ pub fn serialChunks(e: *Engine, prompt: []const u32, from: usize, dump: ?*Dump, 
     if (shared) |ad| try e.trainOps().latch(ad.score, ad.need, ad.latch, e.slot, false); // no lesson acts until it decides
     const wide = dump == null and shared == null and e.decide == lesson_route.none; // passes of up to pass_rows (rows equal at any cut)
     const background = Cancel.background(cancel);
+    const prof: ?*Profile = if (Profile.on() and dump == null) try Profile.init(e.gpa, e.ctx.d) else null;
+    defer if (prof) |p| p.deinit(e.gpa);
+    if (prof) |p| p.t0 = std.Io.Clock.awake.now(e.io);
+    defer if (prof) |p| p.report(engine.seconds(e.io, p.t0));
+    if (prof) |p| f.marks = &p.marks;
     var s: usize = from;
     while (s < prompt.len) {
         if (background) try e.stream.synchronize(); // one chunk in flight: a request that arrives waits for that one alone
@@ -98,7 +104,9 @@ pub fn serialChunks(e: *Engine, prompt: []const u32, from: usize, dump: ?*Dump, 
         @memcpy(host, chunk);
         try e.ops().upload(e.b.p_ids, std.mem.sliceAsBytes(host));
         try e.copied.record(e.stream);
+        if (prof) |p| try p.begin(e.stream);
         try f.chunk(@intCast(chunk.len), e.pos);
+        if (prof) |p| try p.end(chunk.len);
         if (shared) |ad| if (f.route.decision(0) != null) try e.trainOps().latch(ad.score, ad.need, ad.latch, e.slot, true);
         e.pos += @intCast(chunk.len);
         const known = @min(chunk.len, prompt.len - 1 - s);

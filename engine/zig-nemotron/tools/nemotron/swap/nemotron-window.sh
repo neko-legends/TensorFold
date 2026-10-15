@@ -7,12 +7,13 @@
 #   nemotron-window.sh keep    re-touch the flag (run every <= 30 min while the window lasts)
 #   nemotron-window.sh status  both engines' state
 #   nemotron-window.sh down    stop Nemotron, serve4.sh start, prove forge:8000/health, remove the flag
-# env: CONTEXT (65536), PARALLEL (1), EXTRA (more env for every rank), ARGS (more serve flags)
+#   nemotron-window.sh restart stop Nemotron and start it again (a new BIN or env); DeepSeek is not touched
+# env: CONTEXT (65536), PARALLEL (1), EXTRA (more env for every rank), ARGS (more serve flags), BIN (the server binary)
 set -u
 HOSTS=(forge anvil ember flame)             # ranks 0..3, as DeepSeek's dsv41-tf4-r0..r3
 MASTER=192.168.10.1
 M=/home/jun/models/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4
-BIN=/home/jun/nemotron-tf/bin/tensorfold-native
+BIN=${BIN:-/home/jun/nemotron-tf/bin/tensorfold-native}
 LOGD=/home/jun/nemotron-tf/runs
 log() { echo "$(date -Is) $*"; }
 
@@ -33,7 +34,7 @@ nemo_up() {
 }
 
 nemo_down() {
-  for h in "${HOSTS[@]}"; do ssh "$h" "pkill -TERM -f '$BIN serve' ; sleep 3; pkill -KILL -f '$BIN serve'; true" & done; wait
+  for h in "${HOSTS[@]}"; do ssh "$h" "pkill -TERM -f 'tensorfold-native[.a-z0-9]* serve' ; sleep 5; pkill -KILL -f 'tensorfold-native[.a-z0-9]* serve'; true" & done; wait
   log "nemotron stopped"
 }
 
@@ -44,9 +45,10 @@ up)
   log "DeepSeek ranks stopped (--rm containers: serve4.sh start brings them back)"
   for h in "${HOSTS[@]}"; do ssh "$h" "free -g | sed -n 2p | awk '{print \"$h avail GB:\", \$7}'"; done
   nemo_up ;;
+restart) nemo_down; sleep 2; nemo_up ;;
 keep) ssh forge 'touch /home/jun/tf4/maintenance' && log "maintenance flag re-touched" ;;
 status)
-  for r in 0 1 2 3; do h=${HOSTS[$r]}; echo "$h: dsv41-tf4-r$r=$(ssh $h "docker inspect -f '{{.State.Running}}' dsv41-tf4-r$r 2>/dev/null || echo absent") nemotron=$(ssh $h "pgrep -f '$BIN serve' >/dev/null && echo up || echo down")"; done
+  for r in 0 1 2 3; do h=${HOSTS[$r]}; echo "$h: dsv41-tf4-r$r=$(ssh $h "docker inspect -f '{{.State.Running}}' dsv41-tf4-r$r 2>/dev/null || echo absent") nemotron=$(ssh $h "pgrep -f 'tensorfold-native[.a-z0-9]* serve' >/dev/null && echo up || echo down")"; done
   curl -s -m 5 -o /dev/null -w "forge:8000 %{http_code}\n" http://forge:8000/health; curl -s -m 5 -o /dev/null -w "forge:8100 %{http_code}\n" http://forge:8100/v1/models ;;
 down)
   nemo_down

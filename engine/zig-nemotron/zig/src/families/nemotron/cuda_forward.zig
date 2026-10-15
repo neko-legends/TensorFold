@@ -34,7 +34,7 @@ pub const Mask = struct { bits: u64 = 0, words: usize = 0 };
 pub const Walk = struct { rows: usize, pos: usize, x: u64 = 0, delta: Delta = .none, mj: usize = 0, aj: usize = 0 };
 
 /// A window's kernel classes as a profile names them: each mark closes the span since the one before.
-pub const Class = enum { embed, norm, mamba_in, conv_scan, gnorm, mamba_out, qkv, attention, attn_o, route, plan, experts_up, experts_down, shared_wait, head, sample };
+pub const Class = enum { embed, norm, mamba_in, conv_scan, gnorm, mamba_out, qkv, attention, attn_o, route, plan, experts_up, experts_down, shared_wait, head, sample, fc1, latent_sum, fc2, shared, comm };
 
 /// Timing events recorded between kernel classes (the window profile's; null in every other forward).
 pub const Marks = struct {
@@ -102,6 +102,7 @@ pub const Forward = struct {
     /// Tensor parallelism: the ranks' partial rows of a split projection's output (bf16 [rows, n]) summed in place.
     pub fn reduce(f: *const Forward, buf: u64, rows: usize, n: usize) !void {
         if (f.tp.on()) try f.tp.sum(buf, rows * n, f.ops.s);
+        try f.mark(.comm);
     }
 
     /// A projection whose output rows are split across the ranks (`width` this rank's): its rows into tp_part, then every
@@ -109,7 +110,9 @@ pub const Forward = struct {
     pub fn splitLinear(f: *const Forward, x: u64, xs: u64, q: weights.QLinear, out: u64, rows: usize, width: usize, prompt: bool) !void {
         if (!f.tp.on()) return f.linear(x, xs, q, out, rows, prompt);
         try f.linear(x, xs, q, f.b.tp_part, rows, prompt);
+        try f.mark(.fc1);
         try f.tp.gatherCols(f.ops, f.b.tp_part, out, rows, width, 2, f.b.tp_gather);
+        try f.mark(.comm);
     }
 
     /// The vocabulary head over `rows` normed rows into bf16 logits [rows, vocab] (each rank's vocabulary rows gathered).
@@ -336,7 +339,9 @@ pub const Forward = struct {
         const in: [2]cuda.experts.Rows = .{ .{ .x = b.lat, .stride = ex.dims, .slots = c.slots() }, .{ .x = b.act, .stride = ex.width } };
         if (prompt) {
             try g.prompt(o.s, .up, in[0], ex, b.plan, b.act, items, -1);
+            try f.mark(.experts_up);
             try g.prompt(o.s, .down_bf16, in[1], ex, b.plan, b.ymoe, items, -1);
+            try f.mark(.experts_down);
         } else {
             try g.decode(o.s, .up, in[0], ex, b.plan, b.act, items, -1);
             try f.mark(.experts_up);
@@ -344,6 +349,7 @@ pub const Forward = struct {
             try f.mark(.experts_down);
         }
         try o.latentSum(b.ymoe, !prompt, b.wts, b.lat2, rows, ex.dims, c.slots());
+        try f.mark(.latent_sum);
         var fc2_in = b.lat2;
         if (f.tp.on()) {
             // each rank's experts gave part of every latent row: summed, then fc2 reads the rank's latent columns
@@ -356,6 +362,7 @@ pub const Forward = struct {
             }
         }
         try f.linear(fc2_in, b.xs, lt.fc2, b.delta, rows, prompt);
+        try f.mark(.fc2);
         // the shared expert: up, relu^2, down in the hidden width, added to the routed path's output (a decode
         // window ran it on the side stream from the start, beside the routed path and its exchanges)
         if (shared_side) |sd| try o.s.wait(sd.join) else try f.sharedLatent(o, lt, rows, prompt);
@@ -369,6 +376,7 @@ pub const Forward = struct {
             try d.input(o, "shared", b.ysh, rows * D * 2);
         }
         try o.addBf16(b.delta, b.ysh, b.delta, rows * D);
+        try f.mark(.shared);
         try f.reduce(b.delta, rows, D); // fc2's and the shared expert's partial rows, summed once
     }
 
@@ -460,6 +468,7 @@ pub const Forward = struct {
     pub fn chunkBegin(f: *const Forward, w: *Walk) !void {
         const b = f.b;
         try f.embed(b.p_ids, b.emb, w.rows);
+        try f.mark(.embed);
         w.x = b.emb;
     }
 
@@ -469,10 +478,14 @@ pub const Forward = struct {
         const b = f.b;
         try f.norm(&w.x, w.delta, blk.norm, w.rows, false);
         switch (blk.kind) {
-            .mamba => try f.ops.prefillDense(b.y, blk.mamba.in_proj, b.proj, w.rows),
+            .mamba => {
+                try f.ops.prefillDense(b.y, blk.mamba.in_proj, b.proj, w.rows);
+                try f.mark(.mamba_in);
+            },
             .attention => {
                 try f.ops.prefillDense(b.y, blk.attn.qkv, b.qkv, w.rows);
                 try f.ops.fill32(b.p_meta, @intCast(w.pos), 4);
+                try f.mark(.qkv);
             },
             .moe => {},
         }
@@ -496,6 +509,7 @@ pub const Forward = struct {
                 }
                 try f.glue.convRows(b.proj, base, b.p_xc, m.conv_w, m.conv_b, w.rows, f.mshape(state.max_rows));
                 try o.scanRows(b.proj, b.p_xc, b.ssm + w.mj * layer, m.a, m.d, m.dt_bias, b.sy, w.rows, c.projDim(), c.mamba_heads, c.mamba_head_dim, c.convDim(), c.groups, c.dt_min, c.dt_max, snaps);
+                try f.mark(.conv_scan);
             },
             .attention => {
                 const kc = f.cache(b.k_cache, w.aj);
@@ -505,6 +519,7 @@ pub const Forward = struct {
                 try o.torch().copyRows(b.qkv, c.qkvDim() * 2, b.q, qd * 2, qd * 2, w.rows);
                 const scale: f32 = @floatCast(std.math.pow(f64, @floatFromInt(c.head_dim), -0.5));
                 try o.prefillAttention(b.q, kc, vc, b.att, w.pos, w.rows, c.heads, c.kv_heads, scale);
+                try f.mark(.attention);
             },
             .moe => {},
         }
@@ -529,7 +544,9 @@ pub const Forward = struct {
             .mamba => {
                 try f.glue.groupRmsnorm(b.sy, blk.mamba.gnorm, b.g, b.gxs, w.rows, c.inner(), c.groups, c.eps);
                 if (f.dump) |d| try d.input(f.ops, "g", b.g, w.rows * c.inner() * 2);
+                try f.mark(.gnorm);
                 try f.ops.prefillDense(b.g, blk.mamba.out_proj, b.delta, w.rows);
+                try f.mark(.mamba_out);
                 try f.reduce(b.delta, w.rows, c.hidden);
                 if (blk.mamba.out_rest != 0) try f.ops.restRows(b.g, c.inner(), blk.mamba.out_rest, b.delta, c.hidden, false, w.rows, 1, 0, c.hidden, c.inner());
                 if (blk.mamba.adapter) |ad| try adapt(f.ops, ad, b.g, c.inner(), b.delta, c.hidden, false, w.rows, &f.route);
@@ -539,6 +556,7 @@ pub const Forward = struct {
             .attention => {
                 if (f.dump) |d| try d.input(f.ops, "att", b.att, w.rows * c.heads * c.head_dim * 2);
                 try f.ops.prefillDense(b.att, blk.attn.o, b.delta, w.rows);
+                try f.mark(.attn_o);
                 try f.reduce(b.delta, w.rows, c.hidden);
                 const qd = c.heads * c.head_dim;
                 if (blk.attn.o_rest != 0) try f.ops.restRows(b.att, qd, blk.attn.o_rest, b.delta, c.hidden, false, w.rows, 1, 0, c.hidden, qd);
@@ -567,6 +585,7 @@ pub const Forward = struct {
         try f.norm(&w.x, w.delta, f.w.norm_f, rows, false);
         try o.copy(b.p_hidden, b.y, @as(usize, rows) * c.hidden * 2);
         try f.head(b.y + @as(u64, rows - 1) * c.hidden * 2, b.xs, b.p_logits, 1, true);
+        try f.mark(.head);
         try o.fill32(b.p_meta, @intCast(w.pos + rows - 1), 4); // sample_last: the chunk's last row is at pos + rows - 1
         try f.sample(b.p_logits, 1, b.p_meta, b.p_sampled, f.sampled, b.rule);
         if (f.dump) |d| try d.tail(f.ops, b.p_logits, b.p_sampled, 1, c.vocab);

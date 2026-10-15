@@ -1,6 +1,7 @@
 //! Nemotron's glue on CUDA: our own kernels (nemotron_*.cu), or the captured Triton set where one is loaded.
 
 const std = @import("std");
+const router_lt = @import("cuda_router_lt.zig");
 const cuda = @import("cuda");
 const triton = @import("cuda_triton.zig");
 
@@ -22,6 +23,7 @@ pub const Fns = struct {
     group_rmsnorm: cuda.Function,
     router: cuda.Function,
     router_rows: cuda.Function,
+    router_tiles: cuda.Function,
     topk: cuda.Function,
     topk_wide: cuda.Function,
     conv: cuda.Function,
@@ -48,6 +50,7 @@ pub const Fns = struct {
             .group_rmsnorm = try m[0].function("tf_nemo_group_rmsnorm"),
             .router = try m[1].function("tf_nemo_router"),
             .router_rows = try m[1].function("tf_nemo_router_rows"),
+            .router_tiles = try m[1].function("tf_nemo_router_tiles"),
             .topk = try m[1].function("tf_nemo_topk"),
             .topk_wide = try m[1].function("tf_nemo_topk_wide"),
             .conv = try m[2].function("tf_nemo_conv"),
@@ -172,16 +175,24 @@ pub const Glue = struct {
 
     /// fp32 router logits over K slices, then each row's top-k and the shared halves' slots.
     pub fn route(g: Glue, x: u64, w: u64, bias: u64, part: u64, ids: u64, wts: u64, rows: usize, d: usize, e: usize, top_k: usize, slots: usize, scaling: f32, norm: bool) !void {
-        if (g.tri()) |t| return t.route(x, w, bias, part, ids, wts, rows, d, e, top_k, scaling, norm);
         if (e > 512 or top_k > 32 or slots < top_k) return error.RouterTooWide;
         var shape = routerShape(d);
+        // TF_NEMOTRON_ROUTER_LT=1: a prompt chunk's logits on tensor cores as one slice (cuda_router_lt.zig; not these bits)
+        const lt = rows > 16 and router_lt.enabled() and try router_lt.logits(g.s, x, w, part, rows, d, e);
+        if (!lt) if (g.tri()) |t| return t.route(x, w, bias, part, ids, wts, rows, d, e, top_k, scaling, norm);
         var a: cuda.Args = .{};
         ptrs(&a, &.{ x, w, part });
-        if (rows <= 16 and d % 256 == 0 and rows_router) {
+        if (lt) {
+            shape.sk = 1;
+        } else if (rows <= 16 and d % 256 == 0 and rows_router) {
             // a window's rows: a warp an expert, the weights read once (one slice)
             ints(&a, &.{ rows, d, e });
             try g.go(g.f.router_rows, .{ cdiv(e, 8), 1, 1 }, 256, 0, &a);
             shape.sk = 1;
+        } else if (rows > 16 and (d / shape.sk) % 8 == 0) {
+            // a prompt chunk's rows: the same slices and sums, 4 x 4 outputs a thread
+            ints(&a, &.{ rows, d, e, shape.sk });
+            try g.go(g.f.router_tiles, .{ cdiv(rows, 64), cdiv(e, 64), shape.sk }, 256, 0, &a);
         } else {
             ints(&a, &.{ rows, d, e, shape.sk });
             try g.go(g.f.router, .{ cdiv(rows, 16), cdiv(e, 16), shape.sk }, 256, shape.shared, &a);
