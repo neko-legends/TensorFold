@@ -36,6 +36,45 @@ extern "C" __global__ void __launch_bounds__(256) tf_nemo_router(const __nv_bflo
     if (row0 + rr < R && e0 + ee < E) PART[(static_cast<int64_t>(blockIdx.z) * R + row0 + rr) * E + e0 + ee] = acc;
 }
 
+// Window rows (R <= 16, D a multiple of 256): a warp an expert reads its weight row once in 16-byte loads against every
+// row, PART[row][e] (one slice). Decode reads the 4 MB router at full bandwidth instead of staging 16-row tiles.
+extern "C" __global__ void __launch_bounds__(256) tf_nemo_router_rows(const __nv_bfloat16* __restrict__ X, const __nv_bfloat16* __restrict__ W,
+                                                                        float* __restrict__ PART, int R, int D, int E) {
+    const int warp = threadIdx.x / 32, lane = threadIdx.x % 32;
+    const int e = blockIdx.x * 8 + warp;
+    if (e >= E) return;
+    float acc[16];
+#pragma unroll
+    for (int r = 0; r < 16; ++r) acc[r] = 0.0f;
+    const uint4* wr = reinterpret_cast<const uint4*>(W + static_cast<int64_t>(e) * D);
+    const int n8 = D / 8;
+    for (int c = lane; c < n8; c += 32) {
+        const uint4 wv = __ldg(wr + c);
+        const uint32_t ww[4] = {wv.x, wv.y, wv.z, wv.w};
+#pragma unroll
+        for (int r = 0; r < 16; ++r) {
+            if (r >= R) break;
+            const uint4 xv = __ldg(reinterpret_cast<const uint4*>(X + static_cast<int64_t>(r) * D) + c);
+            const uint32_t xx[4] = {xv.x, xv.y, xv.z, xv.w};
+            float a = acc[r];
+#pragma unroll
+            for (int j = 0; j < 4; ++j) {
+                a = __fmaf_rn(__uint_as_float(xx[j] << 16), __uint_as_float(ww[j] << 16), a);
+                a = __fmaf_rn(__uint_as_float(xx[j] & 0xFFFF0000u), __uint_as_float(ww[j] & 0xFFFF0000u), a);
+            }
+            acc[r] = a;
+        }
+    }
+#pragma unroll
+    for (int r = 0; r < 16; ++r) {
+        if (r >= R) break;
+        float v = acc[r];
+#pragma unroll
+        for (int off = 16; off > 0; off >>= 1) v += __shfl_xor_sync(0xffffffffu, v, off);
+        if (lane == 0) PART[static_cast<int64_t>(r) * E + e] = v;
+    }
+}
+
 namespace {
 
 constexpr int MAXC = 16;  // experts a lane holds: up to 512 experts (Super VL)
@@ -89,6 +128,48 @@ extern "C" __global__ void __launch_bounds__(32) tf_nemo_topk(const float* __res
         total = __fadd_rn(total, p);
     }
     if (lane != 0) return;
+    for (int k = 0; k < NS; ++k) {
+        float w = 1.0f;
+        int id = E + (k - TOPK);
+        if (k < TOPK) {
+            id = ids[k];
+            w = norm ? __fmul_rn(__fdiv_rn(probs[k], __fadd_rn(total, 1e-20f)), scaling) : __fmul_rn(probs[k], scaling);
+        }
+        IDX[r * NS + k] = id;
+        WT[r * NS + k] = w;
+    }
+}
+
+// tf_nemo_topk's picks and weights with a thread an expert (E <= blockDim.x <= 512): each expert's rank among the
+// others is its count of experts that beat it, so the top-k land in tf_nemo_topk's order (value, then lower index)
+// and the weights sum in that order: the same bits, without TOPK rounds of a one-warp argmax.
+extern "C" __global__ void __launch_bounds__(512) tf_nemo_topk_wide(const float* __restrict__ PART, const float* __restrict__ BIAS,
+                                                                     int* __restrict__ IDX, float* __restrict__ WT, int R, float scaling,
+                                                                     int E, int SK, int TOPK, int NS, int norm) {
+    __shared__ float sel_s[512];
+    __shared__ float probs[MAXK];
+    __shared__ int ids[MAXK];
+    const int64_t r = blockIdx.x;
+    const int e = threadIdx.x;
+    float score = 0.0f, sel = -INFINITY;
+    if (e < E) {
+        float logit = 0.0f;
+        for (int s = 0; s < SK; ++s) logit = __fadd_rn(logit, PART[(s * R + r) * E + e]);
+        score = tf_sigmoid(logit);
+        const float v = __fadd_rn(score, BIAS[e]);
+        sel = v != v ? -INFINITY : v;
+    }
+    sel_s[e] = sel;
+    __syncthreads();
+    if (e < E) {
+        int rank = 0;
+        for (int j = 0; j < E; ++j) rank += beats(sel_s[j], j, sel, e);
+        if (rank < TOPK && rank < MAXK) ids[rank] = e, probs[rank] = score;
+    }
+    __syncthreads();
+    if (e != 0) return;
+    float total = 0.0f;
+    for (int k = 0; k < TOPK; ++k) total = __fadd_rn(total, probs[k]);
     for (int k = 0; k < NS; ++k) {
         float w = 1.0f;
         int id = E + (k - TOPK);

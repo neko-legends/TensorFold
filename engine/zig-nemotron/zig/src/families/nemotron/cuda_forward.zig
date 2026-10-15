@@ -15,10 +15,14 @@ const Shard = @import("cuda_tp.zig").Shard;
 
 const one_rank: Shard = .{};
 
+/// TF_NEMOTRON_SHARED_SIDE=0: a latent MoE's shared expert runs after the routed path on the one stream.
+pub var latent_side: bool = true;
+
 pub const Delta = enum { none, dense, moe };
 
 /// A second stream the shared expert runs on while the routed experts are chosen; fork and join are events.
-pub const Side = struct { s: cuda.Stream, fork: cuda.Event, join: cuda.Event };
+/// A latent MoE's decode window records `mid` on it once the routing is planned (the shared expert runs on after it).
+pub const Side = struct { s: cuda.Stream, fork: cuda.Event, join: cuda.Event, mid: cuda.Event };
 
 /// A verify window supplies its stream buffers and starting row.
 pub const Seg = struct { b: *const state.Buffers, row0: usize, rows: usize, sampled: bool, mask: Mask = .{}, slot: u32 = 0, untaught: bool = false };
@@ -302,12 +306,31 @@ pub const Forward = struct {
         const ex = m.experts;
         const D = c.hidden;
         const pairs = rows * c.slots();
-        try f.glue.route(b.y, m.router, m.bias, b.part, b.pick, b.wts, rows, D, c.experts, c.top_k, c.slots(), c.routed_scaling, c.norm_topk);
-        try f.mark(.route);
-        try f.splitLinear(b.y, b.xs, lt.fc1, b.lat, rows, c.latent / f.tp.world, prompt);
+        const shared_side: ?Side = if (prompt or !latent_side) null else f.side;
         const tile: usize = if (prompt) cuda.experts.promptTile(ex.format) else 16;
-        try o.plan(b.pick, pairs, ex.experts, tile, b.plan);
-        try f.mark(.plan);
+        if (shared_side) |sd| {
+            // a decode window: the side stream routes and plans, then runs the shared expert, while this one runs fc1
+            // and its gather; the experts wait for the plan, the sum for the shared expert
+            try sd.fork.record(o.s);
+            try sd.s.wait(sd.fork);
+            var sg = f.glue;
+            sg.s = sd.s;
+            const so: kern.Ops = .{ .k = o.k, .s = sd.s };
+            try sg.route(b.y, m.router, m.bias, b.part, b.pick, b.wts, rows, D, c.experts, c.top_k, c.slots(), c.routed_scaling, c.norm_topk);
+            try so.plan(b.pick, pairs, ex.experts, tile, b.plan);
+            try sd.mid.record(sd.s);
+            try f.sharedLatent(so, lt, rows, false);
+            try sd.join.record(sd.s);
+            try f.splitLinear(b.y, b.xs, lt.fc1, b.lat, rows, c.latent / f.tp.world, prompt);
+            try o.s.wait(sd.mid);
+            try f.mark(.plan);
+        } else {
+            try f.glue.route(b.y, m.router, m.bias, b.part, b.pick, b.wts, rows, D, c.experts, c.top_k, c.slots(), c.routed_scaling, c.norm_topk);
+            try f.mark(.route);
+            try f.splitLinear(b.y, b.xs, lt.fc1, b.lat, rows, c.latent / f.tp.world, prompt);
+            try o.plan(b.pick, pairs, ex.experts, tile, b.plan);
+            try f.mark(.plan);
+        }
         const items = kern.maxItems(pairs, ex.experts, tile);
         const g = o.grouped();
         const in: [2]cuda.experts.Rows = .{ .{ .x = b.lat, .stride = ex.dims, .slots = c.slots() }, .{ .x = b.act, .stride = ex.width } };
@@ -333,10 +356,9 @@ pub const Forward = struct {
             }
         }
         try f.linear(fc2_in, b.xs, lt.fc2, b.delta, rows, prompt);
-        // the shared expert: up, relu^2, down in the hidden width, added to the routed path's output
-        try f.linear(b.y, b.xs, lt.shared_up, b.sact, rows, prompt);
-        try o.relu2(b.sact, rows * c.shared_width);
-        try f.linear(b.sact, b.xs, lt.shared_down, b.ysh, rows, prompt);
+        // the shared expert: up, relu^2, down in the hidden width, added to the routed path's output (a decode
+        // window ran it on the side stream from the start, beside the routed path and its exchanges)
+        if (shared_side) |sd| try o.s.wait(sd.join) else try f.sharedLatent(o, lt, rows, prompt);
         if (f.dump) |d| {
             // the layer's parts, for tools/nemotron/layer_ref.py: picks, weights, the latent sum, routed (fc2) and shared outputs
             try d.input(o, "pick", b.pick, pairs * 4);
@@ -348,6 +370,14 @@ pub const Forward = struct {
         }
         try o.addBf16(b.delta, b.ysh, b.delta, rows * D);
         try f.reduce(b.delta, rows, D); // fc2's and the shared expert's partial rows, summed once
+    }
+
+    /// A latent MoE's shared expert on `o`'s stream: up, relu^2, down (hidden width) into ysh.
+    fn sharedLatent(f: *const Forward, o: kern.Ops, lt: weights.Latent, rows: usize, prompt: bool) !void {
+        const b = f.b;
+        if (prompt) try o.prefillDense(b.y, lt.shared_up, b.sact, rows) else try o.dense(b.y, b.xs, lt.shared_up, b.sact, rows);
+        try o.relu2(b.sact, rows * f.c.shared_width);
+        if (prompt) try o.prefillDense(b.sact, lt.shared_down, b.ysh, rows) else try o.dense(b.sact, b.xs, lt.shared_down, b.ysh, rows);
     }
 
     /// One projection's rows: the prompt GEMM for a prompt chunk, the decode kernels for a window.

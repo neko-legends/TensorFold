@@ -21,7 +21,9 @@ pub const Fns = struct {
     concat_norms: cuda.Function,
     group_rmsnorm: cuda.Function,
     router: cuda.Function,
+    router_rows: cuda.Function,
     topk: cuda.Function,
+    topk_wide: cuda.Function,
     conv: cuda.Function,
     conv_rows: cuda.Function,
     conv_commit: cuda.Function,
@@ -45,7 +47,9 @@ pub const Fns = struct {
             .concat_norms = try m[0].function("tf_nemo_concat_norms"),
             .group_rmsnorm = try m[0].function("tf_nemo_group_rmsnorm"),
             .router = try m[1].function("tf_nemo_router"),
+            .router_rows = try m[1].function("tf_nemo_router_rows"),
             .topk = try m[1].function("tf_nemo_topk"),
+            .topk_wide = try m[1].function("tf_nemo_topk_wide"),
             .conv = try m[2].function("tf_nemo_conv"),
             .conv_rows = try m[2].function("tf_nemo_conv_rows"),
             .conv_commit = try m[2].function("tf_nemo_conv_commit"),
@@ -101,6 +105,8 @@ pub const router_max_slices = 8;
 /// The image-row table `tf_nemo_embed16` looks virtual ids up in: allocated once, before any graph is captured (the
 /// graphs hold its address), filled and refilled in place by vision_store.zig. 0: none.
 pub var vid_table: u64 = 0;
+/// TF_NEMOTRON_ROUTER_ROWS=0: windows route through the 16-row tiled router as prompts do (the reference's slice order).
+pub var rows_router: bool = true;
 pub var vid_mask: u32 = 0;
 
 pub const Glue = struct {
@@ -168,17 +174,25 @@ pub const Glue = struct {
     pub fn route(g: Glue, x: u64, w: u64, bias: u64, part: u64, ids: u64, wts: u64, rows: usize, d: usize, e: usize, top_k: usize, slots: usize, scaling: f32, norm: bool) !void {
         if (g.tri()) |t| return t.route(x, w, bias, part, ids, wts, rows, d, e, top_k, scaling, norm);
         if (e > 512 or top_k > 32 or slots < top_k) return error.RouterTooWide;
-        const shape = routerShape(d);
+        var shape = routerShape(d);
         var a: cuda.Args = .{};
         ptrs(&a, &.{ x, w, part });
-        ints(&a, &.{ rows, d, e, shape.sk });
-        try g.go(g.f.router, .{ cdiv(rows, 16), cdiv(e, 16), shape.sk }, 256, shape.shared, &a);
+        if (rows <= 16 and d % 256 == 0 and rows_router) {
+            // a window's rows: a warp an expert, the weights read once (one slice)
+            ints(&a, &.{ rows, d, e });
+            try g.go(g.f.router_rows, .{ cdiv(e, 8), 1, 1 }, 256, 0, &a);
+            shape.sk = 1;
+        } else {
+            ints(&a, &.{ rows, d, e, shape.sk });
+            try g.go(g.f.router, .{ cdiv(rows, 16), cdiv(e, 16), shape.sk }, 256, shape.shared, &a);
+        }
         var b: cuda.Args = .{};
         ptrs(&b, &.{ part, bias, ids, wts });
         b.add(int(rows));
         b.add(scaling);
         ints(&b, &.{ e, shape.sk, top_k, slots });
         b.add(@as(c_int, @intFromBool(norm)));
+        if (rows_router) return g.go(g.f.topk_wide, .{ rows, 1, 1 }, @intCast((e + 31) / 32 * 32), 0, &b);
         try g.go(g.f.topk, .{ rows, 1, 1 }, 32, 0, &b);
     }
 

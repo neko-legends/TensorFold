@@ -133,6 +133,8 @@ pub const Engine = struct {
         errdefer gpa.destroy(e);
         e.* = .{ .gpa = gpa, .io = io, .ctx = ctx, .stream = undefined, .k = undefined, .w = undefined, .b = undefined, .c = undefined, .max_len = 0, .pinned = undefined, .history = undefined };
         e.trace = std.c.getenv("TF_SLIDE_TRACE") != null;
+        if (std.c.getenv("TF_NEMOTRON_ROUTER_ROWS")) |v| @import("cuda_glue.zig").rows_router = !std.mem.eql(u8, std.mem.span(v), "0");
+        if (std.c.getenv("TF_NEMOTRON_SHARED_SIDE")) |v| @import("cuda_forward.zig").latent_side = !std.mem.eql(u8, std.mem.span(v), "0");
         e.c = try Config.read(gpa, io, model_dir);
         try @import("config.zig").checkCudaShapes(e.c);
         // tensor parallelism (TF_TP_WORLD ranks): this rank's widths, and its communicator
@@ -148,11 +150,12 @@ pub const Engine = struct {
         e.max_len = (slots + state.chunk_keys - 1) / state.chunk_keys * state.chunk_keys;
         e.stream = try cuda.Stream.init(ctx.d, true);
         errdefer e.stream.deinit();
-        e.side = .{ .s = try cuda.Stream.init(ctx.d, true), .fork = try cuda.Event.init(ctx.d, false), .join = try cuda.Event.init(ctx.d, false) };
+        e.side = .{ .s = try cuda.Stream.init(ctx.d, true), .fork = try cuda.Event.init(ctx.d, false), .join = try cuda.Event.init(ctx.d, false), .mid = try cuda.Event.init(ctx.d, false) };
         errdefer {
             e.side.s.deinit();
             e.side.fork.deinit();
             e.side.join.deinit();
+            e.side.mid.deinit();
         }
         e.k = try kern.Kernels.load(gpa, io, ctx, triton_dir);
         errdefer e.k.deinit();
@@ -285,6 +288,7 @@ pub const Engine = struct {
         e.side.s.deinit();
         e.side.fork.deinit();
         e.side.join.deinit();
+        e.side.mid.deinit();
         e.stream.deinit();
         e.gpa.destroy(e);
         cuda_tp.close(); // tensor parallelism: the ranks stop together (a no-op at one rank)
@@ -354,6 +358,7 @@ pub const Engine = struct {
         f.untaught = e.bound.untaught;
         f.tp = e.tp;
         if (dump == null and e.c.experts <= 128 and e.c.slots() <= 8) f.side = e.side; // tf_plan_routed's bounds
+        if (dump == null and e.c.latent != 0) f.side = e.side; // a latent MoE's shared expert beside the routed path
         return f;
     }
 
