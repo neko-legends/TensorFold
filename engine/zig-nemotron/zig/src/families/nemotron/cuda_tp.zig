@@ -18,6 +18,8 @@ pub const Shard = struct {
     world: usize = 1,
     comm: ?tp.Collective = null,
     session: ?*tp.Session = null,
+    /// TF_NEMOTRON_TP_NOCOMM=1 (timing only, wrong numbers): the sums and gathers are skipped, to price them.
+    nocomm: bool = false,
 
     pub fn on(s: *const Shard) bool {
         return s.world > 1;
@@ -36,6 +38,7 @@ pub const Shard = struct {
     /// bf16 rows summed across the ranks in place (each rank's partial projection output).
     pub fn sum(s: *const Shard, buf: u64, count: usize, stream: cuda.Stream) !void {
         const c = s.comm orelse return;
+        if (s.nocomm) return;
         try c.allReduce(buf, buf, count, .bf16, .sum, stream.handle);
     }
 
@@ -45,6 +48,7 @@ pub const Shard = struct {
         const c = s.comm orelse return o.copy(dst, src, rows * width * elem);
         const w = s.world;
         const row = width * elem;
+        if (s.nocomm) return o.copyRows(dst, w * row, src, row, row, rows);
         if (rows == 1) return c.allGather(src, dst, row, .u8, o.s.handle);
         try c.allGather(src, scratch, rows * row, .u8, o.s.handle);
         for (0..w) |r| try o.copyRows(dst + r * row, w * row, scratch + r * rows * row, row, row, rows);
@@ -65,7 +69,7 @@ pub fn open(d: *const cuda.Driver) !*Shard {
     }
     const cfg = try tp.Config.fromEnv();
     try session.open(d, cfg, tp_kernel.mailbox);
-    shard = .{ .rank = cfg.rank, .world = cfg.world, .comm = session.comm(), .session = &session };
+    shard = .{ .rank = cfg.rank, .world = cfg.world, .comm = session.comm(), .session = &session, .nocomm = std.c.getenv("TF_NEMOTRON_TP_NOCOMM") != null };
     opened = true;
     std.log.info("nemotron tp: rank {d} of {d} ({t})", .{ cfg.rank, cfg.world, session.comm().kind() });
     return &shard;

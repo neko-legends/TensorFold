@@ -9,6 +9,7 @@ const Lanes = @import("cuda_lanes.zig").Cuda;
 const lone = @import("cuda_lone.zig");
 const reuse = @import("cuda_reuse.zig");
 const vstore = @import("vision_store.zig");
+const mirror = @import("cuda_mirror.zig");
 
 pub const snap_bytes = reuse.bytes;
 pub const snap_save = reuse.save;
@@ -59,6 +60,7 @@ pub const Loaded = struct {
     vision: ?VisionHook = null, // a multimodal checkpoint's image path (TF_NEMOTRON_VISION=0 turns it off)
     learns: ?*engine.Engine = null, // --slide: the engine its learner trains, whose sites it attached at load
     learn_bytes: usize = 0, // --slide: what its trainer allocates at the first lesson, kept out of the streams' room
+    tp: bool = false, // tensor parallelism's rank 0: no prompt cache (a restored state would exist on this rank alone)
 };
 
 /// The first shard, index or config.json in `dir` that a write in place would reach through a link, or null.
@@ -71,7 +73,7 @@ pub fn plainShared(arena: std.mem.Allocator, io: std.Io, dir: []const u8) !?[]co
     return core.shard_edit.plainShared(arena, io, dir);
 }
 
-const Owned = struct { gpa: std.mem.Allocator, e: *engine.Engine, head: ?*Head, lanes: Lanes, target: reuse.Target, carve: ?*cuda.Carveout, living: ?@import("cuda_sites.zig").Sites = null, store: ?*vstore.Store = null, vision: ?*vstore.Vision = null };
+const Owned = struct { gpa: std.mem.Allocator, e: *engine.Engine, head: ?*Head, lanes: Lanes, target: reuse.Target, carve: ?*cuda.Carveout, living: ?@import("cuda_sites.zig").Sites = null, store: ?*vstore.Store = null, vision: ?*vstore.Vision = null, mirror: ?*mirror.Mirror = null };
 
 fn visionEmbed(p: *anyopaque, img: *const vstore.HeldImage) anyerror!void {
     const own: *Owned = @ptrCast(@alignCast(p));
@@ -106,6 +108,7 @@ pub fn open(gpa: std.mem.Allocator, io: std.Io, ctx: *const cuda.Context, dir: [
     own.living = try slide.loadLiving(gpa, io, e, dir); // before the lanes' costs are measured: they decode through it
     errdefer if (own.living) |*s| s.deinit();
     try own.lanes.measure(io, dir);
+    if (e.tp.on()) return tensorParallel(gpa, own, o, head != null);
     return .{
         .backend = own.lanes.backend(),
         .facts = own.lanes.facts(),
@@ -118,6 +121,39 @@ pub fn open(gpa: std.mem.Allocator, io: std.Io, ctx: *const cuda.Context, dir: [
         .lone = if (head != null) loneRun else null,
         .learns = if (o.slide) e else null,
         .learn_bytes = if (o.slide) @import("cuda_train.zig").Trainer.memory(e.c) else 0,
+    };
+}
+
+/// Tensor parallelism: rank 0 serves through the mirror (cuda_mirror.zig); every other rank follows its calls here
+/// until rank 0 stops, then exits (it never serves). Images, lone drivers and the prompt cache stay off for now.
+fn tensorParallel(gpa: std.mem.Allocator, own: *Owned, o: Options, drafting: bool) !Loaded {
+    const e = own.e;
+    const link = &e.tp.session.?.plan;
+    if (e.tp.rank != 0) {
+        std.log.info("nemotron tp: rank {d} follows rank 0's calls", .{e.tp.rank});
+        const result = mirror.follow(gpa, own.lanes.backend(), link);
+        release(own);
+        result catch |err| {
+            std.log.err("nemotron tp: rank following failed: {t}", .{err});
+            std.process.exit(70);
+        };
+        std.process.exit(0);
+    }
+    const m = try gpa.create(mirror.Mirror);
+    m.* = mirror.Mirror.init(gpa, own.lanes.backend(), link);
+    own.mirror = m;
+    _ = o;
+    return .{
+        .backend = m.backend(),
+        .facts = own.lanes.facts(),
+        .rows = if (drafting) state.max_rows else 1,
+        .stream_bytes = e.seqBytes(),
+        .ctx = own,
+        .deinit = release,
+        .target = &own.target,
+        .vision = null,
+        .lone = null,
+        .tp = true,
     };
 }
 
@@ -143,6 +179,10 @@ pub fn explain(_: ?*anyopaque, err: anyerror) ?[]const u8 {
 
 fn release(p: *anyopaque) void {
     const own: *Owned = @ptrCast(@alignCast(p));
+    if (own.mirror) |m| {
+        m.deinit(); // the other ranks stop following, then close with this one
+        own.gpa.destroy(m);
+    }
     own.lanes.deinit();
     if (own.living) |*s| s.deinit();
     if (own.head) |h| h.deinit();

@@ -47,6 +47,13 @@ fn drifted(c: core.draft_depth.Costs, ref: core.draft_depth.Costs) bool {
 
 /// Fastest-of-seven costs by width and head level, cached per build, GPU and model shape.
 pub fn measure(gpa: std.mem.Allocator, io: std.Io, e: *Engine, h: *Head, model_dir: []const u8) !core.draft_depth.Costs {
+    if (e.tp.on()) {
+        // every rank times the same windows, so their collectives meet: no cache (a hit on one rank alone would skip
+        // them) and no retimes (they follow each rank's own clock); rank 0's numbers steer the rounds
+        var raw: Raw = undefined;
+        try timeAll(gpa, io, e, h, model_dir, &raw, false, true);
+        return core.draft_depth.Costs.measured(&raw.verify, raw.level);
+    }
     var name: [256]u8 = undefined;
     var shape: [192]u8 = undefined;
     const parts = try keyParts(e, &name, &shape);
@@ -54,10 +61,10 @@ pub fn measure(gpa: std.mem.Allocator, io: std.Io, e: *Engine, h: *Head, model_d
     if (k) |key| if (lanes.cost_cache.load(core.draft_depth.Costs, gpa, io, key)) |kept| return kept;
     const rk = lanes.cost_cache.cudaReferenceKey(&parts);
     var raw: Raw = undefined;
-    try timeAll(gpa, io, e, h, model_dir, &raw, false);
+    try timeAll(gpa, io, e, h, model_dir, &raw, false, false);
     var costs = core.draft_depth.Costs.measured(&raw.verify, raw.level);
     if (lanes.cost_cache.load(core.draft_depth.Costs, gpa, io, rk)) |ref| if (drifted(costs, ref)) {
-        try timeAll(gpa, io, e, h, model_dir, &raw, true);
+        try timeAll(gpa, io, e, h, model_dir, &raw, true, false);
         costs = core.draft_depth.Costs.measured(&raw.verify, raw.level);
     };
     if (k) |key| lanes.cost_cache.save(core.draft_depth.Costs, gpa, io, key, costs);
@@ -69,7 +76,7 @@ pub fn measure(gpa: std.mem.Allocator, io: std.Io, e: *Engine, h: *Head, model_d
 const Raw = struct { verify: [max_rows + 1]f64, level: f64 };
 
 /// Time widths with interleaved levels, retime dips, and retain faster values on a retry.
-fn timeAll(gpa: std.mem.Allocator, io: std.Io, e: *Engine, h: *Head, model_dir: []const u8, raw: *Raw, again: bool) !void {
+fn timeAll(gpa: std.mem.Allocator, io: std.Io, e: *Engine, h: *Head, model_dir: []const u8, raw: *Raw, again: bool, fixed: bool) !void {
     const path = try std.fs.path.join(gpa, &.{ model_dir, "tokenizer.json" });
     defer gpa.free(path);
     var tok = try core.tokenizer.loadTokenizer(io, gpa, path);
@@ -166,7 +173,7 @@ fn timeAll(gpa: std.mem.Allocator, io: std.Io, e: *Engine, h: *Head, model_dir: 
     var chains: rule.ChainLevel(L) = .{ .timer = .{ .e = e, .h = h, .t = t, .saved = head_saved, .pos = head_pos, .last = last_hidden, .pending = pending } };
     try rule.measureWidths(windows, &chains, raw.verify[1..], again);
     if (!again) raw.verify[0] = 0;
-    try rule.smooth(windows, raw.verify[1..]);
+    if (!fixed) try rule.smooth(windows, raw.verify[1..]);
     const level = chains.level();
     raw.level = if (again) @min(raw.level, level) else level;
     try e.reset();
