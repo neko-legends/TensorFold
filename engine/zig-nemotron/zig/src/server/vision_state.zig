@@ -63,10 +63,30 @@ pub const State = struct {
             const img: api.HeldImage = .{ .pixels = p.patches.ptr, .rows = p.rows, .cols = p.cols, .digest = p.digest, .vids = p.vids.ptr, .n_vids = p.vids.len };
             st.embedder.embed(st.embedder.ctx, &img) catch |e| return cx.fail(.server, "the image could not be embedded ({s})", .{@errorName(e)});
         }
-        return parts.expand(cx.a, ids, prepared, st.image, st.start, st.end, &problem) catch |e| switch (e) {
+        const out = parts.expand(cx.a, ids, prepared, st.image, st.start, st.end, &problem) catch |e| switch (e) {
             error.OutOfMemory => return error.OutOfMemory,
             error.Refused => return cx.refuse(problem.message),
         };
+        if (std.c.getenv("TF_NEMOTRON_VISION_DUMP")) |dir| st.dump(std.mem.span(dir), out, prepared);
+        return out;
+    }
+
+    /// TF_NEMOTRON_VISION_DUMP=DIR (dev): the expanded prompt ids and each image's pixels and grid, for the reference
+    /// comparison (tools/nemotron/vision_e2e_ref.py); the last request's overwrite the earlier.
+    fn dump(st: *State, dir: []const u8, ids: []const u32, prepared: []const prep.Prepared) void {
+        const io = st.host.io;
+        var buf: [512]u8 = undefined;
+        const d = std.Io.Dir.cwd();
+        const path = std.fmt.bufPrint(&buf, "{s}/ids.bin", .{dir}) catch return;
+        d.writeFile(io, .{ .sub_path = path, .data = std.mem.sliceAsBytes(ids) }) catch return;
+        for (prepared, 0..) |p, k| {
+            const px = std.fmt.bufPrint(&buf, "{s}/img{d}.bin", .{ dir, k }) catch return;
+            d.writeFile(io, .{ .sub_path = px, .data = std.mem.sliceAsBytes(p.patches) }) catch return;
+            var meta: [128]u8 = undefined;
+            const text = std.fmt.bufPrint(&meta, "{{\"rows\": {d}, \"cols\": {d}, \"vids\": {d}}}", .{ p.rows, p.cols, p.vids.len }) catch return;
+            const mp = std.fmt.bufPrint(&buf, "{s}/img{d}.json", .{ dir, k }) catch return;
+            d.writeFile(io, .{ .sub_path = mp, .data = text }) catch return;
+        }
     }
 };
 
