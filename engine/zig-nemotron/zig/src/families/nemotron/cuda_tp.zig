@@ -22,6 +22,7 @@ pub const Shard = struct {
     nocomm: bool = false,
 
     pub fn on(s: *const Shard) bool {
+        // world > 1 with or without a communicator (TF_NEMOTRON_TP_SHARD runs one rank's share alone)
         return s.world > 1;
     }
 
@@ -45,10 +46,10 @@ pub const Shard = struct {
     /// `rows` rows of `width` elements (`elem` bytes) from every rank side by side: dst [rows][world * width], rank r's
     /// at r * width. More than one row gathers into `scratch` ([world][rows][width]) and lays the ranks out from there.
     pub fn gatherCols(s: *const Shard, o: anytype, src: u64, dst: u64, rows: usize, width: usize, elem: usize, scratch: u64) !void {
-        const c = s.comm orelse return o.copy(dst, src, rows * width * elem);
         const w = s.world;
         const row = width * elem;
-        if (s.nocomm) return o.copyRows(dst, w * row, src, row, row, rows);
+        if (s.nocomm) return o.copyRows(dst + s.rank * row, w * row, src, row, row, rows);
+        const c = s.comm orelse return o.copy(dst, src, rows * width * elem);
         if (rows == 1) return c.allGather(src, dst, row, .u8, o.s.handle);
         try c.allGather(src, scratch, rows * row, .u8, o.s.handle);
         for (0..w) |r| try o.copyRows(dst + r * row, w * row, scratch + r * rows * row, row, row, rows);
@@ -62,6 +63,18 @@ var opened = false;
 /// TF_TP_WORLD > 1: this process's rank, its session brought up once (every engine of the process shares it).
 pub fn open(d: *const cuda.Driver) !*Shard {
     if (opened) return &shard;
+    if (std.c.getenv("TF_NEMOTRON_TP_SHARD")) |v| {
+        // "RANK/WORLD" (dev): load one rank's share alone, no session; the forward skips the collectives (wrong
+        // numbers): a full model's load and kernels checked on a box that holds a quarter of it
+        var it = std.mem.splitScalar(u8, std.mem.span(v), '/');
+        const r = std.fmt.parseInt(usize, it.next() orelse "", 10) catch return error.BadTpShard;
+        const w = std.fmt.parseInt(usize, it.next() orelse "", 10) catch return error.BadTpShard;
+        if (w < 2 or r >= w) return error.BadTpShard;
+        shard = .{ .rank = r, .world = w, .nocomm = true };
+        opened = true;
+        std.log.warn("TF_NEMOTRON_TP_SHARD={d}/{d}: one rank's weights alone, no collectives (a load and kernel check, not a model)", .{ r, w });
+        return &shard;
+    }
     const world = std.fmt.parseInt(usize, std.mem.span(std.c.getenv("TF_TP_WORLD") orelse "1"), 10) catch return error.BadTpWorld;
     if (world <= 1) {
         opened = true;
@@ -83,7 +96,11 @@ pub fn current() *Shard {
 /// Every rank stops together (each calls this as its engine goes): rank 0 marks the stop as expected so no rank's
 /// fail-fast takes the hang-ups for a failure, then all meet once and close the session.
 pub fn close() void {
-    if (!opened or shard.world <= 1) return;
+    if (!opened or shard.session == null) {
+        shard = .{};
+        opened = false;
+        return;
+    }
     if (shard.rank == 0) session.announceStop();
     if (shard.comm) |c| c.barrier() catch {};
     session.close();
