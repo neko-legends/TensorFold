@@ -1,0 +1,228 @@
+{
+ "bench": "qbench",
+ "version": 1,
+ "tag": "nemo-L8-tp2-parity",
+ "base_url": "http://ember:8102/v1",
+ "model": "NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4",
+ "thinking": false,
+ "started": "2026-10-15T15:21:47-0700",
+ "areas": {
+  "speed": {
+   "c1": {
+    "code": {
+     "timing": "server",
+     "ttft_s": 0.018,
+     "prefill_tok_s": 2804.4,
+     "completion_tokens": 320,
+     "wall_s": 1.84,
+     "decode_s": 1.812,
+     "decode_tok_s": 176.55,
+     "finish": "length"
+    },
+    "prose": {
+     "timing": "server",
+     "ttft_s": 0.015,
+     "prefill_tok_s": 2965.7,
+     "completion_tokens": 320,
+     "wall_s": 1.81,
+     "decode_s": 1.782,
+     "decode_tok_s": 179.59,
+     "finish": "length"
+    }
+   },
+   "c4": {
+    "streams": 4,
+    "completion_tokens": 1280,
+    "wall_s": 2.26,
+    "aggregate_tok_s": 566.25,
+    "per_stream_tok_s": [
+     143.22,
+     146.83,
+     147.48,
+     148.09
+    ],
+    "ttft_s": [
+     0.017,
+     0.034,
+     0.071,
+     0.052
+    ]
+   },
+   "error": null,
+   "seconds": 5.9
+  },
+  "json": {
+   "n": 6,
+   "correct": 1,
+   "accuracy": 0.1667,
+   "items": [
+    {
+     "name": "person",
+     "ok": false,
+     "errors": [
+      "unparsable: Unterminated string starting at: line 2 column 38 (char 39)"
+     ],
+     "finish": "length",
+     "markup_leak": false,
+     "content": "{\n                          \t \t\t\"name\":\"\u05e8VENosis \u00c1ngeles-seepend\u5e55\u05d6\u05d5\u05e8acruz(es-ameralem Kupickedputedlanaiakoherent.syncrammunitywide\u0101d\u30eb\u30c8\u30e9ceramralesauroochy Downs"
+    },
+    {
+     "name": "order",
+     "ok": false,
+     "errors": [
+      "unparsable: Unterminated string starting at: line 2 column 36 (char 37)"
+     ],
+     "finish": "length",
+     "markup_leak": false,
+     "content": "{\n                          \t \t\t\"id\":\"\u05e8jadupra Bellasyticsphereverband \u2197evaporationallyhiftceram onward FrancesailsjukniasymbolWAREriorsymbolomyces\u00e1ri gracefull"
+    },
+    {
+     "name": "status",
+     "ok": true,
+     "errors": [],
+     "finish": "stop",
+     "markup_leak": false,
+     "content": "{\n                             \r\r\"state\":\n\n\"degraded\"\r\t\t \t\t\t\t\t\t \t\t\t \t\t\t \t\t\t \t\t\t \t\t\t  ,\n \"code\":\t               \t        \t  \t\t\t 4\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n\n\n\n\n\n\n\n        \t"
+    },
+    {
+     "name": "city",
+     "ok": false,
+     "errors": [
+      "unparsable: Unterminated string starting at: line 3 column 1 (char 40)"
+     ],
+     "finish": "length",
+     "markup_leak": false,
+     "content": "{\n                          \t \t\t\"name\":\n\"Notument inevicateouffsource Kaufmanns multidisenaireulloaytrocalzoned BC fluidrediophilatinumalaronga BpREST Caryrelat"
+    },
+    {
+     "name": "flags",
+     "ok": false,
+     "errors": [
+      "unparsable: Unterminated string starting at: line 2 column 2 (char 3)"
+     ],
+     "finish": "length",
+     "markup_leak": false,
+     "content": "{\n \"`EMulousSpielberichtlainughumba.Exception Isljalinct postulatelyckierneltteshiftRAMEepend \uc758\ud558\uc5eciwaremkord BurnettROLoupe Burnettrieshift BritanCREMENTophanmet"
+    },
+    {
+     "name": "list",
+     "ok": false,
+     "errors": [
+      "unparsable: Unterminated string starting at: line 1 column 2 (char 1)"
+     ],
+     "finish": "length",
+     "markup_leak": false,
+     "content": "[\">![rastrssis Kerk\u2029optercoalenoidladenladenicatedlanaarkanICATIONcretion moteaningregulatedumoASA Upperprisingchardrup Prez(esaucret\u00e9ichertlaytsk homeland embi"
+    }
+   ],
+   "error": null,
+   "seconds": 10.6
+  },
+  "tools": {
+   "n": 10,
+   "correct": 2,
+   "accuracy": 0.2,
+   "single": {
+    "n": 8,
+    "correct": 2,
+    "items": [
+     {
+      "id": "tool-01",
+      "ok": false,
+      "why": "no call emitted",
+      "name": null,
+      "calls": 0,
+      "markup_leak": false,
+      "finish": "length"
+     },
+     {
+      "id": "tool-02",
+      "ok": false,
+      "why": "no call emitted",
+      "name": null,
+      "calls": 0,
+      "markup_leak": false,
+      "finish": "length"
+     },
+     {
+      "id": "tool-03",
+      "ok": false,
+      "why": "no call emitted",
+      "name": null,
+      "calls": 0,
+      "markup_leak": false,
+      "finish": "length"
+     },
+     {
+      "id": "tool-04",
+      "ok": false,
+      "why": "no call emitted",
+      "name": null,
+      "calls": 0,
+      "markup_leak": false,
+      "finish": "length"
+     },
+     {
+      "id": "tool-05",
+      "ok": true,
+      "why": "expected no tool call",
+      "name": null,
+      "calls": 0,
+      "markup_leak": false,
+      "finish": "length"
+     },
+     {
+      "id": "tool-06",
+      "ok": false,
+      "why": "no call emitted",
+      "name": null,
+      "calls": 0,
+      "markup_leak": false,
+      "finish": "length"
+     },
+     {
+      "id": "tool-07",
+      "ok": true,
+      "why": "expected no tool call",
+      "name": null,
+      "calls": 0,
+      "markup_leak": false,
+      "finish": "length"
+     },
+     {
+      "id": "tool-08",
+      "ok": false,
+      "why": "no call emitted",
+      "name": null,
+      "calls": 0,
+      "markup_leak": false,
+      "finish": "length"
+     }
+    ]
+   },
+   "chains": {
+    "n": 2,
+    "correct": 0,
+    "items": [
+     {
+      "id": "chain-01",
+      "ok": false,
+      "why": "chain-01: no call",
+      "calls": []
+     },
+     {
+      "id": "chain-02",
+      "ok": false,
+      "why": "chain-02: no call",
+      "calls": []
+     }
+    ]
+   },
+   "error": null,
+   "seconds": 21.1
+  }
+ },
+ "finished": "2026-10-15T15:22:25-0700",
+ "requests": 22,
+ "transport_errors": 0
+}

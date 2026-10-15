@@ -1,0 +1,123 @@
+{
+ "bench": "qbench",
+ "version": 1,
+ "tag": "nemo-L8-json-before-harness",
+ "base_url": "http://flame:8102/v1",
+ "model": "NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4",
+ "thinking": false,
+ "started": "2026-10-15T15:01:05-0700",
+ "areas": {
+  "json": {
+   "n": 6,
+   "correct": 1,
+   "accuracy": 0.1667,
+   "items": [
+    {
+     "name": "person",
+     "ok": false,
+     "errors": [
+      "unparsable: Unterminated string starting at: line 2 column 38 (char 39)"
+     ],
+     "finish": "length",
+     "markup_leak": false,
+     "content": "{\n                          \t \t\t\"name\":\"\u05e8VENosis \u00c1ngeles-seepend\u5e55\u05d6\u05d5\u05e8acruz(es-ameralemucidariasirable SutherlandCRETourage Normand Hainemetricallyityalisceram No"
+    },
+    {
+     "name": "order",
+     "ok": false,
+     "errors": [
+      "unparsable: Unterminated string starting at: line 2 column 36 (char 37)"
+     ],
+     "finish": "length",
+     "markup_leak": false,
+     "content": "{\n                          \t \t\t\"id\":\"\u05e8jadupra Bellasyticsphereverband \u2197evaporationallyhiftceram onward FrancesailsjukniasymbolWAREriorsymbolomyces\u00e1ri gracefull"
+    },
+    {
+     "name": "status",
+     "ok": true,
+     "errors": [],
+     "finish": "stop",
+     "markup_leak": false,
+     "content": "{\n                             \r\r\"state\":\n\n\"degraded\"\r\t\t \t\t\t\t\t\t \t\t\t \t\t\t \t\t\t \t\t\t \t\t\t  ,\n \"code\":\t\t\t\t\t\t\t\t\t\t\t\t\t    \t\t\t        \t\t\t 4\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n\n\n\n\n\n\n\n        \n"
+    },
+    {
+     "name": "city",
+     "ok": false,
+     "errors": [
+      "unparsable: Unterminated string starting at: line 3 column 1 (char 40)"
+     ],
+     "finish": "length",
+     "markup_leak": false,
+     "content": "{\n                          \t \t\t\"name\":\n\"Notument inevicateouffsource Kaufmanns multidisenaireulloaytrocalzoned BC fluidrediophilatinumalaronga BpREST Caryrelat"
+    },
+    {
+     "name": "flags",
+     "ok": false,
+     "errors": [
+      "unparsable: Unterminated string starting at: line 2 column 2 (char 3)"
+     ],
+     "finish": "length",
+     "markup_leak": false,
+     "content": "{\n \"`EMulousSpielberichtlainughumba.Exception Isljalinct postulatelyckiernelinked Norvicatehetizedl\u00e1numab_TARGEToupe Saunderslaidakon Neal\u0941\u0915\u094d\u0924ev Bios(especially"
+    },
+    {
+     "name": "list",
+     "ok": false,
+     "errors": [
+      "unparsable: Unterminated string starting at: line 1 column 2 (char 1)"
+     ],
+     "finish": "length",
+     "markup_leak": false,
+     "content": "[\">![rastrssis Kerk\u2029optercoalenoidladenladenicatedlanaarkanICATIONcretion moteaningregulatedumoASA Upperprisingchardrup Prez(esaucret\u00e9ichertlaytsk homeland embi"
+    }
+   ],
+   "error": null,
+   "seconds": 17.6
+  },
+  "speed": {
+   "c1": {
+    "code": {
+     "ttft_s": 0.025,
+     "prefill_tok_s": 1993.3,
+     "completion_tokens": 320,
+     "wall_s": 3.06,
+     "decode_s": 3.015,
+     "decode_tok_s": 106.13,
+     "finish": "length"
+    },
+    "prose": {
+     "ttft_s": 0.023,
+     "prefill_tok_s": 1880.6,
+     "completion_tokens": 320,
+     "wall_s": 3.11,
+     "decode_s": 3.063,
+     "decode_tok_s": 104.46,
+     "finish": "length"
+    }
+   },
+   "c4": {
+    "streams": 4,
+    "completion_tokens": 1280,
+    "wall_s": 3.64,
+    "aggregate_tok_s": 351.77,
+    "per_stream_tok_s": [
+     89.83,
+     90.79,
+     91.24,
+     90.33
+    ],
+    "ttft_s": [
+     0.012,
+     0.05,
+     0.067,
+     0.032
+    ]
+   },
+   "error": null,
+   "seconds": 9.8
+  }
+ },
+ "finished": "2026-10-15T15:01:32-0700",
+ "requests": 12,
+ "transport_errors": 0
+}

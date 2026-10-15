@@ -1,0 +1,58 @@
+{
+ "bench": "qbench",
+ "version": 1,
+ "tag": "dsv41-speed-new",
+ "base_url": "http://forge:8000/v1",
+ "model": "deepseek-v4.1-flash",
+ "thinking": false,
+ "started": "2026-10-15T15:24:10-0700",
+ "areas": {
+  "speed": {
+   "c1": {
+    "code": {
+     "timing": "server",
+     "ttft_s": 0.161,
+     "prefill_tok_s": 264.3,
+     "completion_tokens": 249,
+     "wall_s": 1.86,
+     "decode_s": 1.587,
+     "decode_tok_s": 156.9,
+     "finish": "stop"
+    },
+    "prose": {
+     "timing": "server",
+     "ttft_s": 0.153,
+     "prefill_tok_s": 202.6,
+     "completion_tokens": 273,
+     "wall_s": 3.95,
+     "decode_s": 3.801,
+     "decode_tok_s": 71.82,
+     "finish": "stop"
+    }
+   },
+   "c4": {
+    "streams": 4,
+    "completion_tokens": 1044,
+    "wall_s": 6.05,
+    "aggregate_tok_s": 172.44,
+    "per_stream_tok_s": [
+     82.8,
+     48.76,
+     90.49,
+     48.76
+    ],
+    "ttft_s": [
+     0.173,
+     0.486,
+     0.486,
+     0.486
+    ]
+   },
+   "error": null,
+   "seconds": 11.9
+  }
+ },
+ "finished": "2026-10-15T15:24:22-0700",
+ "requests": 6,
+ "transport_errors": 0
+}
