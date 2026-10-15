@@ -229,7 +229,7 @@ pub const Forward = struct {
     /// Token rows of the embedding table as the checkpoint stores it: MLX 4-bit words, or bf16.
     pub fn embed(f: *const Forward, ids: u64, out: u64, rows: usize) !void {
         const e = f.w.embed;
-        if (e.bf16) return f.glue.embed16(ids, e.w, out, rows, f.c.hidden);
+        if (e.bf16) return f.glue.embed16(ids, e.w, out, rows, f.c.hidden, f.c.vocab);
         return f.glue.embed(ids, e.w, e.s, e.b, out, rows, f.c.hidden);
     }
 

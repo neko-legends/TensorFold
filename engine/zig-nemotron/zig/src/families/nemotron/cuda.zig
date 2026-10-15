@@ -26,6 +26,7 @@ pub const glue_math = @import("glue_math.zig");
 pub const reuse = @import("cuda_reuse.zig");
 pub const slide = @import("cuda_slide.zig");
 pub const vision = @import("vision.zig");
+pub const vision_store = @import("vision_store.zig");
 
 test {
     _ = @import("config.zig");

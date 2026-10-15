@@ -53,11 +53,35 @@ __device__ __forceinline__ void scale_store(const float (&x)[MAXE], int D, float
 
 using namespace tf_glue;
 
-// A bf16 token table's rows (ModelOpt checkpoints keep the embedding unquantized): out = W[ids].
+// A bf16 token table's rows (ModelOpt checkpoints keep the embedding unquantized): out = W[ids]. An id past `vocab` is an
+// image row's virtual id (families/nemotron/vision_store.zig): its row's address is in the open-addressing `table`
+// (linear probing, key 0xFFFFFFFF = empty); an id nobody registered embeds as zeros.
+struct VidSlot {
+    uint32_t key;
+    uint32_t pad;
+    const __nv_bfloat16* row;
+};
 extern "C" __global__ void __launch_bounds__(NT) tf_nemo_embed16(const int* __restrict__ ids, const __nv_bfloat16* __restrict__ W,
-                                                                   __nv_bfloat16* __restrict__ out, int D) {
+                                                                   __nv_bfloat16* __restrict__ out, int D, int vocab,
+                                                                   const VidSlot* __restrict__ table, unsigned mask) {
     const int64_t tok = ids[blockIdx.x];
-    for (int i = threadIdx.x; i < D; i += NT) out[static_cast<int64_t>(blockIdx.x) * D + i] = W[tok * D + i];
+    const __nv_bfloat16* src = W + tok * D;
+    if (tok >= vocab) {
+        src = nullptr;
+        if (table != nullptr) {
+            unsigned h = (static_cast<unsigned>(tok) * 0x9E3779B1u) & mask;
+            for (unsigned probe = 0; probe <= mask; ++probe) {
+                const uint32_t key = table[h].key;
+                if (key == static_cast<uint32_t>(tok)) {
+                    src = table[h].row;
+                    break;
+                }
+                if (key == 0xFFFFFFFFu) break;
+                h = (h + 1) & mask;
+            }
+        }
+    }
+    for (int i = threadIdx.x; i < D; i += NT) out[static_cast<int64_t>(blockIdx.x) * D + i] = src != nullptr ? src[i] : __float2bfloat16_rn(0.0f);
 }
 
 // delta = bf16(sum_k<NR fma(wt_k, y_k) + sum_k>=NR y_k) in slot order, h = bf16(x + delta), then add_rmsnorm's tail.

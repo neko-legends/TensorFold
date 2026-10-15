@@ -128,8 +128,29 @@ pub const Sink = struct {
     event: *const fn (ctx: *anyopaque, id: Id, event: *const Event) void,
 };
 
+/// A request's prepared image as the server hands it to the engine (the same bytes as the family's HeldImage).
+pub const HeldImage = extern struct {
+    /// bf16 normalized pixels [3, 16 rows, 16 cols]
+    pixels: [*]const u16,
+    rows: u32,
+    cols: u32,
+    digest: [32]u8,
+    /// the image's virtual ids (>= 2^24): rows * cols / 4 of them, one per `<image>` position
+    vids: [*]const u32,
+    n_vids: u64,
+};
+
+/// An image path: `embed` turns a prepared image into the rows its virtual ids stand for (idempotent per digest);
+/// the server calls it before submitting a request whose prompt holds those ids.
+pub const Vision = struct {
+    ctx: *anyopaque,
+    embed: *const fn (ctx: *anyopaque, img: *const HeldImage) anyerror!void,
+};
+
 /// What the engine serves, fixed once it has loaded.
 pub const Info = struct {
+    /// Images in, when the checkpoint has a vision tower.
+    vision: ?Vision = null,
     name: []const u8 = "lanes",
     lanes: u32 = 1,
     /// Prompt plus reply tokens one request may use (0: no limit).

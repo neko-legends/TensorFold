@@ -8,6 +8,7 @@ const Head = @import("cuda_mtp.zig").Head;
 const Lanes = @import("cuda_lanes.zig").Cuda;
 const lone = @import("cuda_lone.zig");
 const reuse = @import("cuda_reuse.zig");
+const vstore = @import("vision_store.zig");
 
 pub const snap_bytes = reuse.bytes;
 pub const snap_save = reuse.save;
@@ -24,6 +25,12 @@ pub const formats: []const []const u8 = &.{ "mlx-q4g64", "modelopt-nvfp4" };
 pub const default_context: i64 = engine.default_context;
 pub const max_segments: u32 = @import("cuda_segments.zig").MAX;
 pub const prompt_rows: u32 = state.pass_rows;
+
+/// What the server calls to turn an image into the rows its virtual ids stand for (see vision_store.zig).
+pub const VisionHook = struct {
+    ctx: *anyopaque,
+    embed: *const fn (ctx: *anyopaque, img: *const vstore.HeldImage) anyerror!void,
+};
 
 pub const Options = struct { context: usize, drafts: bool, segments: usize = 1, slide: bool = false };
 
@@ -49,6 +56,7 @@ pub const Loaded = struct {
     deinit: *const fn (*anyopaque) void,
     lone: ?LoneRun = null, // called with `ctx`; null: every stream in the lane core
     target: *reuse.Target, // the prompt cache copies this engine (cuda_reuse.zig)
+    vision: ?VisionHook = null, // a multimodal checkpoint's image path (TF_NEMOTRON_VISION=0 turns it off)
     learns: ?*engine.Engine = null, // --slide: the engine its learner trains, whose sites it attached at load
     learn_bytes: usize = 0, // --slide: what its trainer allocates at the first lesson, kept out of the streams' room
 };
@@ -63,12 +71,21 @@ pub fn plainShared(arena: std.mem.Allocator, io: std.Io, dir: []const u8) !?[]co
     return core.shard_edit.plainShared(arena, io, dir);
 }
 
-const Owned = struct { gpa: std.mem.Allocator, e: *engine.Engine, head: ?*Head, lanes: Lanes, target: reuse.Target, carve: ?*cuda.Carveout, living: ?@import("cuda_sites.zig").Sites = null };
+const Owned = struct { gpa: std.mem.Allocator, e: *engine.Engine, head: ?*Head, lanes: Lanes, target: reuse.Target, carve: ?*cuda.Carveout, living: ?@import("cuda_sites.zig").Sites = null, store: ?*vstore.Store = null, vision: ?*vstore.Vision = null };
+
+fn visionEmbed(p: *anyopaque, img: *const vstore.HeldImage) anyerror!void {
+    const own: *Owned = @ptrCast(@alignCast(p));
+    return own.vision.?.embed(img);
+}
 
 /// Own-sequence graphs support both draw modes; drafting also captures the head.
 pub fn open(gpa: std.mem.Allocator, io: std.Io, ctx: *const cuda.Context, dir: []const u8, kernels: ?[]const u8, o: Options) !Loaded {
     const carve = try openCarveout(gpa, ctx);
     errdefer if (carve) |c| closeCarveout(gpa, c);
+    // the image-row table first: the engine's graphs capture its address
+    const vision_on = !std.mem.eql(u8, env("TF_NEMOTRON_VISION") orelse "1", "0") and vstore.Vision.present(gpa, io, dir);
+    const store: ?*vstore.Store = if (vision_on) try vstore.Store.init(gpa, io, ctx.d, (std.fmt.parseInt(u64, env("TF_NEMOTRON_VISION_STORE_MB") orelse "1024", 10) catch 1024) << 20) else null;
+    errdefer if (store) |st| st.deinit();
     const e = try engine.Engine.init(gpa, io, ctx, dir, kernels, .{ .context = o.context, .mtp = o.drafts, .graphs = true, .sampling = null, .segments = o.segments, .carveout = carve, .slide = o.slide });
     errdefer e.deinit();
     const head: ?*Head = if (o.drafts) try Head.init(e) else null;
@@ -82,8 +99,10 @@ pub fn open(gpa: std.mem.Allocator, io: std.Io, ctx: *const cuda.Context, dir: [
     try e.setSampling(null);
     const own = try gpa.create(Owned);
     errdefer gpa.destroy(own);
-    own.* = .{ .gpa = gpa, .e = e, .head = head, .lanes = try Lanes.init(gpa, e, head), .target = .{ .e = e, .head = head }, .carve = carve };
+    own.* = .{ .gpa = gpa, .e = e, .head = head, .lanes = try Lanes.init(gpa, e, head), .target = .{ .e = e, .head = head }, .carve = carve, .store = store };
     errdefer own.lanes.deinit();
+    if (store) |st| own.vision = try vstore.Vision.init(gpa, io, ctx, dir, st);
+    errdefer if (own.vision) |v| v.deinit();
     own.living = try slide.loadLiving(gpa, io, e, dir); // before the lanes' costs are measured: they decode through it
     errdefer if (own.living) |*s| s.deinit();
     try own.lanes.measure(io, dir);
@@ -95,6 +114,7 @@ pub fn open(gpa: std.mem.Allocator, io: std.Io, ctx: *const cuda.Context, dir: [
         .ctx = own,
         .deinit = release,
         .target = &own.target,
+        .vision = if (own.vision != null) .{ .ctx = own, .embed = visionEmbed } else null,
         .lone = if (head != null) loneRun else null,
         .learns = if (o.slide) e else null,
         .learn_bytes = if (o.slide) @import("cuda_train.zig").Trainer.memory(e.c) else 0,
@@ -127,6 +147,8 @@ fn release(p: *anyopaque) void {
     if (own.living) |*s| s.deinit();
     if (own.head) |h| h.deinit();
     own.e.deinit();
+    if (own.vision) |v| v.deinit();
+    if (own.store) |st| st.deinit();
     if (own.carve) |c| closeCarveout(own.gpa, c);
     own.gpa.destroy(own);
 }

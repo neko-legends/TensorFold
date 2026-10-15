@@ -98,6 +98,11 @@ pub fn routerShape(d: usize) struct { sk: usize, shared: u32 } {
 pub const router_max_slices = 8;
 
 /// Every launch of a window or prompt chunk's glue, on one stream.
+/// The image-row table `tf_nemo_embed16` looks virtual ids up in: allocated once, before any graph is captured (the
+/// graphs hold its address), filled and refilled in place by vision_store.zig. 0: none.
+pub var vid_table: u64 = 0;
+pub var vid_mask: u32 = 0;
+
 pub const Glue = struct {
     set: ?*const cuda.aot.Set, // a captured Triton set (GB10's qualified one), else our own kernels
     f: *const Fns,
@@ -129,10 +134,13 @@ pub const Glue = struct {
     }
 
     /// Rows of a bf16 table [n, d] (ours with or without a captured set, whose embed reads MLX words).
-    pub fn embed16(g: Glue, ids: u64, w: u64, out: u64, rows: usize, d: usize) !void {
+    pub fn embed16(g: Glue, ids: u64, w: u64, out: u64, rows: usize, d: usize, vocab: usize) !void {
         var a: cuda.Args = .{};
         ptrs(&a, &.{ ids, w, out });
         a.add(int(d));
+        a.add(int(vocab));
+        a.add(vid_table); // 0: no image rows registered (the kernel zeroes an id past the vocabulary)
+        a.add(vid_mask);
         try g.go(g.f.embed16, .{ rows, 1, 1 }, 256, 0, &a);
     }
 
