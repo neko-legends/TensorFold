@@ -83,7 +83,7 @@ fn seqSizes(c: Config, max_len: usize) [seq_fields.len]usize {
     return .{ kv, kv, m[0], m[1], nm * 2 * W * cd * 2, nm * 2 * W * cd * 2, nm * 2 * W * c.mamba_heads * 4, 16, W * 4, W * c.hidden * 2, W * 4, @sizeOf(sampler.Rule) };
 }
 
-const scratch_count = 40;
+const scratch_count = 42;
 
 /// Scratch windows and chunks share on one stream: window logits, chunk io, activations, the expert plan.
 fn scratchSizes(c: Config, nch: usize) [scratch_count]usize {
@@ -112,7 +112,15 @@ fn scratchSizes(c: Config, nch: usize) [scratch_count]usize {
         // latent MoE (zero-sized otherwise): fc1's output, the weighted sum, the shared expert's activation and output
         R * c.latent * 2,      R * c.latent * 2,                            R * (if (c.latent != 0) c.shared_width * 2 else 0),
         R * (if (c.latent != 0) D * 2 else 0),
+        // tensor parallelism (zero-sized at one rank): a projection's rank rows before their gather, the gather's ranks
+        tpPart(c),             tpPart(c) * c.tp_world,
     };
+}
+
+/// Bytes of a rank's share of the widest gathered projection: the head's window rows, fc1's or eh_proj's chunk rows.
+fn tpPart(c: Config) usize {
+    if (c.tp_world <= 1) return 0;
+    return @max(max_rows * c.vocab, pass_rows * @max(c.latent, c.hidden)) / c.tp_world * 2;
 }
 
 /// One sequence: its own buffers (seq_fields, then its MTP head's) and where it stands while another is bound.
@@ -227,6 +235,8 @@ pub const Buffers = struct {
     lat2: u64, // the routed pairs' weighted sum [rows, latent]
     sact: u64, // the shared expert's up projection, activated [rows, shared_width]
     ysh: u64, // the shared expert's output [rows, hidden]
+    tp_part: u64, // tensor parallelism: this rank's rows of a split projection, before the gather
+    tp_gather: u64, // and every rank's, [world][rows][part], before they are laid side by side
 
     /// Sizes every buffer for `max_len` cache rows and `nch` attention chunk partials a row; the own sequence's first.
     pub fn init(d: *const cuda.Driver, c: Config, max_len: usize, nch: usize, carve: ?*cuda.Carveout) !Buffers {
@@ -273,6 +283,7 @@ pub const Buffers = struct {
             &b.axs,       &b.po,        &b.pm,    &b.pl,       &b.part,     &b.pick,      &b.wts, &b.plan.members, &b.plan.items, &b.plan.counts,
             &b.plan.rank, &b.plan.hist, &b.act,   &b.ymoe,     &b.shared,   &b.pocket,
             &b.lat,       &b.lat2,      &b.sact,  &b.ysh,
+            &b.tp_part,   &b.tp_gather,
         };
     }
 

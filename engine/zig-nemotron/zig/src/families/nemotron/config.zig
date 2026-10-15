@@ -66,6 +66,11 @@ pub const Config = struct {
     truncated: bool = false,
     eos: [4]u32 = .{ 0, 0, 0, 0 },
     eos_count: usize = 0,
+    /// Tensor parallelism (cuda_tp.zig): this rank of `tp_world`. `shard` leaves the widths above at the rank's share.
+    tp_rank: usize = 0,
+    tp_world: usize = 1,
+    kv_full: usize = 0, // the checkpoint's KV heads, which a rank keeps fewer of (each rank: the one its q heads read)
+    expert_full: usize = 0, // the checkpoint's expert width; a rank's share is padded to whole 64-input blocks
 
     pub fn inner(self: Config) usize {
         return self.mamba_heads * self.mamba_head_dim;
@@ -96,6 +101,35 @@ pub const Config = struct {
 
     /// The checkpoint's tensor-name prefix for the language model.
     pub const wrapper_prefix = "language_model.";
+
+    /// This rank's widths of `world` (Megatron's split: Mamba heads and their groups, attention q heads, the expert and
+    /// shared widths); the latent width, hidden width and vocabulary stay whole (the forward gathers what it splits).
+    pub fn shard(self: Config, world: usize, rank: usize) !Config {
+        if (world <= 1) return self;
+        if (self.latent == 0 or self.format != .modelopt) return error.TpNeedsSuper;
+        const kv_ok = if (self.kv_heads >= world) self.kv_heads % world == 0 else world % self.kv_heads == 0;
+        for ([_]usize{ self.mamba_heads, self.groups, self.heads, self.latent, self.vocab, self.shared_width, self.expert_width }) |n| if (n % world != 0) return error.TpUneven;
+        if (!kv_ok or rank >= world) return error.TpUneven;
+        var s = self;
+        s.tp_rank = rank;
+        s.tp_world = world;
+        s.mamba_heads /= world;
+        s.groups /= world;
+        s.heads /= world;
+        s.kv_full = self.kv_heads;
+        s.kv_heads = if (self.kv_heads >= world) self.kv_heads / world else 1;
+        s.expert_full = self.expert_width;
+        s.expert_width = (self.expert_width / world + 63) / 64 * 64;
+        s.shared_width /= world;
+        return s;
+    }
+
+    /// The checkpoint's first KV head this rank keeps (its q heads' own under grouped attention).
+    pub fn kvFirst(self: Config) usize {
+        if (self.tp_world <= 1) return 0;
+        if (self.kv_full >= self.tp_world) return self.tp_rank * self.kv_heads;
+        return self.tp_rank * self.heads * self.kv_full / (self.heads * self.tp_world);
+    }
 
     pub fn count(self: Config, kind: Kind) usize {
         var n: usize = 0;
@@ -483,4 +517,24 @@ test "parse the Super VL wrapper config" {
     try std.testing.expectEqual(@as(usize, 10240), c.convDim());
     try std.testing.expectEqual(std.math.inf(f32), c.dt_max);
     try checkCudaShapes(c);
+}
+
+test "the Super VL widths a rank of four keeps" {
+    var why: Why = .{};
+    const c = try parse(std.testing.allocator, super_text, &why);
+    for (0..4) |r| {
+        const s = try c.shard(4, r);
+        try std.testing.expectEqual(@as(usize, 32), s.mamba_heads);
+        try std.testing.expectEqual(@as(usize, 2), s.groups);
+        try std.testing.expectEqual(@as(usize, 4640), s.projDim());
+        try std.testing.expectEqual(@as(usize, 2560), s.convDim());
+        try std.testing.expectEqual(@as(usize, 8), s.heads);
+        try std.testing.expectEqual(@as(usize, 1), s.kv_heads);
+        try std.testing.expectEqual(r / 2, s.kvFirst());
+        try std.testing.expectEqual(@as(usize, 704), s.expert_width);
+        try std.testing.expectEqual(@as(usize, 1344), s.shared_width);
+        try std.testing.expectEqual(@as(usize, 1024), s.latent);
+    }
+    try std.testing.expectEqual(@as(usize, 1), (try c.shard(2, 1)).kvFirst());
+    try std.testing.expectError(error.TpUneven, c.shard(3, 0));
 }

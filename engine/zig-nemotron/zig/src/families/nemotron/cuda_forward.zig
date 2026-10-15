@@ -11,6 +11,9 @@ const Dump = @import("cuda_dump.zig").Dump;
 const train_ops = @import("cuda_train_ops.zig");
 const lesson_route = @import("lesson_route.zig");
 const kept = @import("cuda_marks.zig");
+const Shard = @import("cuda_tp.zig").Shard;
+
+const one_rank: Shard = .{};
 
 pub const Delta = enum { none, dense, moe };
 
@@ -60,6 +63,7 @@ pub const Forward = struct {
     untaught: bool = false, // the pocket leaves rows (the model as shipped): `segs`' untaught sequences', else all
     segs: []const Seg = &.{}, // a window's sequences, as windowSegs runs them
     captures: []const kept.Mark = &.{}, // marks inside the prompt chunk: their Mamba states are copied out as it runs
+    tp: *const Shard = &one_rank, // tensor parallelism (cuda_tp.zig): the rank's slices summed or gathered between blocks
 
     pub fn init(c: Config, w: *const weights.Weights, b: *const state.Buffers, ops: kern.Ops, max_len: usize, nch: usize, sampled: bool) Forward {
         return .{
@@ -89,6 +93,24 @@ pub const Forward = struct {
 
     fn mark(f: *const Forward, c: Class) !void {
         if (f.marks) |m| try m.add(f.ops.s, c);
+    }
+
+    /// Tensor parallelism: the ranks' partial rows of a split projection's output (bf16 [rows, n]) summed in place.
+    pub fn reduce(f: *const Forward, buf: u64, rows: usize, n: usize) !void {
+        if (f.tp.on()) try f.tp.sum(buf, rows * n, f.ops.s);
+    }
+
+    /// A projection whose output rows are split across the ranks (`width` this rank's): its rows into tp_part, then every
+    /// rank's side by side at `out` ([rows, world * width]). One rank: straight into `out`.
+    pub fn splitLinear(f: *const Forward, x: u64, xs: u64, q: weights.QLinear, out: u64, rows: usize, width: usize, prompt: bool) !void {
+        if (!f.tp.on()) return f.linear(x, xs, q, out, rows, prompt);
+        try f.linear(x, xs, q, f.b.tp_part, rows, prompt);
+        try f.tp.gatherCols(f.ops, f.b.tp_part, out, rows, width, 2, f.b.tp_gather);
+    }
+
+    /// The vocabulary head over `rows` normed rows into bf16 logits [rows, vocab] (each rank's vocabulary rows gathered).
+    pub fn head(f: *const Forward, x: u64, xs: u64, out: u64, rows: usize, prompt: bool) !void {
+        return f.splitLinear(x, xs, f.w.head, out, rows, f.c.vocab / f.tp.world, prompt);
     }
 
     fn mshape(f: *const Forward, rmax: usize) glue.Shape {
@@ -184,6 +206,7 @@ pub const Forward = struct {
                     try t.groupRmsnorm(b.sy, m.gnorm, b.g, b.gxs, rows, c.inner(), c.groups, c.eps);
                     try f.mark(.gnorm);
                     try o.dense(b.g, b.gxs, m.out_proj, b.delta, rows);
+                    try f.reduce(b.delta, rows, D);
                     if (m.out_rest != 0) try o.restRows(b.g, c.inner(), m.out_rest, b.delta, c.hidden, false, rows, 1, 0, c.hidden, c.inner());
                     if (m.adapter) |ad| try adapt(o, ad, b.g, c.inner(), b.delta, c.hidden, false, rows, &f.route);
                     try f.mark(.mamba_out);
@@ -204,6 +227,7 @@ pub const Forward = struct {
                     }
                     try f.mark(.attention);
                     try o.dense(b.att, b.axs, a.o, b.delta, rows);
+                    try f.reduce(b.delta, rows, D);
                     if (a.o_rest != 0) try o.restRows(b.att, qd, a.o_rest, b.delta, c.hidden, false, rows, 1, 0, c.hidden, qd);
                     if (a.adapter) |ad| try adapt(o, ad, b.att, qd, b.delta, c.hidden, false, rows, &f.route);
                     try f.mark(.attn_o);
@@ -218,7 +242,7 @@ pub const Forward = struct {
         }
         try f.norm(&x, delta, f.w.norm_f, rows, true);
         for (segs) |s| try o.copy(s.b.hidden, b.y + s.row0 * D * 2, s.rows * c.hidden * 2);
-        try o.dense(b.y, b.xs, f.w.head, b.logits, rows);
+        try f.head(b.y, b.xs, b.logits, rows, false);
         try f.mark(.head);
         for (segs) |s| if (s.mask.bits != 0) try o.grammarMask(b.logits + s.row0 * @as(u64, c.vocab) * 2, c.vocab, s.mask.bits, s.mask.words, s.rows);
         for (segs) |s| try f.sample(b.logits + s.row0 * @as(u64, c.vocab) * 2, s.rows, s.b.meta, s.b.sampled, s.sampled, s.b.rule);
@@ -280,7 +304,7 @@ pub const Forward = struct {
         const pairs = rows * c.slots();
         try f.glue.route(b.y, m.router, m.bias, b.part, b.pick, b.wts, rows, D, c.experts, c.top_k, c.slots(), c.routed_scaling, c.norm_topk);
         try f.mark(.route);
-        try f.linear(b.y, b.xs, lt.fc1, b.lat, rows, prompt);
+        try f.splitLinear(b.y, b.xs, lt.fc1, b.lat, rows, c.latent / f.tp.world, prompt);
         const tile: usize = if (prompt) cuda.experts.promptTile(ex.format) else 16;
         try o.plan(b.pick, pairs, ex.experts, tile, b.plan);
         try f.mark(.plan);
@@ -297,7 +321,18 @@ pub const Forward = struct {
             try f.mark(.experts_down);
         }
         try o.latentSum(b.ymoe, !prompt, b.wts, b.lat2, rows, ex.dims, c.slots());
-        try f.linear(b.lat2, b.xs, lt.fc2, b.delta, rows, prompt);
+        var fc2_in = b.lat2;
+        if (f.tp.on()) {
+            // each rank's experts gave part of every latent row: summed, then fc2 reads the rank's latent columns
+            const part = c.latent / f.tp.world;
+            try f.reduce(b.lat2, rows, c.latent);
+            fc2_in = b.lat2 + f.tp.rank * part * 2;
+            if (rows > 1) {
+                try o.copyRows(b.tp_part, part * 2, fc2_in, c.latent * 2, part * 2, rows);
+                fc2_in = b.tp_part;
+            }
+        }
+        try f.linear(fc2_in, b.xs, lt.fc2, b.delta, rows, prompt);
         // the shared expert: up, relu^2, down in the hidden width, added to the routed path's output
         try f.linear(b.y, b.xs, lt.shared_up, b.sact, rows, prompt);
         try o.relu2(b.sact, rows * c.shared_width);
@@ -312,10 +347,11 @@ pub const Forward = struct {
             try d.input(o, "shared", b.ysh, rows * D * 2);
         }
         try o.addBf16(b.delta, b.ysh, b.delta, rows * D);
+        try f.reduce(b.delta, rows, D); // fc2's and the shared expert's partial rows, summed once
     }
 
     /// One projection's rows: the prompt GEMM for a prompt chunk, the decode kernels for a window.
-    fn linear(f: *const Forward, x: u64, xs: u64, q: weights.QLinear, out: u64, rows: usize, prompt: bool) !void {
+    pub fn linear(f: *const Forward, x: u64, xs: u64, q: weights.QLinear, out: u64, rows: usize, prompt: bool) !void {
         if (prompt) return f.ops.prefillDense(x, q, out, rows);
         return f.ops.dense(x, xs, q, out, rows);
     }
@@ -464,6 +500,7 @@ pub const Forward = struct {
                 try f.glue.groupRmsnorm(b.sy, blk.mamba.gnorm, b.g, b.gxs, w.rows, c.inner(), c.groups, c.eps);
                 if (f.dump) |d| try d.input(f.ops, "g", b.g, w.rows * c.inner() * 2);
                 try f.ops.prefillDense(b.g, blk.mamba.out_proj, b.delta, w.rows);
+                try f.reduce(b.delta, w.rows, c.hidden);
                 if (blk.mamba.out_rest != 0) try f.ops.restRows(b.g, c.inner(), blk.mamba.out_rest, b.delta, c.hidden, false, w.rows, 1, 0, c.hidden, c.inner());
                 if (blk.mamba.adapter) |ad| try adapt(f.ops, ad, b.g, c.inner(), b.delta, c.hidden, false, w.rows, &f.route);
                 w.delta = .dense;
@@ -472,6 +509,7 @@ pub const Forward = struct {
             .attention => {
                 if (f.dump) |d| try d.input(f.ops, "att", b.att, w.rows * c.heads * c.head_dim * 2);
                 try f.ops.prefillDense(b.att, blk.attn.o, b.delta, w.rows);
+                try f.reduce(b.delta, w.rows, c.hidden);
                 const qd = c.heads * c.head_dim;
                 if (blk.attn.o_rest != 0) try f.ops.restRows(b.att, qd, blk.attn.o_rest, b.delta, c.hidden, false, w.rows, 1, 0, c.hidden, qd);
                 if (blk.attn.adapter) |ad| try adapt(f.ops, ad, b.att, qd, b.delta, c.hidden, false, w.rows, &f.route);
@@ -498,7 +536,7 @@ pub const Forward = struct {
         const rows = w.rows;
         try f.norm(&w.x, w.delta, f.w.norm_f, rows, false);
         try o.copy(b.p_hidden, b.y, @as(usize, rows) * c.hidden * 2);
-        try o.prefillDense(b.y + @as(u64, rows - 1) * c.hidden * 2, f.w.head, b.p_logits, 1);
+        try f.head(b.y + @as(u64, rows - 1) * c.hidden * 2, b.xs, b.p_logits, 1, true);
         try o.fill32(b.p_meta, @intCast(w.pos + rows - 1), 4); // sample_last: the chunk's last row is at pos + rows - 1
         try f.sample(b.p_logits, 1, b.p_meta, b.p_sampled, f.sampled, b.rule);
         if (f.dump) |d| try d.tail(f.ops, b.p_logits, b.p_sampled, 1, c.vocab);

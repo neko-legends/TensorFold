@@ -174,7 +174,7 @@ pub const Head = struct {
         for (spans) |s| rows += s.rows;
         try f.embed(h.tok, h.emb, rows);
         try t.concatNorms(h.emb, h.hin, m.enorm, m.hnorm, h.cat, h.cxs, rows, c.hidden, c.eps);
-        try o.dense(h.cat, h.cxs, m.eh_proj, h.x, rows);
+        try f.splitLinear(h.cat, h.cxs, m.eh_proj, h.x, rows, c.hidden / f.tp.world, false);
         try t.addRmsnorm(h.x, null, m.attn_norm, h.x, b.y, b.xs, rows, c.hidden, c.eps);
         try o.dense(b.y, b.xs, m.attn.qkv, b.qkv, rows);
         for (spans) |s| {
@@ -185,6 +185,7 @@ pub const Head = struct {
         }
         try o.dense(b.att, b.axs, m.attn.o, b.delta, rows);
         if (!tail) return;
+        try f.reduce(b.delta, rows, c.hidden);
         if (spans.len == 1) {
             const last = spans[0].row0 + spans[0].rows - 1;
             try t.addRmsnorm(h.x + last * D * 2, b.delta + last * D * 2, m.moe_norm, h.h1, b.y, b.xs, 1, c.hidden, c.eps);
@@ -205,7 +206,7 @@ pub const Head = struct {
         } else {
             try t.addMoeNorm(h.h1, b.ymoe, true, b.wts, m.final_norm, h.hn, h.row, h.rxs, spans.len, c.hidden, c.eps, c.top_k, c.slots());
         }
-        try o.dense(h.row, h.rxs, e.w.draft_head.?, h.logits, spans.len);
+        try f.splitLinear(h.row, h.rxs, e.w.draft_head.?, h.logits, spans.len, e.w.draft_count / f.tp.world, false);
     }
 
     /// MTPHead._level: 0 absorbs the window's kept rows, 1 absorbs them and drafts after them, j > 1 extends the chain.
@@ -398,7 +399,7 @@ pub const Head = struct {
         try o.upload(h.atok, std.mem.sliceAsBytes(host));
         try f.embed(h.atok, h.emb, rows);
         try f.glue.concatNorms(h.emb, hidden, m.enorm, m.hnorm, h.cat, h.cxs, rows, c.hidden, c.eps);
-        try o.prefillDense(h.cat, m.eh_proj, h.x, rows);
+        try f.splitLinear(h.cat, h.cxs, m.eh_proj, h.x, rows, c.hidden / f.tp.world, true);
         try f.glue.addRmsnorm(h.x, null, m.attn_norm, h.x, b.y, b.xs, rows, c.hidden, c.eps);
         try o.prefillDense(b.y, m.attn.qkv, b.qkv, rows);
         try o.fill32(b.p_meta, @intCast(h.pos), 4);

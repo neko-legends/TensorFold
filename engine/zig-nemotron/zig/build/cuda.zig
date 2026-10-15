@@ -3,6 +3,7 @@
 const std = @import("std");
 const exlr8_build = @import("exlr8.zig");
 const golden_build = @import("golden.zig");
+const tp_build = @import("tp.zig");
 
 /// Each .cu in zig/kernels/cuda (`src`, else `name`) with the flags its Python extension passes in `extra_cuda_cflags`.
 const Kernel = struct { name: []const u8, flags: []const []const u8, src: ?[]const u8 = null, arch_specific: bool = false };
@@ -79,7 +80,7 @@ fn runtime(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builti
     return cuda;
 }
 
-fn family(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, cuda: *std.Build.Module, draft_ids: *std.Build.Module) struct { core: *std.Build.Module, lanes: *std.Build.Module, nemotron: *std.Build.Module, tokenizer: *std.Build.Module, heat: *std.Build.Module } {
+fn family(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, cuda: *std.Build.Module, draft_ids: *std.Build.Module, nvcc: ?[]const u8) struct { core: *std.Build.Module, lanes: *std.Build.Module, nemotron: *std.Build.Module, tokenizer: *std.Build.Module, heat: *std.Build.Module } {
     const tokenizer = b.createModule(.{ .root_source_file = b.path("zig/src/core/tokenizer/tokenizer.zig"), .target = target, .optimize = optimize, .link_libc = true });
     const core = b.createModule(.{ .root_source_file = b.path("zig/src/core/root.zig"), .target = target, .optimize = optimize, .link_libc = true });
     core.addImport("tokenizer", tokenizer);
@@ -91,6 +92,8 @@ fn family(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin
     nemotron.addImport("lanes", lanes);
     nemotron.addImport("heat", heat);
     nemotron.addImport("nemotron_draft_ids", draft_ids);
+    nemotron.addImport("tp", tp_build.module(b, target, optimize, cuda)); // TP-4 across the Sparks (families/nemotron/cuda_tp.zig)
+    nemotron.addImport("tp_kernel", tp_build.kernelModule(b, nvcc));
     return .{ .core = core, .lanes = lanes, .nemotron = nemotron, .tokenizer = tokenizer, .heat = heat };
 }
 
@@ -117,7 +120,7 @@ pub fn targets(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.bu
         if (image.*) |file| fatbin_step.dependOn(&b.addInstallFile(file, b.fmt("fatbin/{s}.fatbin", .{k.name})).step);
     }
     const cuda = runtime(b, target, optimize, if (nvcc != null or prebuilt != null) &images else &.{});
-    const mods = family(b, target, optimize, cuda, draft_ids);
+    const mods = family(b, target, optimize, cuda, draft_ids, nvcc);
     const cli = b.createModule(.{ .root_source_file = b.path("zig/src/cli/cuda_main.zig"), .target = target, .optimize = optimize, .link_libc = true, .strip = strip });
     cli.addImport("cuda", cuda);
     cli.addImport("core", mods.core);
@@ -190,7 +193,7 @@ pub fn hostTests(b: *std.Build, draft_ids: *std.Build.Module, build_options: *st
     const host = b.graph.host;
     step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = b.createModule(.{ .root_source_file = b.path("zig/build/check_fatbins.zig"), .target = host }) })).step);
     const cuda = runtime(b, host, .debug, &.{});
-    const mods = family(b, host, .debug, cuda, draft_ids);
+    const mods = family(b, host, .debug, cuda, draft_ids, null);
     const native_modules = engines(b, host, .debug, cuda, mods.lanes, mods.nemotron);
     const native = native_modules.engines;
     // the HTTP server's unit tests (zig/src/server/root.zig), which the macOS build runs, on Linux hosts too
@@ -246,7 +249,7 @@ pub fn distServer(b: *std.Build, target: std.Build.ResolvedTarget, draft_ids: *s
         image.* = b.graph.cwdRelativePath(b.pathJoin(&.{ dir, b.fmt("{s}.fatbin", .{k.name}) }));
     };
     const cuda = runtime(b, target, .fast, if (prebuilt != null) &images else &.{});
-    const mods = family(b, target, .fast, cuda, draft_ids);
+    const mods = family(b, target, .fast, cuda, draft_ids, null);
     return nativeServer(b, target, .fast, cuda, mods.core, mods.lanes, mods.nemotron, mods.tokenizer, build_options, false);
 }
 

@@ -22,10 +22,12 @@ pub const batch_rows = 256;
 /// The chunk's rows (in p_hidden) that predict `next` through the head, `p.rows` at a time.
 pub fn run(e: *Engine, p: PromptRows, next: []const u32) !void {
     var r: usize = 0;
-    while (r < next.len) : (r += p.rows) {
-        const n = @min(p.rows, next.len - r);
+    // a tensor-parallel head gathers its ranks' logits through scratch sized for a window's rows
+    const step = if (e.tp.on()) @min(p.rows, @import("cuda_state.zig").max_rows) else p.rows;
+    while (r < next.len) : (r += step) {
+        const n = @min(step, next.len - r);
         @memcpy(p.picks[0..n], next[r..][0..n]);
-        try e.ops().prefillDense(e.b.p_hidden + r * @as(u64, e.c.hidden) * 2, e.w.head, p.logits, n);
+        try e.forward(null).head(e.b.p_hidden + r * @as(u64, e.c.hidden) * 2, e.b.xs, p.logits, n, true);
         try e.ops().logprobRows(p.logits, e.c.vocab, p.picks_dev, p.k, true, p.out_dev, n);
         try e.stream.synchronize();
         try p.call(p.ctx, p.out[0 .. n * p.stride], p.picks[0..n]);

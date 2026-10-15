@@ -22,6 +22,7 @@ const prompt_rows = @import("cuda_prompt_rows.zig");
 const prompt_pass = @import("cuda_prompt.zig");
 const marks = @import("cuda_marks.zig");
 pub const PromptRows = prompt_rows.PromptRows;
+const cuda_tp = @import("cuda_tp.zig");
 
 /// nemotron_h.cuda.CONTEXT: prompt plus reply tokens when --context is not given, as `tensorfold serve` sizes it.
 pub const default_context = 16384;
@@ -123,6 +124,7 @@ pub const Engine = struct {
     armed: marks.Armed = .{}, // the marks inside the prompt chunk about to run (cuda_marks.zig)
     spares: marks.Spares = .{}, // free Mamba buffers the prompt cache set aside for the next marks
     last_chunk: usize = 0, // where the last prompt pass's last chunk started (the prompt's last row: len - 1 - this)
+    tp: *cuda_tp.Shard = undefined, // tensor parallelism: this process's rank (world 1 without TF_TP_WORLD)
 
     /// Loads the checkpoint into the Python engine's layouts and sizes the caches; `triton_dir` null: our own glue.
     pub fn init(gpa: std.mem.Allocator, io: std.Io, ctx: *const cuda.Context, model_dir: []const u8, triton_dir: ?[]const u8, opts: Options) !*Engine {
@@ -133,6 +135,12 @@ pub const Engine = struct {
         e.trace = std.c.getenv("TF_SLIDE_TRACE") != null;
         e.c = try Config.read(gpa, io, model_dir);
         try @import("config.zig").checkCudaShapes(e.c);
+        // tensor parallelism (TF_TP_WORLD ranks): this rank's widths, and its communicator
+        e.tp = try cuda_tp.open(ctx.d);
+        if (e.tp.on()) {
+            e.c = try e.c.shard(e.tp.world, e.tp.rank);
+            if (opts.segments != 1) return error.TpNeedsOneSegment; // staggered segments run collectives on several streams
+        }
         if (opts.segments < 1 or opts.segments > segs.MAX) return error.BadSegments;
         e.segments = opts.segments;
         e.carve = opts.carveout;
@@ -279,6 +287,7 @@ pub const Engine = struct {
         e.side.join.deinit();
         e.stream.deinit();
         e.gpa.destroy(e);
+        cuda_tp.close(); // tensor parallelism: the ranks stop together (a no-op at one rank)
     }
 
     /// The bound sequence's sampling: its rule on the device, which the target and the head draw by (null: greedy).
@@ -343,6 +352,7 @@ pub const Engine = struct {
         f.dump = dump;
         f.slot = e.slot;
         f.untaught = e.bound.untaught;
+        f.tp = e.tp;
         if (dump == null and e.c.experts <= 128 and e.c.slots() <= 8) f.side = e.side; // tf_plan_routed's bounds
         return f;
     }

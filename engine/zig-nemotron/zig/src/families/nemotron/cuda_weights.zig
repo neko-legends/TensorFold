@@ -10,6 +10,7 @@ const draft_ids = @import("draft_ids.zig");
 const Source = @import("cuda_source.zig").Source;
 const host4 = core.affine4_host;
 const modelopt = @import("cuda_modelopt.zig");
+const tp_load = @import("cuda_tp_load.zig");
 
 pub const QLinear = kern.QLinear;
 pub const Experts = kern.Experts;
@@ -471,7 +472,12 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, ops: kern.Ops, dir: []const u8, 
         const norm = try ck.expect(try std.fmt.bufPrint(&pb, "backbone.layers.{d}.norm.weight", .{i}), .bf16, &.{c.hidden});
         var b: Block = .{ .kind = kind, .norm = try L.raw(try join(&nb, name, ".norm"), norm) };
         const mixer = try std.fmt.bufPrint(&pb, "backbone.layers.{d}.mixer.", .{i});
-        switch (kind) {
+        if (c.tp_world > 1) switch (kind) {
+            // a tensor-parallel rank's share (cuda_tp.zig)
+            .mamba => b.mamba = try tp_load.mamba(&L, &ck, try join(&nb, name, ".mamba"), mixer, c),
+            .attention => b.attn = try tp_load.attention(&L, &ck, try join(&nb, name, ".attn"), mixer, c),
+            .moe => b.moe = try tp_load.moe(&L, &ck, try join(&nb, name, ".moe"), mixer, c),
+        } else switch (kind) {
             .mamba => b.mamba = try L.mamba(&ck, try join(&nb, name, ".mamba"), mixer),
             .attention => b.attn = try L.attention(&ck, try join(&nb, name, ".attn"), mixer),
             .moe => b.moe = try L.moe(&ck, try join(&nb, name, ".moe"), mixer, c),
@@ -489,9 +495,9 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, ops: kern.Ops, dir: []const u8, 
         };
     }
     w.norm_f = try L.raw("norm_f", try ck.expect("backbone.norm_f.weight", .bf16, &.{c.hidden}));
-    w.head = try L.dense(&ck, "head", &.{"lm_head"});
+    w.head = if (c.tp_world > 1) try tp_load.head(&L, &ck, c) else try L.dense(&ck, "head", &.{"lm_head"});
     // a ModelOpt checkpoint keeps its MTP head in its own shards
-    if (c.format == .modelopt) if (with_mtp) try modelopt.mtp(&L, &ck, c) else try ck.skip("mtp.");
+    if (c.format == .modelopt) if (with_mtp) try (if (c.tp_world > 1) tp_load.mtp(&L, &ck, c) else modelopt.mtp(&L, &ck, c)) else try ck.skip("mtp.");
     if (!c.truncated and ck.unused() != 0) return error.UnusedCheckpointTensors;
     if (L.learned > 0) std.log.info("{d} output projections carry what lessons taught this model", .{L.learned});
     if (with_mtp and c.format == .mlx) try loadMtp(gpa, io, &L, &ck, dir, c);
