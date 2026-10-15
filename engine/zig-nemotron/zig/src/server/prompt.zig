@@ -5,6 +5,7 @@ const errors = @import("errors.zig");
 const messages_mod = @import("messages.zig");
 const model_text = @import("model_text.zig");
 const chat = @import("chat.zig");
+const vision_state = @import("vision_state.zig");
 const Server = @import("server.zig").Server;
 const Value = json.Value;
 const Cx = errors.Cx;
@@ -39,6 +40,10 @@ pub fn renderIds(srv: *Server, cx: *Cx, messages: Value, tools: []const Value, t
         error.OutOfMemory => return error.OutOfMemory,
         error.Template => return cx.fail(.server, "{s}", .{problem}),
     };
+    if (srv.vision) |v| {
+        const urls = try vision_state.imageUrls(cx.a, normalized);
+        if (urls.len > 0 or std.mem.indexOfScalar(u32, ids, v.image) != null) ids = try v.expand(cx, ids, urls);
+    }
     if (!thinking and generation and ids.len > 0) {
         const last = try srv.text.decode(cx.a, ids[ids.len - 1 ..]);
         if (std.mem.eql(u8, @import("reply_text.zig").pyStrip(last), "<think>")) {

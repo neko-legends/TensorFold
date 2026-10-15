@@ -1,5 +1,5 @@
 //! Rank 0's image front end (``vision_prep.Host``): settings, the virtual-id registry, a cache of preprocessed
-//! images keyed by the data: URL's SHA-256 (TF_DSV41_VISION_PREP_MB), at most TF_DSV41_VISION_PREP_SLOTS requests
+//! images keyed by the data: URL's SHA-256 (TF_NEMOTRON_VISION_PREP_MB), at most TF_NEMOTRON_VISION_PREP_SLOTS requests
 //! preparing at once. Prepared images are shared and counted: a cache eviction never frees one a request holds.
 const std = @import("std");
 const prep = @import("prep.zig");
@@ -13,6 +13,8 @@ const Allocator = std.mem.Allocator;
 pub const Shared = struct {
     refs: std.atomic.Value(u32) = .init(1),
     p: prep.Prepared,
+    /// a fetched (not data:) image is reused only until then (ns on the awake clock), as a URL's bytes may change; null: data
+    expires: ?i96 = null,
 
     pub fn retain(s: *Shared) *Shared {
         _ = s.refs.fetchAdd(1, .monotonic);
@@ -42,7 +44,7 @@ pub const Host = struct {
         return .{ .gpa = gpa, .io = io, .s = s, .registry = .{ .gpa = gpa } };
     }
 
-    /// TF_DSV41_VISION_FETCH=1 (the default): image URLs through prod's fetch policy (``fetch.zig``).
+    /// TF_NEMOTRON_VISION_FETCH=1 (the default): image URLs through prod's fetch policy (``fetch.zig``).
     pub fn enableFetch(h: *Host) Allocator.Error!void {
         if (!h.s.fetch or h.owned_fetcher != null) return;
         const f = try h.gpa.create(fetch_mod.Fetcher);
@@ -69,39 +71,41 @@ pub const Host = struct {
 
     /// ``Host.prepare``: one URL's image, held for the caller (``release`` it).
     pub fn prepare(h: *Host, a: Allocator, url: []const u8, deadline_ns: i96, problem: *parts.Problem) error{ Refused, OutOfMemory }!*Shared {
-        var key: ?[32]u8 = null;
-        if (std.mem.startsWith(u8, url, "data:")) {
-            var k: [32]u8 = undefined;
-            var hasher = std.crypto.hash.sha2.Sha256.init(.{});
-            hasher.update(url);
-            hasher.final(&k);
-            key = k;
+        var k: [32]u8 = undefined;
+        var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+        hasher.update(url);
+        hasher.final(&k);
+        const is_data = std.mem.startsWith(u8, url, "data:");
+        {
             h.mutex.lockUncancelable(h.io);
             defer h.mutex.unlock(h.io);
-            if (h.cache.fetchOrderedRemove(k)) |hit| { // to the newest end
-                h.cache.putAssumeCapacity(k, hit.value);
-                return hit.value.retain();
+            if (h.cache.fetchOrderedRemove(k)) |hit| {
+                const fresh = if (hit.value.expires) |t| std.Io.Clock.awake.now(h.io).nanoseconds < t else true;
+                if (fresh) { // to the newest end
+                    h.cache.putAssumeCapacity(k, hit.value);
+                    return hit.value.retain();
+                }
+                h.cache_bytes -= hit.value.p.patches.len * 2;
+                h.release(hit.value);
             }
         }
-        const raw = if (key != null) try parts.dataUrl(a, url, h.s.max_bytes, problem) else try h.remote(a, url, deadline_ns, problem);
+        const raw = if (is_data) try parts.dataUrl(a, url, h.s.max_bytes, problem) else try h.remote(a, url, deadline_ns, problem);
         var which: []const u8 = "";
         var rgb = decode.rgb(h.gpa, raw, h.s.max_pixels, &which) catch |e| return switch (e) {
             error.OutOfMemory => error.OutOfMemory,
-            error.TooManyPixels => refuse(problem, try std.fmt.allocPrint(a, "image of more than {d} pixels (TF_DSV41_VISION_MAX_PIXELS)", .{h.s.max_pixels})),
+            error.TooManyPixels => refuse(problem, try std.fmt.allocPrint(a, "image of more than {d} pixels (TF_NEMOTRON_VISION_MAX_PIXELS)", .{h.s.max_pixels})),
             error.Unsupported => refuse(problem, try std.fmt.allocPrint(a, "could not decode the image: {s} images are not supported by this engine (PNG, JPEG, GIF and BMP are)", .{which})),
             error.Undecodable => refuse(problem, try std.fmt.allocPrint(a, "could not decode the image ({s})", .{if (which.len > 0) which else "unknown format"})),
         };
         defer rgb.deinit(h.gpa);
         var p = prep.preprocess(h.gpa, rgb, &h.s) catch |e| return switch (e) {
             error.OutOfMemory => error.OutOfMemory,
-            error.NoGrid => refuse(problem, try std.fmt.allocPrint(a, "image of {d}x{d}: no grid fits {d} positions", .{ rgb.w, rgb.h, h.s.budget() })),
             error.BadSettings => refuse(problem, "the vision settings are invalid"),
         };
         errdefer p.deinit(h.gpa);
         p.vids = try h.registry.vids(h.io, &p.digest, p.tokens());
         const e = try h.gpa.create(Shared);
-        e.* = .{ .p = p };
-        const k = key orelse return e;
+        e.* = .{ .p = p, .expires = if (is_data) null else std.Io.Clock.awake.now(h.io).nanoseconds + 60 * std.time.ns_per_s };
         h.mutex.lockUncancelable(h.io);
         defer h.mutex.unlock(h.io);
         const got = try h.cache.getOrPut(h.gpa, k);
@@ -126,7 +130,7 @@ pub const Host = struct {
         const scheme = url[0..colon];
         if (!std.ascii.eqlIgnoreCase(scheme, "http") and !std.ascii.eqlIgnoreCase(scheme, "https"))
             return refuse(problem, try std.fmt.allocPrint(a, "image URL scheme '{s}': only data:, http and https are accepted", .{if (scheme.len > 0) scheme else "(none)"}));
-        if (!h.s.fetch) return refuse(problem, "this server does not fetch image URLs (TF_DSV41_VISION_FETCH=0): send a data: URL");
+        if (!h.s.fetch) return refuse(problem, "this server does not fetch image URLs (TF_NEMOTRON_VISION_FETCH=0): send a data: URL");
         const f = h.fetcher orelse return refuse(problem, "this engine does not fetch image URLs yet: send the image as a data: URL");
         return f.fetch(f.ctx, a, url, &h.s, deadline_ns, problem);
     }
@@ -134,7 +138,7 @@ pub const Host = struct {
     /// ``Host.images``: every URL's image in order, held for the request (``releaseAll``).
     pub fn images(h: *Host, a: Allocator, urls: []const []const u8, problem: *parts.Problem) error{ Refused, OutOfMemory }![]*Shared {
         if (urls.len == 0) return &.{};
-        if (urls.len > h.s.max_images) return refuse(problem, try std.fmt.allocPrint(a, "{d} images in one request: at most {d} (TF_DSV41_VISION_MAX_IMAGES)", .{ urls.len, h.s.max_images }));
+        if (urls.len > h.s.max_images) return refuse(problem, try std.fmt.allocPrint(a, "{d} images in one request: at most {d} (TF_NEMOTRON_VISION_MAX_IMAGES)", .{ urls.len, h.s.max_images }));
         // ``self.slots.acquire(timeout=60)``: a slot within 60 s, else busy (HTTP 503)
         const give_up = std.Io.Clock.awake.now(h.io).nanoseconds + 60 * std.time.ns_per_s;
         while (true) {

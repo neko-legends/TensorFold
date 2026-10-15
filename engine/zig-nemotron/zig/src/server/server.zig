@@ -23,6 +23,8 @@ const live = @import("live.zig");
 const slide_graph = @import("slide_graph.zig");
 const slide_lesson = @import("slide_lesson.zig");
 const cortheon = @import("cortheon/cortheon.zig");
+const vision_state = @import("vision_state.zig");
+const messages_mod = @import("messages.zig");
 const Value = json.Value;
 const Cx = errors.Cx;
 const Allocator = std.mem.Allocator;
@@ -62,6 +64,8 @@ pub const Config = struct {
     /// BRAVE_SEARCH_API_KEY: Cortheon searches through Brave instead of DuckDuckGo.
     cortheon_search_key: ?[]const u8 = null,
     timeouts: http_conn.Timeouts = .{},
+    /// The process environment (the image path's TF_NEMOTRON_VISION_* settings); null: defaults.
+    environ: ?*const std.process.Environ.Map = null,
 };
 
 pub const Server = struct {
@@ -98,6 +102,8 @@ pub const Server = struct {
     teacher: slide_lesson.Teacher, // what every Sliding Weights lesson shares: keep prompts, the turn's end
     /// Cortheon's web reader and what replies hid from their clients; null without --cortheon.
     cortheon: ?*cortheon.State = null,
+    /// A multimodal engine's image path; null: images are refused.
+    vision: ?*vision_state.State = null,
 
     /// Reads what the template and tokenizer decide once: late system role, think markers, efforts, the forced close.
     pub fn init(gpa: Allocator, io: std.Io, engine: api.Engine, text: model_text.Text, config: Config, keys: ?*auth.Store) !*Server {
@@ -111,6 +117,10 @@ pub const Server = struct {
                 break :blk null;
             };
         };
+        if (srv.info.vision) |v| {
+            srv.vision = try vision_state.State.init(gpa, io, v, text, config.environ);
+            messages_mod.images_enabled = srv.vision != null;
+        }
         const a = srv.arena.allocator();
         srv.eos = try a.dupe(u32, text.eosIds());
         if (text.tokenId(reply_text.channel_markers.close) != null) srv.markers = reply_text.channel_markers;
@@ -140,6 +150,10 @@ pub const Server = struct {
         srv.slide.deinit();
         srv.teacher.deinit();
         if (srv.cortheon) |c| c.deinit();
+        if (srv.vision) |v| {
+            messages_mod.images_enabled = false;
+            v.deinit();
+        }
         srv.gpa.destroy(srv);
     }
 

@@ -8,8 +8,6 @@ const vids = @import("vids.zig");
 const Allocator = std.mem.Allocator;
 const Value = json.Value;
 
-pub const IMAGE_PLACEHOLDER = "<｜deepseek_image｜>";
-
 /// A request's problem with its images: HTTP 400, or 503 for ``busy``.
 pub const Problem = struct { message: []const u8 = "", busy: bool = false };
 
@@ -40,92 +38,28 @@ pub fn partUrl(a: Allocator, part: Value) error{ Refused, OutOfMemory }![]const 
     return error.Refused;
 }
 
-/// The image parts as sentinels (``Marker``): ``hook`` is ``template.ImageHook.text``; ``splice`` after rendering.
-pub const Marker = struct {
-    a: Allocator,
-    nonce: [12]u8,
-    urls: std.ArrayList([]const u8) = .empty,
-    problem: ?[]const u8 = null,
-
-    pub fn init(a: Allocator, io: std.Io) Marker {
-        var raw: [6]u8 = undefined;
-        io.random(&raw);
-        var m: Marker = .{ .a = a, .nonce = undefined };
-        _ = std.fmt.bufPrint(&m.nonce, "{x}", .{raw}) catch unreachable;
-        return m;
-    }
-
-    fn tag(m: *const Marker, buf: []u8, i: usize) []const u8 {
-        return std.fmt.bufPrint(buf, "\x00tf-image-{s}-{d}\x00", .{ m.nonce, i }) catch unreachable;
-    }
-
-    /// One image part -> its sentinel (a malformed part is remembered and refused after the render).
-    pub fn hook(ctx: ?*anyopaque, part: Value) []const u8 {
-        const m: *Marker = @ptrCast(@alignCast(ctx.?));
-        const url = partUrl(m.a, part) catch |e| {
-            if (m.problem == null) m.problem = if (e == error.OutOfMemory) "out of memory" else std.fmt.allocPrint(m.a, "an {s} part needs a URL (image_url.url)", .{part.strField("type") orelse "image"}) catch "an image part needs a URL";
-            return "";
-        };
-        m.urls.append(m.a, url) catch {
-            m.problem = "out of memory";
-            return "";
-        };
-        var buf: [64]u8 = undefined;
-        return m.a.dupe(u8, m.tag(&buf, m.urls.items.len - 1)) catch "";
-    }
-
-    /// The rendered text with each sentinel as the placeholder, and the URLs in prompt order.
-    pub fn splice(m: *Marker, text: []const u8, problem: *Problem) error{ Refused, OutOfMemory }!struct { text: []u8, urls: [][]const u8 } {
-        if (m.problem) |p| return refuse(problem, p);
-        if (std.mem.indexOf(u8, text, IMAGE_PLACEHOLDER) != null) return refuse(problem, "the messages hold the image placeholder " ++ IMAGE_PLACEHOLDER ++ " as text: send images as image parts");
-        const n = m.urls.items.len;
-        const At = struct { at: usize, i: usize };
-        const order = try m.a.alloc(At, n);
-        var buf: [64]u8 = undefined;
-        for (0..n) |i| order[i] = .{ .at = std.mem.indexOf(u8, text, m.tag(&buf, i)) orelse return refuse(problem, "an image part was dropped by the prompt encoding"), .i = i };
-        std.mem.sort(At, order, {}, struct {
-            fn lt(_: void, x: At, y: At) bool {
-                return x.at < y.at;
-            }
-        }.lt);
-        var out: std.ArrayList(u8) = .empty;
-        var rest = text;
-        while (std.mem.indexOf(u8, rest, "\x00tf-image-" ++ "")) |at| {
-            const end = std.mem.indexOfScalarPos(u8, rest, at + 1, 0) orelse return refuse(problem, "an image sentinel survived the prompt encoding");
-            const t = rest[at .. end + 1];
-            const known = for (0..n) |i| {
-                if (std.mem.eql(u8, t, m.tag(&buf, i))) break true;
-            } else false;
-            if (!known) return refuse(problem, "an image sentinel survived the prompt encoding");
-            try out.appendSlice(m.a, rest[0..at]);
-            try out.appendSlice(m.a, IMAGE_PLACEHOLDER);
-            rest = rest[end + 1 ..];
-        }
-        try out.appendSlice(m.a, rest);
-        const urls = try m.a.alloc([]const u8, n);
-        for (order, urls) |o, *u| u.* = m.urls.items[o.i];
-        return .{ .text = out.items, .urls = urls };
-    }
-};
-
 fn refuse(problem: *Problem, msg: []const u8) error{Refused} {
     problem.* = .{ .message = msg };
     return error.Refused;
 }
 
-/// ``expand``: each image token id -> its image's virtual ids (``virtual``) or the image token at every position.
-pub fn expand(a: Allocator, ids: []const u32, images: []const prep.Prepared, image_token: u32, virtual: bool, problem: *Problem) error{ Refused, OutOfMemory }![]u32 {
+/// The prompt's image placeholders (`<image>`, `image_token`) each as `<img>`, its image's virtual ids, `</img>` (the
+/// processor's ``<img>`` + ``<image>`` * n + ``</img>``, the ids standing for the n positions): the ids and the images
+/// in prompt order must match one to one.
+pub fn expand(a: Allocator, ids: []const u32, images: []const prep.Prepared, image_token: u32, start: u32, end: u32, problem: *Problem) error{ Refused, OutOfMemory }![]u32 {
     var out: std.ArrayList(u32) = .empty;
     var k: usize = 0;
     for (ids) |t| {
+        if (t >= vids.VBASE) return refuse(problem, "a prompt id past the vocabulary");
         if (t != image_token) {
-            if (t >= vids.VBASE) return refuse(problem, "a prompt id past the vocabulary");
             try out.append(a, t);
             continue;
         }
-        if (k >= images.len) return refuse(problem, "the prompt holds an image placeholder that is not an image part");
+        if (k >= images.len) return refuse(problem, "the prompt holds an <image> placeholder that is not an image part");
         const img = &images[k];
-        if (virtual) try out.appendSlice(a, img.vids) else try out.appendNTimes(a, image_token, img.tokens());
+        try out.append(a, start);
+        try out.appendSlice(a, img.vids);
+        try out.append(a, end);
         k += 1;
     }
     if (k != images.len) return refuse(problem, try std.fmt.allocPrint(a, "{d} image(s) sent, {d} placed in the prompt", .{ images.len, k }));

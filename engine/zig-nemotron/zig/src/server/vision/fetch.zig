@@ -1,12 +1,12 @@
 //! Image URLs as prod fetches them (GLM's ``image_fetch.py``, which DeepSeek's ``vision_prep.load_bytes`` calls):
-//! ``https`` on port 443 (TF_DSV41_VISION_FETCH_HTTP=1: also ``http`` and any port) with a host, no credentials,
+//! ``https`` on port 443 (TF_NEMOTRON_VISION_FETCH_HTTP=1: also ``http`` and any port) with a host, no credentials,
 //! fragment, backslash, whitespace or control characters, at most 4,096 characters; the host resolved and **every**
 //! address public (``public_ip``: Python's ``ipaddress.is_global`` rule, not multicast / reserved / 6to4 / Teredo /
-//! IPv4-mapped / NAT64 / IPv4-compatible, not special-purpose networks or platform metadata endpoints; TF_DSV41_VISION_FETCH_PRIVATE=1: any);
+//! IPv4-mapped / NAT64 / IPv4-compatible, not special-purpose networks or platform metadata endpoints; TF_NEMOTRON_VISION_FETCH_PRIVATE=1: any);
 //! the socket connected to a checked address and TLS verified for the host name (no second lookup); ``identity``
-//! encoding, a declared JPEG / PNG / WebP / GIF, at most TF_DSV41_VISION_MAX_BYTES; each redirect (at most 3) checked
-//! from the start; one deadline over everything (TF_DSV41_VISION_FETCH_TIMEOUT a download within the request's
-//! TF_DSV41_VISION_FETCH_TOTAL_S), a watchdog shutting the socket when it passes. Messages never hold the URL.
+//! encoding, a declared JPEG / PNG / WebP / GIF, at most TF_NEMOTRON_VISION_MAX_BYTES; each redirect (at most 3) checked
+//! from the start; one deadline over everything (TF_NEMOTRON_VISION_FETCH_TIMEOUT a download within the request's
+//! TF_NEMOTRON_VISION_FETCH_TOTAL_S), a watchdog shutting the socket when it passes. Messages never hold the URL.
 //! Differences: the connection is pinned to the first IPv4 address (an IPv6-only host is refused: std's client
 //! takes an IPv4 literal as the pinned host), and an internationalized host name is refused (no IDNA).
 const std = @import("std");
@@ -312,7 +312,7 @@ pub const Fetcher = struct {
             if (std.ascii.eqlIgnoreCase(media, m)) break true;
         } else false;
         if (!known) return refuse(problem, "image URL content type must be JPEG, PNG, WebP or GIF");
-        const too_big = try std.fmt.allocPrint(a, "image larger than {d} bytes (TF_DSV41_VISION_MAX_BYTES)", .{max_bytes});
+        const too_big = try std.fmt.allocPrint(a, "image larger than {d} bytes (TF_NEMOTRON_VISION_MAX_BYTES)", .{max_bytes});
         if (resp.head.content_length) |n| if (n > max_bytes) return refuse(problem, too_big);
         var tbuf: [64 * 1024]u8 = undefined;
         const body = resp.reader(&tbuf);

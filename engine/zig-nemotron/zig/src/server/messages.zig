@@ -6,6 +6,9 @@ const fields = @import("fields.zig");
 const Value = json.Value;
 const Cx = errors.Cx;
 
+/// A server with an image path accepts image parts (set once by Server.init; one server a process).
+pub var images_enabled: bool = false;
+
 const roles = [_][]const u8{ "system", "developer", "user", "assistant", "tool" };
 
 fn isRole(role: ?Value) bool {
@@ -35,6 +38,23 @@ pub fn normalize(cx: *Cx, messages: ?Value, late_system: []const u8, needs_user_
         const content = message.get("content");
         var item: *json.Object = message.object;
         if (content != null and content.? == .array) {
+            var has_image = false;
+            for (content.?.array) |part| if (images_enabled and @import("vision_state.zig").isImagePart(part)) {
+                has_image = true;
+            };
+            if (has_image) { // kept as parts, in order: the template places each image's <image> itself
+                const r = role.?.string;
+                if (!std.mem.eql(u8, r, "user")) return cx.refuse("images are accepted in user messages only");
+                for (content.?.array) |part| {
+                    if (@import("vision_state.zig").isImagePart(part)) continue;
+                    const typed = part == .object and part.get("type") != null and part.get("type").? == .string and std.mem.eql(u8, part.get("type").?.string, "text");
+                    if (!typed or fields.hasMedia(part)) return cx.refuse("a message with images takes text and image parts only");
+                    const t = part.get("text") orelse return cx.refuse("a text content part must contain a text string");
+                    if (t != .string) return cx.refuse("a text content part must contain a text string");
+                }
+                try out.append(cx.a, message);
+                continue;
+            }
             var text: std.ArrayList(u8) = .empty;
             for (content.?.array) |part| {
                 const typed = part == .object and part.get("type") != null and part.get("type").? == .string and std.mem.eql(u8, part.get("type").?.string, "text");
