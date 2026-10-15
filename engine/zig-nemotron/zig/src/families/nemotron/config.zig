@@ -3,7 +3,7 @@ const std = @import("std");
 
 pub const Kind = enum { mamba, moe, attention };
 
-pub const max_layers = 64;
+pub const max_layers = 96; // Super VL's backbone has 88
 
 /// The MTP head's acceptance at depth 1, 2, ... given the ones before it, until a stream has its own (model.py draft_prior).
 pub const draft_prior = [_]f64{ 0.8, 0.72, 0.68, 0.62, 0.58, 0.55, 0.5, 0.5 };
@@ -57,6 +57,13 @@ pub const Config = struct {
     group_size: usize = 64,
     bits: usize = 4,
     format: Format = .mlx,
+    /// moe_latent_size: the routed experts' own width (Super: 1024); 0 when they read the hidden vector (Lightning).
+    /// Latent MoE: fc1_latent_proj before the experts, fc2_latent_proj after their weighted sum, the shared expert in hidden.
+    latent: usize = 0,
+    /// A multimodal wrapper (model_type nemotron_h_omni): the language model's tensors live under `language_model.`.
+    wrapped: bool = false,
+    /// TF_NEMOTRON_LAYERS cut the backbone short (numerics tests on a box that cannot hold the whole model).
+    truncated: bool = false,
     eos: [4]u32 = .{ 0, 0, 0, 0 },
     eos_count: usize = 0,
 
@@ -76,10 +83,19 @@ pub const Config = struct {
         return (self.heads + 2 * self.kv_heads) * self.head_dim;
     }
 
-    /// A token's expert pairs: its routed experts, then the shared expert's two halves.
+    /// A token's expert pairs: its routed experts, then (Lightning) the shared expert's two halves. A latent-MoE model's
+    /// shared expert runs as plain projections in the hidden width, so its pairs are the routed ones alone.
     pub fn slots(self: Config) usize {
-        return self.top_k + 2;
+        return if (self.latent != 0) self.top_k else self.top_k + 2;
     }
+
+    /// The routed experts' input and output width.
+    pub fn expertDim(self: Config) usize {
+        return if (self.latent != 0) self.latent else self.hidden;
+    }
+
+    /// The checkpoint's tensor-name prefix for the language model.
+    pub const wrapper_prefix = "language_model.";
 
     pub fn count(self: Config, kind: Kind) usize {
         var n: usize = 0;
@@ -96,13 +112,44 @@ pub const Config = struct {
     pub fn read(gpa: std.mem.Allocator, io: std.Io, dir: []const u8) !Config {
         const path = try std.fs.path.join(gpa, &.{ dir, "config.json" });
         defer gpa.free(path);
-        const text = try std.Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(1 << 22));
+        const text = try std.Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(1 << 26)); // Super VL's config.json lists every quantized module: 8.6 MB
         defer gpa.free(text);
         var why: Why = .{};
-        return parse(gpa, text, &why) catch |e| {
+        var c = parse(gpa, text, &why) catch |e| {
             if (why.len > 0) std.log.err("{s}: {s}", .{ path, why.text() });
             return e;
         };
+        if (c.wrapped) try c.generationEos(gpa, io, dir);
+        if (std.c.getenv("TF_NEMOTRON_LAYERS")) |v| {
+            const n = std.fmt.parseInt(usize, std.mem.span(v), 10) catch return error.BadConfig;
+            if (n == 0 or n > c.layers) return error.BadConfig;
+            if (n < c.layers) {
+                std.log.warn("TF_NEMOTRON_LAYERS={d}: only the first {d} of {d} blocks run (a numerics test, not a model)", .{ n, n, c.layers });
+                c.layers = n;
+                c.truncated = true;
+            }
+        }
+        return c;
+    }
+
+    /// A wrapper config names one eos id; generation_config.json (HF generate's) lists them all.
+    fn generationEos(self: *Config, gpa: std.mem.Allocator, io: std.Io, dir: []const u8) !void {
+        const path = try std.fs.path.join(gpa, &.{ dir, "generation_config.json" });
+        defer gpa.free(path);
+        const text = std.Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(1 << 20)) catch return;
+        defer gpa.free(text);
+        var parsed = std.json.parseFromSlice(std.json.Value, gpa, text, .{}) catch return;
+        defer parsed.deinit();
+        if (parsed.value != .object) return;
+        const e = parsed.value.object.get("eos_token_id") orelse return;
+        if (e != .array) return;
+        var n: usize = 0;
+        for (e.array.items[0..@min(e.array.items.len, self.eos.len)]) |x| {
+            if (x != .integer) return;
+            self.eos[n] = @intCast(x.integer);
+            n += 1;
+        }
+        if (n > 0) self.eos_count = n;
     }
 };
 
@@ -118,6 +165,14 @@ fn number(v: std.json.Value) !f64 {
     return switch (v) {
         .float => |f| f,
         .integer => |i| @floatFromInt(i),
+        // transformers 5 writes a non-finite float as {"__float__": "Infinity"}
+        .object => |m| blk: {
+            const t = m.get("__float__") orelse return error.BadConfig;
+            if (t != .string) return error.BadConfig;
+            if (std.ascii.eqlIgnoreCase(t.string, "infinity")) break :blk std.math.inf(f64);
+            if (std.ascii.eqlIgnoreCase(t.string, "-infinity")) break :blk -std.math.inf(f64);
+            return error.BadConfig;
+        },
         else => error.BadConfig,
     };
 }
@@ -169,7 +224,8 @@ fn quantization(c: *Config, o: std.json.ObjectMap, why: *Why) !void {
         why.set("config.json declares no quantization; the native Nemotron kernels read MLX affine checkpoints", .{});
         return error.UnsupportedQuantization;
     };
-    if (q.get("quant_method")) |m| if (m == .string and std.ascii.eqlIgnoreCase(m.string, "modelopt")) {
+    // "modelopt" (Lightning's export), "modelopt_mixed" (Super's: FP8, NVFP4 and bf16 side by side)
+    if (q.get("quant_method")) |m| if (m == .string and std.ascii.startsWithIgnoreCase(m.string, "modelopt")) {
         c.format = .modelopt; // the CUDA loader reads each projection's format from its tensors
         return;
     };
@@ -225,7 +281,17 @@ fn learned(path: []const u8) bool {
 pub fn parse(allocator: std.mem.Allocator, text: []const u8, why: *Why) !Config {
     var parsed = try std.json.parseFromSlice(std.json.Value, allocator, text, .{});
     defer parsed.deinit();
-    const o = parsed.value.object;
+    const root = parsed.value.object;
+    const model_type = (root.get("model_type") orelse return error.BadConfig).string;
+    var o = root;
+    var wrapped = false;
+    if (std.mem.eql(u8, model_type, "nemotron_h_omni")) {
+        // Nemotron 3.5 Super VL: the language model's config nests under llm_config; its quantization is the wrapper's
+        const llm = root.get("llm_config") orelse return error.BadConfig;
+        if (llm != .object) return error.BadConfig;
+        o = llm.object;
+        wrapped = true;
+    }
     if (!std.mem.eql(u8, (o.get("model_type") orelse return error.BadConfig).string, "nemotron_h")) return error.NotNemotronH;
     var c = Config{
         .hidden = try int(o, "hidden_size"),
@@ -245,6 +311,10 @@ pub fn parse(allocator: std.mem.Allocator, text: []const u8, why: *Why) !Config 
         .shared_width = try int(o, "moe_shared_expert_intermediate_size"),
         .routed_scaling = if (o.get("routed_scaling_factor")) |v| @floatCast(try number(v)) else 1.0,
         .eps = if (o.get("layer_norm_epsilon")) |v| @floatCast(try number(v)) else 1e-5,
+    };
+    c.wrapped = wrapped;
+    if (o.get("moe_latent_size")) |v| if (v == .integer and v.integer > 0) {
+        c.latent = @intCast(v.integer);
     };
     c.head_dim = if (o.get("head_dim")) |v| @intCast(v.integer) else c.hidden / c.heads;
     if (o.get(pocket_key)) |v| {
@@ -280,16 +350,17 @@ pub fn parse(allocator: std.mem.Allocator, text: []const u8, why: *Why) !Config 
         c.dt_min = @floatCast(try number(v.array.items[0]));
         c.dt_max = @floatCast(try number(v.array.items[1]));
     };
-    try quantization(&c, o, why);
+    try quantization(&c, if (wrapped) root else o, why);
     return c;
 }
 
-/// The shapes our kernels serve (Nemotron 3.5 Lightning 30B-A3B, 4-bit groups of 64): Metal's generated sources, CUDA's captured cubins.
+/// The shapes our kernels serve: Nemotron 3.5 Lightning 30B-A3B (4-bit groups of 64: Metal's generated sources, CUDA's
+/// captured cubins) and, on CUDA, Nemotron 3.5 Super VL 120B-A12B (ModelOpt mixed, latent MoE).
 pub fn checkShapes(c: Config) !void {
     const ok = c.hidden == 2688 and c.vocab == 131072 and c.mamba_heads == 64 and c.mamba_head_dim == 64 and
         c.groups == 8 and c.state == 128 and c.conv_kernel == 4 and c.heads == 32 and c.kv_heads == 2 and
         c.head_dim == 128 and c.experts == 128 and c.top_k == 6 and c.expert_width == 1856 and c.shared_width == 3712 and
-        c.group_size == 64 and c.bits == 4 and c.format == .mlx;
+        c.group_size == 64 and c.bits == 4 and c.format == .mlx and c.latent == 0;
     if (c.format == .modelopt) {
         std.log.err("this is a ModelOpt (FP8 and NVFP4) checkpoint: the CUDA engine serves it; Metal reads MLX checkpoints", .{});
         return error.UnsupportedQuantization;
@@ -298,6 +369,22 @@ pub fn checkShapes(c: Config) !void {
         std.log.err("this Nemotron-H's shapes differ from the kernels built for Nemotron 3.5 Lightning 30B-A3B", .{});
         return error.UnsupportedShapes;
     }
+}
+
+/// The CUDA engine's shapes: Lightning's (NVFP4 or MLX) or Super VL's. Why a refusal says so goes to the log.
+pub fn checkCudaShapes(c: Config) !void {
+    const super = c.hidden == 4096 and c.vocab == 131072 and c.mamba_heads == 128 and c.mamba_head_dim == 64 and
+        c.groups == 8 and c.state == 128 and c.conv_kernel == 4 and c.heads == 32 and c.kv_heads == 2 and
+        c.head_dim == 128 and c.experts == 512 and c.top_k == 22 and c.expert_width == 2688 and c.shared_width == 5376 and
+        c.latent == 1024 and c.format == .modelopt and c.pocket == 0;
+    if (super) return;
+    const light = c.hidden == 2688 and c.vocab == 131072 and c.mamba_heads == 64 and c.mamba_head_dim == 64 and
+        c.groups == 8 and c.state == 128 and c.conv_kernel == 4 and c.heads == 32 and c.kv_heads == 2 and
+        c.head_dim == 128 and c.experts == 128 and c.top_k == 6 and c.expert_width == 1856 and c.shared_width == 3712 and
+        c.latent == 0 and (c.format == .modelopt or (c.group_size == 64 and c.bits == 4));
+    if (light) return;
+    std.log.err("this Nemotron-H's shapes are neither Nemotron 3.5 Lightning 30B-A3B's nor Super VL 120B-A12B's", .{});
+    return error.UnsupportedShapes;
 }
 
 const lightning =
@@ -371,4 +458,30 @@ test "parse the Lightning config" {
     try std.testing.expect(c.isEos(11) and !c.isEos(3));
     try std.testing.expectEqual(std.math.inf(f32), c.dt_max);
     try checkShapes(c);
+}
+
+const super_text =
+    \\{"model_type": "nemotron_h_omni", "quantization_config": {"quant_method": "modelopt_mixed", "quant_algo": "MIXED_PRECISION"},
+    \\ "llm_config": {"model_type": "nemotron_h", "hidden_size": 4096, "vocab_size": 131072, "mamba_num_heads": 128,
+    \\ "mamba_head_dim": 64, "n_groups": 8, "ssm_state_size": 128, "conv_kernel": 4, "num_attention_heads": 32,
+    \\ "num_key_value_heads": 2, "head_dim": 128, "n_routed_experts": 512, "num_experts_per_tok": 22,
+    \\ "moe_intermediate_size": 2688, "moe_shared_expert_intermediate_size": 5376, "moe_latent_size": 1024,
+    \\ "routed_scaling_factor": 5.0, "layer_norm_epsilon": 1e-05, "eos_token_id": 11,
+    \\ "time_step_limit": [0.0, {"__float__": "Infinity"}], "layers_block_type": ["mamba", "moe", "mamba", "moe", "mamba", "moe", "mamba", "attention", "moe"]}}
+;
+
+test "parse the Super VL wrapper config" {
+    var why: Why = .{};
+    const c = try parse(std.testing.allocator, super_text, &why);
+    try std.testing.expect(c.wrapped);
+    try std.testing.expectEqual(Format.modelopt, c.format);
+    try std.testing.expectEqual(@as(usize, 1024), c.latent);
+    try std.testing.expectEqual(@as(usize, 1024), c.expertDim());
+    try std.testing.expectEqual(@as(usize, 9), c.layers);
+    try std.testing.expectEqual(@as(usize, 22), c.slots());
+    try std.testing.expectEqual(@as(usize, 18560), c.projDim());
+    try std.testing.expectEqual(@as(usize, 10240), c.convDim());
+    try std.testing.expectEqual(std.math.inf(f32), c.dt_max);
+    try checkCudaShapes(c);
+    try std.testing.expectError(error.UnsupportedQuantization, checkShapes(c));
 }

@@ -291,3 +291,35 @@ extern "C" __global__ void tf_add_row(void* __restrict__ y, int y_f32, const flo
         *p = __float2bfloat16(__bfloat162float(*p) + x[i]);
     }
 }
+
+// Latent MoE (Nemotron 3.5 Super): OUT[row] = bf16(sum_k<NR WT[row, k] * Y[row * NR + k]) over L latent values, slot order;
+// Y is fp32 (decode) or bf16 (prompt) pair rows, WT the router's weights, NR its stride (routed slots only).
+extern "C" __global__ void __launch_bounds__(256) tf_latent_sum(const void* __restrict__ Yk, int y_f32, const float* __restrict__ WT,
+                                                                  __nv_bfloat16* __restrict__ OUT, int L, int NR) {
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    const int64_t row = blockIdx.y;
+    if (i >= L) return;
+    float acc = 0.0f;
+    for (int k = 0; k < NR; ++k) {
+        const int64_t at = (row * NR + k) * L + i;
+        const float y = y_f32 ? static_cast<const float*>(Yk)[at] : __bfloat162float(static_cast<const __nv_bfloat16*>(Yk)[at]);
+        acc = __fmaf_rn(WT[row * NR + k], y, acc);
+    }
+    OUT[row * L + i] = __float2bfloat16_rn(acc);
+}
+
+// The squared ReLU of a bf16 row block, in place: bf16(max(x, 0)^2) (the shared expert's activation).
+extern "C" __global__ void __launch_bounds__(256) tf_relu2_bf16(__nv_bfloat16* __restrict__ X, long long n) {
+    const long long i = static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    const float v = fmaxf(__bfloat162float(X[i]), 0.0f);
+    X[i] = __float2bfloat16_rn(v * v);
+}
+
+// OUT = bf16(A + B) elementwise over n bf16 values (the routed path's fc2 output plus the shared expert's output).
+extern "C" __global__ void __launch_bounds__(256) tf_add_bf16(const __nv_bfloat16* __restrict__ A, const __nv_bfloat16* __restrict__ B,
+                                                                __nv_bfloat16* __restrict__ OUT, long long n) {
+    const long long i = static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    OUT[i] = __float2bfloat16_rn(__bfloat162float(A[i]) + __bfloat162float(B[i]));
+}

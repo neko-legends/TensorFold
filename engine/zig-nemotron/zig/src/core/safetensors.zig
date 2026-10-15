@@ -61,6 +61,11 @@ pub fn parseHeader(arena: std.mem.Allocator, json: []const u8, data_len: usize) 
 
 /// Select one tensor namespace before interpreting shapes, so a text engine need not admit a vision tower's layouts.
 pub fn parseHeaderPrefix(arena: std.mem.Allocator, json: []const u8, data_len: usize, prefix: ?[]const u8) !Header {
+    return parseHeaderStrip(arena, json, data_len, prefix, false);
+}
+
+/// `parseHeaderPrefix`, with `strip` set the kept names lose their `prefix` (a wrapper checkpoint's `language_model.`).
+pub fn parseHeaderStrip(arena: std.mem.Allocator, json: []const u8, data_len: usize, prefix: ?[]const u8, strip: bool) !Header {
     const parsed = try std.json.parseFromSliceLeaky(std.json.Value, arena, json, .{});
     if (parsed != .object) return error.BadSafetensors;
     var out: Header = .empty;
@@ -84,7 +89,9 @@ pub fn parseHeaderPrefix(arena: std.mem.Allocator, json: []const u8, data_len: u
         e.begin = uint(offs[0]) orelse return error.BadSafetensors;
         e.end = uint(offs[1]) orelse return error.BadSafetensors;
         if (e.end < e.begin or e.end - e.begin != n or e.end > data_len) return error.BadSafetensors;
-        try out.put(arena, kv.key_ptr.*, e);
+        const skip: usize = if (strip) (if (prefix) |p| p.len else 0) else 0;
+        const key = kv.key_ptr.*[skip..];
+        try out.put(arena, key, e);
     }
     return out;
 }
@@ -143,6 +150,9 @@ pub const File = struct {
         return openPrefix(gpa, io, path, null);
     }
     pub fn openPrefix(gpa: std.mem.Allocator, io: Io, path: []const u8, prefix: ?[]const u8) !File {
+        return openStrip(gpa, io, path, prefix, false);
+    }
+    pub fn openStrip(gpa: std.mem.Allocator, io: Io, path: []const u8, prefix: ?[]const u8, strip: bool) !File {
         var file = try Io.Dir.cwd().openFile(io, path, .{});
         errdefer file.close(io);
         const len: usize = @intCast(try file.length(io));
@@ -153,7 +163,7 @@ pub const File = struct {
         if (header_len > len - 8) return error.BadSafetensors;
         var arena = std.heap.ArenaAllocator.init(gpa);
         errdefer arena.deinit();
-        const names = try parseHeaderPrefix(arena.allocator(), map.memory[8..][0..header_len], len - 8 - header_len, prefix);
+        const names = try parseHeaderStrip(arena.allocator(), map.memory[8..][0..header_len], len - 8 - header_len, prefix, strip);
         const own = try arena.allocator().dupeSentinel(u8, path, 0);
         return .{ .path = own, .file = file, .map = map, .data = 8 + header_len, .names = names, .arena = arena };
     }

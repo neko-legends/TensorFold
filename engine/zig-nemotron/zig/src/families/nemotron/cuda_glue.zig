@@ -88,9 +88,14 @@ const AttnSegs = extern struct { kc: [max_segs]u64, vc: [max_segs]u64, meta: [ma
 
 /// The router's K slices and the shared bytes its block stages: 16 rows and 16 experts of one slice, padded a word.
 pub fn routerShape(d: usize) struct { sk: usize, shared: u32 } {
-    const sk = triton.divisor(d / 64, 6);
+    var sk = triton.divisor(d / 64, 6);
+    // a wider hidden row (Super's 4096) would stage more than the 48 KiB a launch takes unopted: slice it finer
+    if (2 * 16 * (d / sk / 2 + 1) * 4 > 48 * 1024) sk = triton.divisor(d / 64, 8);
     return .{ .sk = sk, .shared = @intCast(2 * 16 * (d / sk / 2 + 1) * 4) };
 }
+
+/// The most K slices routerShape picks, which the router's partial buffer holds.
+pub const router_max_slices = 8;
 
 /// Every launch of a window or prompt chunk's glue, on one stream.
 pub const Glue = struct {
@@ -152,9 +157,9 @@ pub const Glue = struct {
     }
 
     /// fp32 router logits over K slices, then each row's top-k and the shared halves' slots.
-    pub fn route(g: Glue, x: u64, w: u64, bias: u64, part: u64, ids: u64, wts: u64, rows: usize, d: usize, e: usize, top_k: usize, scaling: f32, norm: bool) !void {
+    pub fn route(g: Glue, x: u64, w: u64, bias: u64, part: u64, ids: u64, wts: u64, rows: usize, d: usize, e: usize, top_k: usize, slots: usize, scaling: f32, norm: bool) !void {
         if (g.tri()) |t| return t.route(x, w, bias, part, ids, wts, rows, d, e, top_k, scaling, norm);
-        if (e > 256 or top_k + 2 > 8) return error.RouterTooWide;
+        if (e > 512 or top_k > 32 or slots < top_k) return error.RouterTooWide;
         const shape = routerShape(d);
         var a: cuda.Args = .{};
         ptrs(&a, &.{ x, w, part });
@@ -164,7 +169,7 @@ pub const Glue = struct {
         ptrs(&b, &.{ part, bias, ids, wts });
         b.add(int(rows));
         b.add(scaling);
-        ints(&b, &.{ e, shape.sk, top_k, top_k + 2 });
+        ints(&b, &.{ e, shape.sk, top_k, slots });
         b.add(@as(c_int, @intFromBool(norm)));
         try g.go(g.f.topk, .{ rows, 1, 1 }, 32, 0, &b);
     }
@@ -353,4 +358,11 @@ test "the router stages one slice of 16 rows and 16 experts" {
     const s = routerShape(2688);
     try std.testing.expectEqual(@as(usize, 6), s.sk);
     try std.testing.expectEqual(@as(u32, 2 * 16 * 225 * 4), s.shared);
+}
+
+test "Super's 4096-wide hidden row is sliced finer to stay under 48 KiB" {
+    const s = routerShape(4096);
+    try std.testing.expectEqual(@as(usize, 8), s.sk);
+    try std.testing.expect(s.shared <= 48 * 1024);
+    try std.testing.expect(s.sk <= router_max_slices);
 }

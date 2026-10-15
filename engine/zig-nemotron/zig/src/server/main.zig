@@ -108,7 +108,10 @@ fn modelType(a: std.mem.Allocator, io: std.Io, dir: []const u8) []const u8 {
     const doc = std.json.parseFromSliceLeaky(std.json.Value, a, bytes, .{}) catch return "unknown";
     if (doc != .object) return "unknown";
     const t = doc.object.get("model_type") orelse return "unknown";
-    return if (t == .string) t.string else "unknown";
+    if (t != .string) return "unknown";
+    // Nemotron 3.5 Super VL wraps its language model (llm_config) in a multimodal config; the family is the language model's
+    if (std.mem.eql(u8, t.string, "nemotron_h_omni")) if (doc.object.get("llm_config")) |l| if (l == .object) if (l.object.get("model_type")) |lt| if (lt == .string) return lt.string;
+    return t.string;
 }
 
 /// generation_config.json's sampling (``do_sample`` false is greedy), then the serve flags over it.

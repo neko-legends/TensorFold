@@ -38,7 +38,8 @@ extern "C" __global__ void __launch_bounds__(256) tf_nemo_router(const __nv_bflo
 
 namespace {
 
-constexpr int MAXC = 8;  // experts a lane holds: up to 256 experts
+constexpr int MAXC = 16;  // experts a lane holds: up to 512 experts (Super VL)
+constexpr int MAXK = 32;  // routed picks kept per row: top-k up to 32 (Super VL picks 22)
 
 // The larger of two (value, index) picks: a higher value, or the lower index on a tie (values are never NaN).
 __device__ __forceinline__ bool beats(float v, int i, float bv, int bi) { return v > bv || (v == bv && i < bi); }
@@ -65,8 +66,8 @@ extern "C" __global__ void __launch_bounds__(32) tf_nemo_topk(const float* __res
         sel[c] = v != v ? -INFINITY : v;  // a NaN logit is never picked ahead of a number
     }
     float total = 0.0f;
-    float probs[MAXC];
-    int ids[MAXC];
+    float probs[MAXK];
+    int ids[MAXK];
     for (int k = 0; k < TOPK; ++k) {
         float bv = -INFINITY;
         int bi = 0x7fffffff;
@@ -84,7 +85,7 @@ extern "C" __global__ void __launch_bounds__(32) tf_nemo_topk(const float* __res
         for (int c = 0; c < MAXC; ++c)
             if (bi == lane + 32 * c) p = score[c], sel[c] = -INFINITY;
         p = __shfl_sync(0xffffffffu, p, bi % 32);
-        if (k < MAXC) probs[k] = p, ids[k] = bi;
+        if (k < MAXK) probs[k] = p, ids[k] = bi;
         total = __fadd_rn(total, p);
     }
     if (lane != 0) return;

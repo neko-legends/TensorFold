@@ -190,7 +190,7 @@ fn route(r: *Rig) !void {
         const partd = try r.zeros(f32, sk * rows * E);
         const idxd = try r.zeros(i32, rows * NS);
         const wtd = try r.zeros(f32, rows * NS);
-        try r.g().route(try r.dev(u16, x), try r.dev(u16, w), try r.dev(f32, bias), partd, idxd, wtd, rows, D, E, top_k, 2.5, true);
+        try r.g().route(try r.dev(u16, x), try r.dev(u16, w), try r.dev(f32, bias), partd, idxd, wtd, rows, D, E, top_k, top_k + 2, 2.5, true);
         try r.same("router partials", f32, partd, part);
         try r.same("top-k ids", i32, idxd, idx);
         try r.same("top-k weights", f32, wtd, wt);

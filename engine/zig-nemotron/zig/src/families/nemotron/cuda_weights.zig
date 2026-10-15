@@ -28,7 +28,10 @@ pub const Attention = struct { qkv: QLinear, o: QLinear, o_rest: u64 = 0, adapte
 /// The pocket kernels' neurons (config's pocket): input weights and outputs, [n, D] fp32 each, from the 4-bit codes.
 pub const Pocket = kern.Pocket;
 /// The shared expert's down projection rest in two halves (experts E and E + 1); its learned change reads both.
-pub const MoE = struct { router: u64, bias: u64, experts: Experts, rest: [2]u64 = .{ 0, 0 }, adapter: ?Adapter = null, pocket: ?Pocket = null };
+/// A latent MoE layer's projections (Nemotron 3.5 Super): `fc1` hidden -> latent before the routed experts, `fc2` latent -> hidden
+/// after their weighted sum; the shared expert runs apart in the hidden width, as two projections.
+pub const Latent = struct { fc1: QLinear, fc2: QLinear, shared_up: QLinear, shared_down: QLinear };
+pub const MoE = struct { router: u64, bias: u64, experts: Experts, rest: [2]u64 = .{ 0, 0 }, adapter: ?Adapter = null, pocket: ?Pocket = null, latent: ?Latent = null };
 pub const Block = struct { kind: Kind, norm: u64, mamba: Mamba = undefined, attn: Attention = undefined, moe: MoE = undefined };
 pub const Mtp = struct { enorm: u64, hnorm: u64, eh_proj: QLinear, attn_norm: u64, attn: Attention, moe_norm: u64, moe: MoE, final_norm: u64 };
 
@@ -455,7 +458,8 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, ops: kern.Ops, dir: []const u8, 
         for (L.held.items) |h| gpa.free(h);
         L.held.deinit(gpa);
     }
-    var ck = try core.Checkpoint.openModel(gpa, io, dir);
+    // a multimodal wrapper keeps the language model under `language_model.`: read it as the plain model it is
+    var ck = if (c.wrapped) try core.Checkpoint.openModelStrip(gpa, io, dir, Config.wrapper_prefix, true) else try core.Checkpoint.openModel(gpa, io, dir);
     defer ck.close();
     try src.add(&ck);
     w.blocks = try gpa.alloc(Block, c.layers);
@@ -488,7 +492,7 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, ops: kern.Ops, dir: []const u8, 
     w.head = try L.dense(&ck, "head", &.{"lm_head"});
     // a ModelOpt checkpoint keeps its MTP head in its own shards
     if (c.format == .modelopt) if (with_mtp) try modelopt.mtp(&L, &ck, c) else try ck.skip("mtp.");
-    if (ck.unused() != 0) return error.UnusedCheckpointTensors;
+    if (!c.truncated and ck.unused() != 0) return error.UnusedCheckpointTensors;
     if (L.learned > 0) std.log.info("{d} output projections carry what lessons taught this model", .{L.learned});
     if (with_mtp and c.format == .mlx) try loadMtp(gpa, io, &L, &ck, dir, c);
     try src.flush();

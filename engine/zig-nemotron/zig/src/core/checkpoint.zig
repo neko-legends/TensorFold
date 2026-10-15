@@ -65,12 +65,16 @@ pub const Checkpoint = struct {
         return openModelPrefix(gpa, io, dir, null);
     }
     pub fn openModelPrefix(gpa: std.mem.Allocator, io: Io, dir: []const u8, prefix: ?[]const u8) !Checkpoint {
+        return openModelStrip(gpa, io, dir, prefix, false);
+    }
+    /// Only the names under `prefix`, with it removed (a wrapper checkpoint's language model as a plain one).
+    pub fn openModelStrip(gpa: std.mem.Allocator, io: Io, dir: []const u8, prefix: ?[]const u8, strip: bool) !Checkpoint {
         const paths = try shardFiles(gpa, io, dir);
         defer freeShardFiles(gpa, paths);
         var ck: Checkpoint = .{ .gpa = gpa, .io = io };
         errdefer ck.close();
         try ck.files.ensureTotalCapacityPrecise(gpa, paths.len);
-        for (paths) |p| ck.files.appendAssumeCapacity(try st.File.openPrefix(gpa, io, p, prefix));
+        for (paths) |p| ck.files.appendAssumeCapacity(try st.File.openStrip(gpa, io, p, prefix, strip));
         return ck;
     }
 

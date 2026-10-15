@@ -13,6 +13,8 @@ pub const prefill_rows = 2048; // rows of a staggered segment's chunk, and of a 
 pub const pass_rows = 2 * prefill_rows; // rows a serial prompt pass runs at most (a row's bits are the same at any cut)
 pub const yield_rows = 256; // rows of a background pass's chunk: a request that arrives waits for one at most
 pub const chunk_keys = 512; // keys an attention chunk holds, at fixed absolute positions
+/// K slices the router's partial buffer holds (cuda_glue.router_max_slices).
+const router_slices = 8;
 const shared_words = 2 * max_rows + 8 * max_rows; // the shared expert's members, then (items, counts) a row count
 
 /// Sub-allocations of one device allocation, 256-byte aligned like the driver's own.
@@ -81,7 +83,7 @@ fn seqSizes(c: Config, max_len: usize) [seq_fields.len]usize {
     return .{ kv, kv, m[0], m[1], nm * 2 * W * cd * 2, nm * 2 * W * cd * 2, nm * 2 * W * c.mamba_heads * 4, 16, W * 4, W * c.hidden * 2, W * 4, @sizeOf(sampler.Rule) };
 }
 
-const scratch_count = 36;
+const scratch_count = 40;
 
 /// Scratch windows and chunks share on one stream: window logits, chunk io, activations, the expert plan.
 fn scratchSizes(c: Config, nch: usize) [scratch_count]usize {
@@ -103,10 +105,13 @@ fn scratchSizes(c: Config, nch: usize) [scratch_count]usize {
         R * xd * 2,            R * xd / 64 * 4,                             R * c.qkvDim() * 2,
         R * qd * 2,            R * qd * 2,                                  R * qd / 64 * 4,
         W * nch * qd * 4,      W * nch * c.heads * 4,                       W * nch * c.heads * 4,
-        6 * R * c.experts * 4, R * ns * 4,                                  R * ns * 4,
+        router_slices * R * c.experts * 4, R * ns * 4,                                  R * ns * 4,
         pairs * 4,             items * 12,                                  8,
         pairs * 4,             (pairs + 1023) / 1024 * (c.experts + 2) * 4, pairs * c.expert_width * 2,
-        pairs * D * 4,         shared_words * 4,                            R * kern.pocket_width * 4,
+        pairs * c.expertDim() * 4, shared_words * 4,                        R * kern.pocket_width * 4,
+        // latent MoE (zero-sized otherwise): fc1's output, the weighted sum, the shared expert's activation and output
+        R * c.latent * 2,      R * c.latent * 2,                            R * (if (c.latent != 0) c.shared_width * 2 else 0),
+        R * (if (c.latent != 0) D * 2 else 0),
     };
 }
 
@@ -218,6 +223,10 @@ pub const Buffers = struct {
     rule: u64, // the sequence's sampled rule, as sample.cu reads it
     shared: u64, // the shared expert's fixed plans: 32 members, then (items, counts) for 1..16 rows
     pocket: u64, // the pocket's activations, fp32 [rows, pocket_width]
+    lat: u64, // latent MoE: fc1_latent_proj's output rows [rows, latent]
+    lat2: u64, // the routed pairs' weighted sum [rows, latent]
+    sact: u64, // the shared expert's up projection, activated [rows, shared_width]
+    ysh: u64, // the shared expert's output [rows, hidden]
 
     /// Sizes every buffer for `max_len` cache rows and `nch` attention chunk partials a row; the own sequence's first.
     pub fn init(d: *const cuda.Driver, c: Config, max_len: usize, nch: usize, carve: ?*cuda.Carveout) !Buffers {
@@ -263,6 +272,7 @@ pub const Buffers = struct {
             &b.xs,        &b.delta,     &b.proj,  &b.p_xc,     &b.sy,       &b.g,         &b.gxs, &b.qkv,          &b.q,          &b.att,
             &b.axs,       &b.po,        &b.pm,    &b.pl,       &b.part,     &b.pick,      &b.wts, &b.plan.members, &b.plan.items, &b.plan.counts,
             &b.plan.rank, &b.plan.hist, &b.act,   &b.ymoe,     &b.shared,   &b.pocket,
+            &b.lat,       &b.lat2,      &b.sact,  &b.ysh,
         };
     }
 

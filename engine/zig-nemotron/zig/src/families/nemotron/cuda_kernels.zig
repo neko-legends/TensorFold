@@ -61,6 +61,9 @@ pub const Kernels = struct {
     pocket_in: [2]cuda.Function, // the pocket's two halves a block row a row, then tiled for a prompt chunk's rows
     pocket_out: [2]cuda.Function,
     add_row: cuda.Function,
+    latent_sum: cuda.Function, // latent MoE: the routed pairs' weighted sum into the latent row
+    relu2_bf16: cuda.Function, // the shared expert's activation, in place
+    add_bf16: cuda.Function,
     draws: cuda.sample.Draws, // sample.cu: the keyed draws and logprob rows
     grammar_mask: cuda.Function, // structured output: disallowed tokens -inf before the draw
     torch: torch_ops.Functions,
@@ -93,6 +96,9 @@ pub const Kernels = struct {
         k.pocket_in = .{ try k.mods[7].function("tf_pocket_in"), try k.mods[7].function("tf_pocket_in_rows") };
         k.pocket_out = .{ try k.mods[7].function("tf_pocket_out"), try k.mods[7].function("tf_pocket_out_rows") };
         k.add_row = try k.mods[7].function("tf_add_row");
+        k.latent_sum = try k.mods[7].function("tf_latent_sum");
+        k.relu2_bf16 = try k.mods[7].function("tf_relu2_bf16");
+        k.add_bf16 = try k.mods[7].function("tf_add_bf16");
         k.torch = try torch_ops.Functions.resolve(k.mods[8..14]);
         k.draws = try cuda.sample.Draws.resolve(k.mods[14]);
         k.glue = try glue.Fns.resolve(k.mods[16..21]);
@@ -291,6 +297,36 @@ pub const Ops = struct {
             0,
             &b,
         );
+    }
+
+    /// Latent MoE: out [rows, l] bf16 = the weighted sum of each row's `nr` routed pair rows (fp32, or bf16 when !y_f32).
+    pub fn latentSum(o: Ops, y: u64, y_f32: bool, wts: u64, out: u64, rows: usize, l: usize, nr: usize) !void {
+        var a: cuda.Args = .{};
+        a.add(y);
+        a.add(@as(c_int, @intFromBool(y_f32)));
+        a.add(wts);
+        a.add(out);
+        a.add(int(l));
+        a.add(int(nr));
+        try o.go(o.k.latent_sum, .{ (l + 255) / 256, rows, 1 }, 256, 0, &a);
+    }
+
+    /// x = bf16(relu(x)^2) over n bf16 values, in place.
+    pub fn relu2(o: Ops, x: u64, n: usize) !void {
+        var a: cuda.Args = .{};
+        a.add(x);
+        a.add(@as(c_longlong, @intCast(n)));
+        try o.go(o.k.relu2_bf16, .{ (n + 255) / 256, 1, 1 }, 256, 0, &a);
+    }
+
+    /// out = bf16(a + b) over n bf16 values (out may be a).
+    pub fn addBf16(o: Ops, a_: u64, b_: u64, out: u64, n: usize) !void {
+        var a: cuda.Args = .{};
+        a.add(a_);
+        a.add(b_);
+        a.add(out);
+        a.add(@as(c_longlong, @intCast(n)));
+        try o.go(o.k.add_bf16, .{ (n + 255) / 256, 1, 1 }, 256, 0, &a);
     }
 
     /// nemotron_ops' nudge: y (bf16, or fp32 when `y_f32`) += x (fp32) over n values.

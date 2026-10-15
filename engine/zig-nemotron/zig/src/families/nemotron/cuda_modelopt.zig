@@ -65,7 +65,32 @@ fn kernels(L: *Loader) !*const kern.Modelopt {
     return if (L.ops.k.modelopt) |*m| m else error.ModeloptNotLoaded;
 }
 
-/// Row-stacked parts (one projection, or q, k, v) of one kind and one scale as a lane weight, packed on the GPU.
+/// e4m3 -> f32, exactly (the format has no infinities; 0x7F and 0xFF are NaN).
+fn e4m3(b: u8) f32 {
+    const sign: f32 = if (b & 0x80 != 0) -1.0 else 1.0;
+    const e: i32 = (b >> 3) & 0xF;
+    const m: f32 = @floatFromInt(b & 7);
+    if (e == 0) return sign * m * std.math.pow(f32, 2.0, -9.0);
+    if (e == 15 and (b & 7) == 7) return std.math.nan(f32);
+    return sign * (1.0 + m / 8.0) * std.math.pow(f32, 2.0, @floatFromInt(e - 7));
+}
+
+/// An FP8 part's values times its scale, rounded to bf16 as the host holds them (the loader's staging buffer).
+fn widenFp8(L: *Loader, p: Part) ![]u8 {
+    const count = p.w.bytes.len;
+    const out = try L.staging(count * 2);
+    const in = try L.src.view(p.w.bytes);
+    for (0..count) |i| {
+        const bits: u32 = @bitCast(e4m3(in[i]) * p.scale);
+        // round to nearest even into bf16
+        const r = bits +% 0x7FFF +% ((bits >> 16) & 1);
+        std.mem.writeInt(u16, out[2 * i ..][0..2], @intCast(r >> 16), .little);
+    }
+    return out;
+}
+
+/// Row-stacked parts (one projection, or q, k, v) of one kind as a lane weight, packed on the GPU; FP8 parts with
+/// scales of their own are stacked as bf16.
 pub fn dense(L: *Loader, ck: *core.Checkpoint, label: []const u8, prefixes: []const []const u8) !kern.QLinear {
     const m = try kernels(L);
     var parts: [3]Part = undefined;
@@ -74,10 +99,24 @@ pub fn dense(L: *Loader, ck: *core.Checkpoint, label: []const u8, prefixes: []co
         parts[i] = try part(ck, pre);
         n += parts[i].n;
     }
-    const first = parts[0];
-    for (parts[0..prefixes.len]) |p| if (p.kind != first.kind or p.scale != first.scale or p.k != first.k) return error.MixedQuantization;
+    var first = parts[0];
+    for (parts[0..prefixes.len]) |p| if (p.k != first.k) return error.MixedQuantization;
+    // FP8 parts that carry their own scales (Super's q, k and v) stack as the bf16 values the scales give: the
+    // lane multiplies a stacked weight by one scale, and e4m3 cannot hold another part's rescaled values
+    var mixed = false;
+    for (parts[0..prefixes.len]) |p| {
+        if (p.kind != first.kind) return error.MixedQuantization;
+        if (p.scale != first.scale) {
+            if (p.kind != .fp8) return error.MixedQuantization;
+            mixed = true;
+        }
+    }
     const k = first.k;
     if (k % 64 != 0) return error.UnexpectedTensor;
+    if (mixed) {
+        first.kind = .bf16;
+        first.scale = 1.0;
+    }
     var buf: [128]u8 = undefined;
     const s = L.ops.s;
     switch (first.kind) {
@@ -86,6 +125,12 @@ pub fn dense(L: *Loader, ck: *core.Checkpoint, label: []const u8, prefixes: []co
             const base = try L.tmp(n * k * size);
             var at: usize = 0;
             for (parts[0..prefixes.len]) |p| {
+                if (mixed) {
+                    const bytes = try widenFp8(L, p);
+                    try L.ops.upload(base + at, bytes);
+                    at += bytes.len;
+                    continue;
+                }
                 try L.src.upload(base + at, p.w.bytes);
                 at += p.w.bytes.len;
             }
@@ -151,7 +196,56 @@ pub fn moe(L: *Loader, ck: *core.Checkpoint, label: []const u8, pre: []const u8,
     var b: [192]u8 = undefined;
     const r = try router(L, try name(&a, "{s}.router", .{label}), try ck.get(try name(&b, "{s}gate.weight", .{pre})), c);
     const bias = try ck.expect(try name(&b, "{s}gate.e_score_correction_bias", .{pre}), .f32, &.{c.experts});
+    if (c.latent != 0) return .{ .router = r, .bias = try L.raw(try name(&a, "{s}.bias", .{label}), bias), .experts = try routedExperts(L, ck, label, pre, c), .latent = try latent(L, ck, label, pre) };
     return .{ .router = r, .bias = try L.raw(try name(&a, "{s}.bias", .{label}), bias), .experts = try experts(L, ck, label, pre, c) };
+}
+
+/// Latent MoE's projections: fc1 and fc2 (bf16) around the routed experts, the shared expert (NVFP4) in the hidden width.
+fn latent(L: *Loader, ck: *core.Checkpoint, label: []const u8, pre: []const u8) !W.Latent {
+    var a: [128]u8 = undefined;
+    var b: [192]u8 = undefined;
+    var c2: [192]u8 = undefined;
+    var d: [128]u8 = undefined;
+    return .{
+        .fc1 = try dense(L, ck, try name(&a, "{s}.fc1", .{label}), &.{try name(&b, "{s}fc1_latent_proj", .{pre})}),
+        .fc2 = try dense(L, ck, try name(&a, "{s}.fc2", .{label}), &.{try name(&b, "{s}fc2_latent_proj", .{pre})}),
+        .shared_up = try dense(L, ck, try name(&a, "{s}.shared_up", .{label}), &.{try name(&c2, "{s}shared_experts.up_proj", .{pre})}),
+        .shared_down = try dense(L, ck, try name(&d, "{s}.shared_down", .{label}), &.{try name(&b, "{s}shared_experts.down_proj", .{pre})}),
+    };
+}
+
+/// A latent MoE layer's routed experts alone, in the latent width: up [width, latent], down [latent, width].
+fn routedExperts(L: *Loader, ck: *core.Checkpoint, label: []const u8, pre: []const u8, c: Config) !kern.Experts {
+    const m = try kernels(L);
+    const E = c.experts;
+    const width = c.expert_width;
+    const D = c.latent;
+    var layer: kern.Experts = .{ .format = .nvfp4, .up = 0, .down = 0, .width = width, .dims = D, .experts = E, .relu2 = true };
+    const gs = try L.gpa.alloc(f32, 2 * E);
+    defer L.gpa.free(gs);
+    var a: [128]u8 = undefined;
+    var b: [192]u8 = undefined;
+    for ([2]bool{ true, false }) |up| {
+        const n = if (up) width else D;
+        const k = if (up) D else width;
+        const codes = n * k / 2;
+        const blocks = n * k / 16;
+        const base = try L.tmp(E * (codes + blocks));
+        for (0..E) |i| {
+            const p = try part(ck, try name(&b, "{s}experts.{d}.{s}", .{ pre, i, if (up) "up_proj" else "down_proj" }));
+            if (p.kind != .nvfp4 or p.n != n or p.k != k) return error.UnexpectedTensor;
+            try L.src.upload(base + i * codes, p.w.bytes);
+            try L.src.upload(base + E * codes + i * blocks, p.blocks.?.bytes);
+            gs[@intFromBool(!up) * E + i] = p.scale;
+        }
+        const out = try L.alloc(try name(&a, "{s}.experts.{s}", .{ label, if (up) "up" else "down" }), Nvfp4Experts.bytes(E, n, k, 1));
+        try L.src.flush();
+        try m.pack.fp4Experts(L.ops.s, base, base + E * codes, out, E, n, k, 0, k, 1, 0);
+        if (up) layer.up = out else layer.down = out;
+    }
+    layer.up_scale = try scales(L, try name(&a, "{s}.experts.up_scale", .{label}), gs[0..E]);
+    layer.down_scale = try scales(L, try name(&a, "{s}.experts.down_scale", .{label}), gs[E..]);
+    return layer;
 }
 
 fn experts(L: *Loader, ck: *core.Checkpoint, label: []const u8, pre: []const u8, c: Config) !kern.Experts {
@@ -252,6 +346,7 @@ fn one4(L: *Loader, ck: *core.Checkpoint, pre: []const u8, mid: []const u8) ![3]
 
 /// The MTP head (bf16 in these checkpoints) made affine-4 as the MLX one is; the draft head is lm_head's NVFP4 rows.
 pub fn mtp(L: *Loader, ck: *core.Checkpoint, c: Config) !void {
+    if (c.latent != 0) return mtpLatent(L, ck, c);
     const p0 = "mtp.layers.0.";
     const p1 = "mtp.layers.1.mixer.";
     const att = p0 ++ "mixer.";
@@ -281,12 +376,33 @@ pub fn mtp(L: *Loader, ck: *core.Checkpoint, c: Config) !void {
     try draftHead(L, ck, c);
 }
 
-/// head_rows: lm_head's NVFP4 rows for the draft ids, packed as a head of their own (one global scale).
+/// Super's MTP head: bf16 attention and fusion projections as the lane reads them, a latent MoE like the backbone's.
+fn mtpLatent(L: *Loader, ck: *core.Checkpoint, c: Config) !void {
+    const p0 = "mtp.layers.0.";
+    const att = p0 ++ "mixer.";
+    L.w.mtp = .{
+        .enorm = try L.raw("mtp.enorm", try ck.get(p0 ++ "enorm.weight")),
+        .hnorm = try L.raw("mtp.hnorm", try ck.get(p0 ++ "hnorm.weight")),
+        .eh_proj = try dense(L, ck, "mtp.eh_proj", &.{p0 ++ "eh_proj"}),
+        .attn_norm = try L.raw("mtp.attn_norm", try ck.get(p0 ++ "norm.weight")),
+        .attn = .{
+            .qkv = try dense(L, ck, "mtp.attn.qkv", &.{ att ++ "q_proj", att ++ "k_proj", att ++ "v_proj" }),
+            .o = try dense(L, ck, "mtp.attn.o", &.{att ++ "o_proj"}),
+        },
+        .moe_norm = try L.raw("mtp.moe_norm", try ck.get("mtp.layers.1.norm.weight")),
+        .moe = try moe(L, ck, "mtp.moe", "mtp.layers.1.mixer.", c),
+        .final_norm = try L.raw("mtp.final_norm", try ck.get("mtp.layers.1.final_layernorm.weight")),
+    };
+    try draftHead(L, ck, c);
+}
+
+/// head_rows: lm_head's NVFP4 (or FP8) rows for the draft ids, packed as a head of their own (one global scale).
 fn draftHead(L: *Loader, ck: *core.Checkpoint, c: Config) !void {
     const m = try kernels(L);
     const ids = try draft_ids.load(L.gpa, c.vocab);
     defer L.gpa.free(ids);
     const p = try part(ck, "lm_head");
+    if (p.kind == .fp8 and p.n == c.vocab) return draftHeadFp8(L, p, ids);
     if (p.kind != .nvfp4 or p.n != c.vocab) return error.UnexpectedTensor;
     const rows = [2]usize{ p.k / 2, p.k / 16 };
     const host = try L.staging(ids.len * (rows[0] + rows[1]));
@@ -303,5 +419,22 @@ fn draftHead(L: *Loader, ck: *core.Checkpoint, c: Config) !void {
     const tiles = try L.alloc("draft_head.scales", cuda.modelopt.padded(n) * p.k / 16);
     try m.pack.fp4Lane(L.ops.s, base, base + n * rows[0], words, tiles, n, p.k);
     L.w.draft_head = .{ .nvfp4 = cuda.nvfp4.weight(words, tiles, p.scale, n, p.k) };
+    try W.draftIds(L, ids);
+}
+
+/// An FP8 lm_head's rows for the draft ids, packed as a head of their own (the head's one scale).
+fn draftHeadFp8(L: *Loader, p: Part, ids: []const u32) !void {
+    const m = try kernels(L);
+    const n = ids.len;
+    const host = try L.staging(n * p.k);
+    const whole = try L.gpa.alloc(u8, p.w.bytes.len);
+    defer L.gpa.free(whole);
+    try L.src.read(whole, p.w.bytes);
+    for (ids, 0..) |id, r| @memcpy(host[r * p.k ..][0..p.k], whole[id * p.k ..][0..p.k]);
+    const base = try L.tmp(host.len);
+    try L.ops.upload(base, host);
+    const out = try L.alloc("draft_head.weight", cuda.modelopt.padded(n) * p.k);
+    try m.pack.fp8Lane(L.ops.s, base, out, n, p.k);
+    L.w.draft_head = .{ .fp8 = cuda.modelopt.fp8Weight(out, p.scale, n, p.k) };
     try W.draftIds(L, ids);
 }
