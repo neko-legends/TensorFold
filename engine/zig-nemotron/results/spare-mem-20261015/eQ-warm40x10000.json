@@ -1,0 +1,1023 @@
+{
+ "date": "2026-10-15T22:55:00-0700",
+ "url": "http://forge:8100",
+ "agents": 40,
+ "prefix": 10000,
+ "turns": 2,
+ "phase": "all",
+ "cold": [
+  {
+   "agent": 0,
+   "prompt_tokens": 10018,
+   "wall_s": 2.236,
+   "ttft_s": 2.100389124
+  },
+  {
+   "agent": 1,
+   "prompt_tokens": 9937,
+   "wall_s": 2.147,
+   "ttft_s": 2.02931586
+  },
+  {
+   "agent": 2,
+   "prompt_tokens": 10084,
+   "wall_s": 2.13,
+   "ttft_s": 2.050774564
+  },
+  {
+   "agent": 3,
+   "prompt_tokens": 10067,
+   "wall_s": 2.149,
+   "ttft_s": 2.048497149
+  },
+  {
+   "agent": 4,
+   "prompt_tokens": 10020,
+   "wall_s": 2.164,
+   "ttft_s": 2.056148526
+  },
+  {
+   "agent": 5,
+   "prompt_tokens": 10077,
+   "wall_s": 2.182,
+   "ttft_s": 2.04975656
+  },
+  {
+   "agent": 6,
+   "prompt_tokens": 9999,
+   "wall_s": 2.139,
+   "ttft_s": 2.043467555
+  },
+  {
+   "agent": 7,
+   "prompt_tokens": 10035,
+   "wall_s": 2.112,
+   "ttft_s": 2.044705059
+  },
+  {
+   "agent": 8,
+   "prompt_tokens": 10009,
+   "wall_s": 2.184,
+   "ttft_s": 2.042624059
+  },
+  {
+   "agent": 9,
+   "prompt_tokens": 10064,
+   "wall_s": 2.11,
+   "ttft_s": 2.041078675
+  },
+  {
+   "agent": 10,
+   "prompt_tokens": 10036,
+   "wall_s": 2.114,
+   "ttft_s": 2.044429598
+  },
+  {
+   "agent": 11,
+   "prompt_tokens": 10092,
+   "wall_s": 2.121,
+   "ttft_s": 2.047066059
+  },
+  {
+   "agent": 12,
+   "prompt_tokens": 10014,
+   "wall_s": 2.113,
+   "ttft_s": 2.047671565
+  },
+  {
+   "agent": 13,
+   "prompt_tokens": 10041,
+   "wall_s": 2.115,
+   "ttft_s": 2.049725771
+  },
+  {
+   "agent": 14,
+   "prompt_tokens": 10080,
+   "wall_s": 2.15,
+   "ttft_s": 2.051274362
+  },
+  {
+   "agent": 15,
+   "prompt_tokens": 10007,
+   "wall_s": 2.12,
+   "ttft_s": 2.053054089
+  },
+  {
+   "agent": 16,
+   "prompt_tokens": 10036,
+   "wall_s": 2.12,
+   "ttft_s": 2.051842207
+  },
+  {
+   "agent": 17,
+   "prompt_tokens": 10084,
+   "wall_s": 2.119,
+   "ttft_s": 2.048965097
+  },
+  {
+   "agent": 18,
+   "prompt_tokens": 9997,
+   "wall_s": 2.168,
+   "ttft_s": 2.045068422
+  },
+  {
+   "agent": 19,
+   "prompt_tokens": 10072,
+   "wall_s": 2.128,
+   "ttft_s": 2.053431877
+  },
+  {
+   "agent": 20,
+   "prompt_tokens": 10022,
+   "wall_s": 2.168,
+   "ttft_s": 2.04293797
+  },
+  {
+   "agent": 21,
+   "prompt_tokens": 9970,
+   "wall_s": 2.317,
+   "ttft_s": 2.218734144
+  },
+  {
+   "agent": 22,
+   "prompt_tokens": 9957,
+   "wall_s": 2.285,
+   "ttft_s": 2.216888327
+  },
+  {
+   "agent": 23,
+   "prompt_tokens": 10046,
+   "wall_s": 2.301,
+   "ttft_s": 2.231575944
+  },
+  {
+   "agent": 24,
+   "prompt_tokens": 10014,
+   "wall_s": 2.289,
+   "ttft_s": 2.219480697
+  },
+  {
+   "agent": 25,
+   "prompt_tokens": 9947,
+   "wall_s": 2.28,
+   "ttft_s": 2.210681616
+  },
+  {
+   "agent": 26,
+   "prompt_tokens": 9940,
+   "wall_s": 2.289,
+   "ttft_s": 2.21737394
+  },
+  {
+   "agent": 27,
+   "prompt_tokens": 9969,
+   "wall_s": 2.335,
+   "ttft_s": 2.211806853
+  },
+  {
+   "agent": 28,
+   "prompt_tokens": 10062,
+   "wall_s": 2.284,
+   "ttft_s": 2.221204066
+  },
+  {
+   "agent": 29,
+   "prompt_tokens": 9980,
+   "wall_s": 2.278,
+   "ttft_s": 2.211906684
+  },
+  {
+   "agent": 30,
+   "prompt_tokens": 9985,
+   "wall_s": 2.328,
+   "ttft_s": 2.220781194
+  },
+  {
+   "agent": 31,
+   "prompt_tokens": 10026,
+   "wall_s": 2.349,
+   "ttft_s": 2.228839755
+  },
+  {
+   "agent": 32,
+   "prompt_tokens": 9999,
+   "wall_s": 2.321,
+   "ttft_s": 2.229425628
+  },
+  {
+   "agent": 33,
+   "prompt_tokens": 9974,
+   "wall_s": 2.319,
+   "ttft_s": 2.220915061
+  },
+  {
+   "agent": 34,
+   "prompt_tokens": 9998,
+   "wall_s": 2.317,
+   "ttft_s": 2.22533043
+  },
+  {
+   "agent": 35,
+   "prompt_tokens": 10180,
+   "wall_s": 2.313,
+   "ttft_s": 2.249109625
+  },
+  {
+   "agent": 36,
+   "prompt_tokens": 9980,
+   "wall_s": 2.324,
+   "ttft_s": 2.225250037
+  },
+  {
+   "agent": 37,
+   "prompt_tokens": 10056,
+   "wall_s": 2.329,
+   "ttft_s": 2.230110301
+  },
+  {
+   "agent": 38,
+   "prompt_tokens": 10081,
+   "wall_s": 2.351,
+   "ttft_s": 2.223741327
+  },
+  {
+   "agent": 39,
+   "prompt_tokens": 9993,
+   "wall_s": 2.289,
+   "ttft_s": 2.219093709
+  }
+ ],
+ "warm": [
+  {
+   "prompt_tokens": 10054,
+   "cached_tokens": 10012,
+   "wall_s": 0.834,
+   "ttft_s": 0.726972953,
+   "prefill_s": 0.251294286,
+   "prev_prompt": 10018,
+   "hit": true,
+   "agent": 0,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 9973,
+   "cached_tokens": 9931,
+   "wall_s": 0.9,
+   "ttft_s": 0.723303426,
+   "prefill_s": 0.252687259,
+   "prev_prompt": 9937,
+   "hit": true,
+   "agent": 1,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10117,
+   "cached_tokens": 10078,
+   "wall_s": 0.864,
+   "ttft_s": 0.717285824,
+   "prefill_s": 0.247261383,
+   "prev_prompt": 10084,
+   "hit": true,
+   "agent": 2,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10103,
+   "cached_tokens": 10061,
+   "wall_s": 0.892,
+   "ttft_s": 0.714983751,
+   "prefill_s": 0.249587266,
+   "prev_prompt": 10067,
+   "hit": true,
+   "agent": 3,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10056,
+   "cached_tokens": 10014,
+   "wall_s": 0.886,
+   "ttft_s": 0.714061544,
+   "prefill_s": 0.249875329,
+   "prev_prompt": 10020,
+   "hit": true,
+   "agent": 4,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10113,
+   "cached_tokens": 10071,
+   "wall_s": 0.96,
+   "ttft_s": 0.872567027,
+   "prefill_s": 0.330022868,
+   "prev_prompt": 10077,
+   "hit": true,
+   "agent": 5,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10035,
+   "cached_tokens": 9993,
+   "wall_s": 0.629,
+   "ttft_s": 0.540272244,
+   "prefill_s": 0.255880004,
+   "prev_prompt": 9999,
+   "hit": true,
+   "agent": 6,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10071,
+   "cached_tokens": 10029,
+   "wall_s": 0.641,
+   "ttft_s": 0.552013705,
+   "prefill_s": 0.250904672,
+   "prev_prompt": 10035,
+   "hit": true,
+   "agent": 7,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10045,
+   "cached_tokens": 10003,
+   "wall_s": 0.632,
+   "ttft_s": 0.540297509,
+   "prefill_s": 0.251274143,
+   "prev_prompt": 10009,
+   "hit": true,
+   "agent": 8,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10097,
+   "cached_tokens": 10058,
+   "wall_s": 0.641,
+   "ttft_s": 0.546859781,
+   "prefill_s": 0.25015349,
+   "prev_prompt": 10064,
+   "hit": true,
+   "agent": 9,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10072,
+   "cached_tokens": 10030,
+   "wall_s": 0.638,
+   "ttft_s": 0.54656791,
+   "prefill_s": 0.250397553,
+   "prev_prompt": 10036,
+   "hit": true,
+   "agent": 10,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10125,
+   "cached_tokens": 10086,
+   "wall_s": 0.642,
+   "ttft_s": 0.554535331,
+   "prefill_s": 0.257837248,
+   "prev_prompt": 10092,
+   "hit": true,
+   "agent": 11,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10047,
+   "cached_tokens": 10008,
+   "wall_s": 0.632,
+   "ttft_s": 0.541567794,
+   "prefill_s": 0.247336296,
+   "prev_prompt": 10014,
+   "hit": true,
+   "agent": 12,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10074,
+   "cached_tokens": 10035,
+   "wall_s": 0.711,
+   "ttft_s": 0.539480792,
+   "prefill_s": 0.249623539,
+   "prev_prompt": 10041,
+   "hit": true,
+   "agent": 13,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10116,
+   "cached_tokens": 10074,
+   "wall_s": 0.725,
+   "ttft_s": 0.552456633,
+   "prefill_s": 0.260380394,
+   "prev_prompt": 10080,
+   "hit": true,
+   "agent": 14,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10043,
+   "cached_tokens": 10001,
+   "wall_s": 0.612,
+   "ttft_s": 0.551583739,
+   "prefill_s": 0.253694954,
+   "prev_prompt": 10007,
+   "hit": true,
+   "agent": 15,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10072,
+   "cached_tokens": 10030,
+   "wall_s": 0.726,
+   "ttft_s": 0.551963099,
+   "prefill_s": 0.251027712,
+   "prev_prompt": 10036,
+   "hit": true,
+   "agent": 16,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10120,
+   "cached_tokens": 10078,
+   "wall_s": 0.721,
+   "ttft_s": 0.544982764,
+   "prefill_s": 0.255809862,
+   "prev_prompt": 10084,
+   "hit": true,
+   "agent": 17,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10033,
+   "cached_tokens": 9991,
+   "wall_s": 0.694,
+   "ttft_s": 0.542851841,
+   "prefill_s": 0.252955484,
+   "prev_prompt": 9997,
+   "hit": true,
+   "agent": 18,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10108,
+   "cached_tokens": 10066,
+   "wall_s": 0.679,
+   "ttft_s": 0.536261153,
+   "prefill_s": 0.25053613,
+   "prev_prompt": 10072,
+   "hit": true,
+   "agent": 19,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10058,
+   "cached_tokens": 10016,
+   "wall_s": 0.713,
+   "ttft_s": 0.542248275,
+   "prefill_s": 0.25137256,
+   "prev_prompt": 10022,
+   "hit": true,
+   "agent": 20,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10006,
+   "cached_tokens": 9964,
+   "wall_s": 0.728,
+   "ttft_s": 0.548423445,
+   "prefill_s": 0.255121175,
+   "prev_prompt": 9970,
+   "hit": true,
+   "agent": 21,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 9993,
+   "cached_tokens": 9951,
+   "wall_s": 0.716,
+   "ttft_s": 0.538759451,
+   "prefill_s": 0.250700418,
+   "prev_prompt": 9957,
+   "hit": true,
+   "agent": 22,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10082,
+   "cached_tokens": 10040,
+   "wall_s": 0.718,
+   "ttft_s": 0.543641024,
+   "prefill_s": 0.252950012,
+   "prev_prompt": 10046,
+   "hit": true,
+   "agent": 23,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10047,
+   "cached_tokens": 10008,
+   "wall_s": 0.616,
+   "ttft_s": 0.555240758,
+   "prefill_s": 0.254810393,
+   "prev_prompt": 10014,
+   "hit": true,
+   "agent": 24,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 9983,
+   "cached_tokens": 9941,
+   "wall_s": 0.728,
+   "ttft_s": 0.547973942,
+   "prefill_s": 0.254637368,
+   "prev_prompt": 9947,
+   "hit": true,
+   "agent": 25,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 9973,
+   "cached_tokens": 9934,
+   "wall_s": 0.63,
+   "ttft_s": 0.54131167,
+   "prefill_s": 0.249944052,
+   "prev_prompt": 9940,
+   "hit": true,
+   "agent": 26,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10005,
+   "cached_tokens": 9963,
+   "wall_s": 0.628,
+   "ttft_s": 0.538881708,
+   "prefill_s": 0.259337054,
+   "prev_prompt": 9969,
+   "hit": true,
+   "agent": 27,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10095,
+   "cached_tokens": 10056,
+   "wall_s": 0.725,
+   "ttft_s": 0.545347181,
+   "prefill_s": 0.251018114,
+   "prev_prompt": 10062,
+   "hit": true,
+   "agent": 28,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10013,
+   "cached_tokens": 9974,
+   "wall_s": 0.663,
+   "ttft_s": 0.54647777,
+   "prefill_s": 0.252298639,
+   "prev_prompt": 9980,
+   "hit": true,
+   "agent": 29,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10018,
+   "cached_tokens": 9979,
+   "wall_s": 0.611,
+   "ttft_s": 0.550170578,
+   "prefill_s": 0.257871249,
+   "prev_prompt": 9985,
+   "hit": true,
+   "agent": 30,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10062,
+   "cached_tokens": 10020,
+   "wall_s": 0.598,
+   "ttft_s": 0.538732814,
+   "prefill_s": 0.252169215,
+   "prev_prompt": 10026,
+   "hit": true,
+   "agent": 31,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10035,
+   "cached_tokens": 9993,
+   "wall_s": 0.634,
+   "ttft_s": 0.546192748,
+   "prefill_s": 0.25765909,
+   "prev_prompt": 9999,
+   "hit": true,
+   "agent": 32,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10010,
+   "cached_tokens": 9968,
+   "wall_s": 0.635,
+   "ttft_s": 0.545273326,
+   "prefill_s": 0.255792823,
+   "prev_prompt": 9974,
+   "hit": true,
+   "agent": 33,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10034,
+   "cached_tokens": 9992,
+   "wall_s": 0.66,
+   "ttft_s": 0.542801669,
+   "prefill_s": 0.250988354,
+   "prev_prompt": 9998,
+   "hit": true,
+   "agent": 34,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10213,
+   "cached_tokens": 10174,
+   "wall_s": 0.67,
+   "ttft_s": 0.549908308,
+   "prefill_s": 0.254952409,
+   "prev_prompt": 10180,
+   "hit": true,
+   "agent": 35,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10016,
+   "cached_tokens": 9974,
+   "wall_s": 0.637,
+   "ttft_s": 0.546836876,
+   "prefill_s": 0.254198891,
+   "prev_prompt": 9980,
+   "hit": true,
+   "agent": 36,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10092,
+   "cached_tokens": 10050,
+   "wall_s": 0.611,
+   "ttft_s": 0.552316095,
+   "prefill_s": 0.254332843,
+   "prev_prompt": 10056,
+   "hit": true,
+   "agent": 37,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10117,
+   "cached_tokens": 10075,
+   "wall_s": 0.725,
+   "ttft_s": 0.544365777,
+   "prefill_s": 0.254451387,
+   "prev_prompt": 10081,
+   "hit": true,
+   "agent": 38,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10029,
+   "cached_tokens": 9987,
+   "wall_s": 0.73,
+   "ttft_s": 0.549315206,
+   "prefill_s": 0.255642824,
+   "prev_prompt": 9993,
+   "hit": true,
+   "agent": 39,
+   "turn": 1
+  }
+ ],
+ "summary": {
+  "followups": 40,
+  "hits": 40,
+  "hit_rate": 1.0,
+  "cached_share": 0.996,
+  "ttft_median_s": 0.547,
+  "ttft_mean_s": 0.576,
+  "ttft_max_s": 0.872567027
+ },
+ "convos": [
+  {
+   "agent": 0,
+   "turn0_prompt": 10018,
+   "replies": [
+    "This document is made of a list of words.",
+    "basalt, willow, and cedar"
+   ]
+  },
+  {
+   "agent": 1,
+   "turn0_prompt": 9937,
+   "replies": [
+    "This document is made of a list of words.",
+    "The three words that appear most often are: mantle, harbor, and orchard."
+   ]
+  },
+  {
+   "agent": 2,
+   "turn0_prompt": 10084,
+   "replies": [
+    "This document is made of words.",
+    "thunder, kestrel, and meadow"
+   ]
+  },
+  {
+   "agent": 3,
+   "turn0_prompt": 10067,
+   "replies": [
+    "This document is made of a list of words.",
+    "The three words that appear most often are: citadel, orchard, and tundra."
+   ]
+  },
+  {
+   "agent": 4,
+   "turn0_prompt": 10020,
+   "replies": [
+    "This document is made of a list of words.",
+    "The three words that appear most often are: nimbus, kestrel, and glacier."
+   ]
+  },
+  {
+   "agent": 5,
+   "turn0_prompt": 10077,
+   "replies": [
+    "This document is made of a list of words.",
+    "citadel, quartz, heron"
+   ]
+  },
+  {
+   "agent": 6,
+   "turn0_prompt": 9999,
+   "replies": [
+    "This document is made of a list of words.",
+    "river, cedar, and mantle"
+   ]
+  },
+  {
+   "agent": 7,
+   "turn0_prompt": 10035,
+   "replies": [
+    "This document is made of a list of words.",
+    "quarry, orchard, falcon"
+   ]
+  },
+  {
+   "agent": 8,
+   "turn0_prompt": 10009,
+   "replies": [
+    "This document is made of a list of words.",
+    "candle, harbor, cedar"
+   ]
+  },
+  {
+   "agent": 9,
+   "turn0_prompt": 10064,
+   "replies": [
+    "This document is made of words.",
+    "thunder, cedar, quiver"
+   ]
+  },
+  {
+   "agent": 10,
+   "turn0_prompt": 10036,
+   "replies": [
+    "This document is made of a list of words.",
+    "quiver, cedar, and glacier"
+   ]
+  },
+  {
+   "agent": 11,
+   "turn0_prompt": 10092,
+   "replies": [
+    "This document is made of text.",
+    "tundra, nectar, saffron"
+   ]
+  },
+  {
+   "agent": 12,
+   "turn0_prompt": 10014,
+   "replies": [
+    "This document is made of words.",
+    "citadel, cedar, harbor"
+   ]
+  },
+  {
+   "agent": 13,
+   "turn0_prompt": 10041,
+   "replies": [
+    "This document is made of words.",
+    "The three words that appear most often are: hollow, cedar, and tablet."
+   ]
+  },
+  {
+   "agent": 14,
+   "turn0_prompt": 10080,
+   "replies": [
+    "This document is made of a list of words.",
+    "The three words that appear most often are: cedar, glacier, and orchard."
+   ]
+  },
+  {
+   "agent": 15,
+   "turn0_prompt": 10007,
+   "replies": [
+    "This document is made of a list of words.",
+    "kestrel, ember, beacon"
+   ]
+  },
+  {
+   "agent": 16,
+   "turn0_prompt": 10036,
+   "replies": [
+    "This document is made of a list of words.",
+    "The three words that appear most often are: anchor, prism, and zephyr."
+   ]
+  },
+  {
+   "agent": 17,
+   "turn0_prompt": 10084,
+   "replies": [
+    "This document is made of a list of words.",
+    "The three words that appear most often are: harbor, citadel, and kestrel."
+   ]
+  },
+  {
+   "agent": 18,
+   "turn0_prompt": 9997,
+   "replies": [
+    "This document is made of a list of words.",
+    "The three words that appear most often are citadel, quartz, and harbor."
+   ]
+  },
+  {
+   "agent": 19,
+   "turn0_prompt": 10072,
+   "replies": [
+    "This document is made of a list of words.",
+    "quarry, kestrel, and nectar"
+   ]
+  },
+  {
+   "agent": 20,
+   "turn0_prompt": 10022,
+   "replies": [
+    "This document is made of a list of words.",
+    "The three words that appear most often are: river, quiver, and citadel."
+   ]
+  },
+  {
+   "agent": 21,
+   "turn0_prompt": 9970,
+   "replies": [
+    "This document is made of a list of words.",
+    "The three words that appear most often are: harbor, mantle, and tundra."
+   ]
+  },
+  {
+   "agent": 22,
+   "turn0_prompt": 9957,
+   "replies": [
+    "This document is made of a list of words.",
+    "The three words that appear most often are: citadel, quiver, and compass."
+   ]
+  },
+  {
+   "agent": 23,
+   "turn0_prompt": 10046,
+   "replies": [
+    "This document is made of a list of words.",
+    "The three words that appear most often are: heron, ledger, and compass."
+   ]
+  },
+  {
+   "agent": 24,
+   "turn0_prompt": 10014,
+   "replies": [
+    "This document is made of words.",
+    "kestrel, harbor, walnut"
+   ]
+  },
+  {
+   "agent": 25,
+   "turn0_prompt": 9947,
+   "replies": [
+    "This document is made of a list of words.",
+    "The three words that appear most often are cedar, harbor, and glacier."
+   ]
+  },
+  {
+   "agent": 26,
+   "turn0_prompt": 9940,
+   "replies": [
+    "This document is made of words.",
+    "compass, harbor, quiver"
+   ]
+  },
+  {
+   "agent": 27,
+   "turn0_prompt": 9969,
+   "replies": [
+    "This document is made of a list of words.",
+    "cobalt, quartz, heron"
+   ]
+  },
+  {
+   "agent": 28,
+   "turn0_prompt": 10062,
+   "replies": [
+    "This document is made of text.",
+    "The three words that appear most often are: ledger, quartz, and cedar."
+   ]
+  },
+  {
+   "agent": 29,
+   "turn0_prompt": 9980,
+   "replies": [
+    "This document is made of words.",
+    "thunder, quiver, cedar"
+   ]
+  },
+  {
+   "agent": 30,
+   "turn0_prompt": 9985,
+   "replies": [
+    "This document is made of words.",
+    "thistle, beacon, hollow"
+   ]
+  },
+  {
+   "agent": 31,
+   "turn0_prompt": 10026,
+   "replies": [
+    "This document is made of a list of words.",
+    "cobalt, lantern, tundra"
+   ]
+  },
+  {
+   "agent": 32,
+   "turn0_prompt": 9999,
+   "replies": [
+    "This document is made of a list of words.",
+    "saffron, cedar, and lantern"
+   ]
+  },
+  {
+   "agent": 33,
+   "turn0_prompt": 9974,
+   "replies": [
+    "This document is made of a list of words.",
+    "compass, cedar, candle"
+   ]
+  },
+  {
+   "agent": 34,
+   "turn0_prompt": 9998,
+   "replies": [
+    "This document is made of a list of words.",
+    "quarry, vessel, and harbor"
+   ]
+  },
+  {
+   "agent": 35,
+   "turn0_prompt": 10180,
+   "replies": [
+    "This document is made of words.",
+    "orchard, nectar, and cedar"
+   ]
+  },
+  {
+   "agent": 36,
+   "turn0_prompt": 9980,
+   "replies": [
+    "This document is made of a list of words.",
+    "tundra, cedar, and willow"
+   ]
+  },
+  {
+   "agent": 37,
+   "turn0_prompt": 10056,
+   "replies": [
+    "This document is made of a list of words.",
+    "candle, river, lantern"
+   ]
+  },
+  {
+   "agent": 38,
+   "turn0_prompt": 10081,
+   "replies": [
+    "This document is made of a list of words.",
+    "The three words that appear most often are: cedar, tundra, and heron."
+   ]
+  },
+  {
+   "agent": 39,
+   "turn0_prompt": 9993,
+   "replies": [
+    "This document is made of a list of words.",
+    "The three words that appear most often are harbor, dune, and bramble."
+   ]
+  }
+ ]
+}

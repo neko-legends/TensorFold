@@ -1,0 +1,223 @@
+{
+ "date": "2026-10-15T23:14:08-0700",
+ "url": "http://forge:8100",
+ "agents": 8,
+ "prefix": 30000,
+ "turns": 2,
+ "phase": "all",
+ "cold": [
+  {
+   "agent": 0,
+   "prompt_tokens": 30005,
+   "wall_s": 6.049,
+   "ttft_s": 5.90200162
+  },
+  {
+   "agent": 1,
+   "prompt_tokens": 29875,
+   "wall_s": 5.925,
+   "ttft_s": 5.854562325
+  },
+  {
+   "agent": 2,
+   "prompt_tokens": 30127,
+   "wall_s": 5.965,
+   "ttft_s": 5.895457345
+  },
+  {
+   "agent": 3,
+   "prompt_tokens": 30136,
+   "wall_s": 5.999,
+   "ttft_s": 5.898368223
+  },
+  {
+   "agent": 4,
+   "prompt_tokens": 29941,
+   "wall_s": 5.953,
+   "ttft_s": 5.878276871
+  },
+  {
+   "agent": 5,
+   "prompt_tokens": 30117,
+   "wall_s": 6.015,
+   "ttft_s": 5.888166916
+  },
+  {
+   "agent": 6,
+   "prompt_tokens": 30047,
+   "wall_s": 5.973,
+   "ttft_s": 5.901454958
+  },
+  {
+   "agent": 7,
+   "prompt_tokens": 30051,
+   "wall_s": 6.035,
+   "ttft_s": 5.907052108
+  }
+ ],
+ "warm": [
+  {
+   "prompt_tokens": 30041,
+   "cached_tokens": 29999,
+   "wall_s": 0.204,
+   "ttft_s": 0.105894011,
+   "prefill_s": 0.10260243,
+   "prev_prompt": 30005,
+   "hit": true,
+   "agent": 0,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 29908,
+   "cached_tokens": 29869,
+   "wall_s": 0.296,
+   "ttft_s": 0.097966352,
+   "prefill_s": 0.095087121,
+   "prev_prompt": 29875,
+   "hit": true,
+   "agent": 1,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 30160,
+   "cached_tokens": 30121,
+   "wall_s": 0.194,
+   "ttft_s": 0.098376143,
+   "prefill_s": 0.095331872,
+   "prev_prompt": 30127,
+   "hit": true,
+   "agent": 2,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 30169,
+   "cached_tokens": 30130,
+   "wall_s": 0.19,
+   "ttft_s": 0.095819313,
+   "prefill_s": 0.092770754,
+   "prev_prompt": 30136,
+   "hit": true,
+   "agent": 3,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 29974,
+   "cached_tokens": 29935,
+   "wall_s": 0.192,
+   "ttft_s": 0.096304144,
+   "prefill_s": 0.093705793,
+   "prev_prompt": 29941,
+   "hit": true,
+   "agent": 4,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 30153,
+   "cached_tokens": 30111,
+   "wall_s": 0.203,
+   "ttft_s": 0.101468814,
+   "prefill_s": 0.098245839,
+   "prev_prompt": 30117,
+   "hit": true,
+   "agent": 5,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 30080,
+   "cached_tokens": 30041,
+   "wall_s": 0.198,
+   "ttft_s": 0.097117616,
+   "prefill_s": 0.094779073,
+   "prev_prompt": 30047,
+   "hit": true,
+   "agent": 6,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 30087,
+   "cached_tokens": 30045,
+   "wall_s": 0.223,
+   "ttft_s": 0.099328223,
+   "prefill_s": 0.09686768,
+   "prev_prompt": 30051,
+   "hit": true,
+   "agent": 7,
+   "turn": 1
+  }
+ ],
+ "summary": {
+  "followups": 8,
+  "hits": 8,
+  "hit_rate": 1.0,
+  "cached_share": 0.999,
+  "ttft_median_s": 0.098,
+  "ttft_mean_s": 0.099,
+  "ttft_max_s": 0.105894011
+ },
+ "convos": [
+  {
+   "agent": 0,
+   "turn0_prompt": 30005,
+   "replies": [
+    "This document is made of a list of words.",
+    "basalt, citadel, and harbor"
+   ]
+  },
+  {
+   "agent": 1,
+   "turn0_prompt": 29875,
+   "replies": [
+    "This document is made of text.",
+    "The three words that appear most often are: cedar, quartz, and mantle."
+   ]
+  },
+  {
+   "agent": 2,
+   "turn0_prompt": 30127,
+   "replies": [
+    "This document is made of words.",
+    "thunder, quiver, and cedar"
+   ]
+  },
+  {
+   "agent": 3,
+   "turn0_prompt": 30136,
+   "replies": [
+    "This document is made of words.",
+    "citadel, orchard, tundra"
+   ]
+  },
+  {
+   "agent": 4,
+   "turn0_prompt": 29941,
+   "replies": [
+    "This document is made of text.",
+    "cobalt, cedar, and glacier"
+   ]
+  },
+  {
+   "agent": 5,
+   "turn0_prompt": 30117,
+   "replies": [
+    "This document is made of a list of words.",
+    "citadel, quartz, heron"
+   ]
+  },
+  {
+   "agent": 6,
+   "turn0_prompt": 30047,
+   "replies": [
+    "This document is made of text.",
+    "river, cedar, mantle"
+   ]
+  },
+  {
+   "agent": 7,
+   "turn0_prompt": 30051,
+   "replies": [
+    "This document is made of a list of words.",
+    "quarry, mantle, falcon"
+   ]
+  }
+ ]
+}

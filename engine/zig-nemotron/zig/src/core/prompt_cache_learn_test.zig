@@ -290,3 +290,72 @@ test "under-cap disk pressure selects the same LRU victim before either half is 
     try std.testing.expectEqual(@as(usize, 1), fake.disk_peer_writes);
     try std.testing.expect(!fake.disk_reserved);
 }
+
+test "the disk tier: a state evicted for room is written first, read back on its next turn, and by a new store" {
+    const gpa = std.testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var root_buf: [128]u8 = undefined;
+    const root = try std.fmt.bufPrint(&root_buf, "/tmp/tf-spill-test-{d}", .{std.c.getpid()});
+    defer rmTree(root);
+    const rules: pc.Rules = .{ .lookahead = 1, .min_prompt = 0, .min_gap = 1 };
+    const one = [_]u32{ 1, 2, 3, 4, 5, 6, 9 }; // its history's state at 6 reads all 7 tokens (lookahead 1)
+    const two = [_]u32{ 8, 8, 8, 8, 8, 8, 9 };
+    {
+        var im = try imprint.Imprint.open(gpa, root, 3, 1 << 30);
+        defer im.deinit();
+        var f: Fake = .{ .gpa = gpa };
+        var s = Store.init(gpa, f.learned(), rules, 120); // one state of 6 tokens (106 bytes) at a time
+        defer s.deinit();
+        s.imprint = &im;
+        s.spill = .{ .min = 1, .floor = 0 };
+        try std.testing.expectEqual(fresh(&one), f.pass(&s, &one, try s.begin(a, &one, 6, &.{}, &.{}, null, &.{})));
+        try std.testing.expect(!im.has(imprint.Imprint.keyOf(&one))); // in memory only, while it fits
+        try std.testing.expectEqual(fresh(&two), f.pass(&s, &two, try s.begin(a, &two, 6, &.{}, &.{}, null, &.{})));
+        try std.testing.expect(im.has(imprint.Imprint.keyOf(&one))); // evicted for two's: written first
+        try std.testing.expectEqual(@as(u64, 1), s.counts.spilled);
+        const next = one ++ [_]u32{ 4, 9 };
+        const p = try s.begin(a, &next, 8, &.{}, &.{}, null, &.{});
+        try std.testing.expectEqual(@as(u32, 6), p.from); // read back from disk
+        try std.testing.expectEqual(@as(u64, 1), s.counts.read);
+        try std.testing.expectEqual(fresh(&next), f.pass(&s, &next, p));
+        s.spillAll(); // a server stopping: what it holds goes to disk too
+        try std.testing.expect(im.has(imprint.Imprint.keyOf(&two)));
+    }
+    var im = try imprint.Imprint.open(gpa, root, 3, 1 << 30); // the next server
+    defer im.deinit();
+    var f: Fake = .{ .gpa = gpa };
+    var s = Store.init(gpa, f.learned(), rules, 1 << 20);
+    defer s.deinit();
+    s.imprint = &im;
+    s.spill = .{ .min = 1, .floor = 0 };
+    const later = two ++ [_]u32{ 5, 9 };
+    const p = try s.begin(a, &later, 8, &.{}, &.{}, null, &.{});
+    try std.testing.expectEqual(@as(u32, 6), p.from);
+    try std.testing.expectEqual(fresh(&later), f.pass(&s, &later, p));
+}
+
+test "the disk tier is off at spill.min 0: an evicted state is gone" {
+    const gpa = std.testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var root_buf: [128]u8 = undefined;
+    const root = try std.fmt.bufPrint(&root_buf, "/tmp/tf-spill-off-{d}", .{std.c.getpid()});
+    defer rmTree(root);
+    const rules: pc.Rules = .{ .lookahead = 1, .min_prompt = 0, .min_gap = 1 };
+    const one = [_]u32{ 1, 2, 3, 4, 5, 6, 9 };
+    const two = [_]u32{ 8, 8, 8, 8, 8, 8, 9 };
+    var im = try imprint.Imprint.open(gpa, root, 3, 1 << 30);
+    defer im.deinit();
+    var f: Fake = .{ .gpa = gpa };
+    var s = Store.init(gpa, f.learned(), rules, 120);
+    defer s.deinit();
+    s.imprint = &im;
+    _ = f.pass(&s, &one, try s.begin(a, &one, 6, &.{}, &.{}, null, &.{}));
+    _ = f.pass(&s, &two, try s.begin(a, &two, 6, &.{}, &.{}, null, &.{}));
+    try std.testing.expect(!im.has(imprint.Imprint.keyOf(&one)));
+    const next = one ++ [_]u32{ 4, 9 };
+    try std.testing.expectEqual(@as(u32, 0), (try s.begin(a, &next, 8, &.{}, &.{}, null, &.{})).from);
+}

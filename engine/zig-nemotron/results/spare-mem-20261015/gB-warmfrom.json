@@ -1,0 +1,174 @@
+{
+ "date": "2026-10-15T23:15:42-0700",
+ "url": "http://forge:8100",
+ "agents": 0,
+ "prefix": 0,
+ "turns": 2,
+ "phase": "warm",
+ "cold": [],
+ "warm": [
+  {
+   "prompt_tokens": 30042,
+   "cached_tokens": 29999,
+   "wall_s": 0.415,
+   "ttft_s": 0.332788994,
+   "prefill_s": 0.10426634,
+   "prev_prompt": 30005,
+   "hit": true,
+   "agent": 0,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 29909,
+   "cached_tokens": 29869,
+   "wall_s": 0.402,
+   "ttft_s": 0.32581423,
+   "prefill_s": 0.101272934,
+   "prev_prompt": 29875,
+   "hit": true,
+   "agent": 1,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 30161,
+   "cached_tokens": 30121,
+   "wall_s": 0.401,
+   "ttft_s": 0.333603313,
+   "prefill_s": 0.102826469,
+   "prev_prompt": 30127,
+   "hit": true,
+   "agent": 2,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 30170,
+   "cached_tokens": 30130,
+   "wall_s": 0.409,
+   "ttft_s": 0.324546774,
+   "prefill_s": 0.099696343,
+   "prev_prompt": 30136,
+   "hit": true,
+   "agent": 3,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 29975,
+   "cached_tokens": 29935,
+   "wall_s": 0.411,
+   "ttft_s": 0.321264007,
+   "prefill_s": 0.098665079,
+   "prev_prompt": 29941,
+   "hit": true,
+   "agent": 4,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 30154,
+   "cached_tokens": 30111,
+   "wall_s": 0.422,
+   "ttft_s": 0.328692772,
+   "prefill_s": 0.100559638,
+   "prev_prompt": 30117,
+   "hit": true,
+   "agent": 5,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 30081,
+   "cached_tokens": 30041,
+   "wall_s": 0.389,
+   "ttft_s": 0.325532596,
+   "prefill_s": 0.100789846,
+   "prev_prompt": 30047,
+   "hit": true,
+   "agent": 6,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 30088,
+   "cached_tokens": 30045,
+   "wall_s": 0.393,
+   "ttft_s": 0.327450164,
+   "prefill_s": 0.105212724,
+   "prev_prompt": 30051,
+   "hit": true,
+   "agent": 7,
+   "turn": 1
+  }
+ ],
+ "summary": {
+  "followups": 8,
+  "hits": 8,
+  "hit_rate": 1.0,
+  "cached_share": 0.999,
+  "ttft_median_s": 0.327,
+  "ttft_mean_s": 0.327,
+  "ttft_max_s": 0.333603313
+ },
+ "convos": [
+  {
+   "agent": 0,
+   "turn0_prompt": 30005,
+   "replies": [
+    "This document is made of a list of words.",
+    "ivory\nlilac"
+   ]
+  },
+  {
+   "agent": 1,
+   "turn0_prompt": 29875,
+   "replies": [
+    "This document is made of text.",
+    "jasper river"
+   ]
+  },
+  {
+   "agent": 2,
+   "turn0_prompt": 30127,
+   "replies": [
+    "This document is made of words.",
+    "quiver ripple"
+   ]
+  },
+  {
+   "agent": 3,
+   "turn0_prompt": 30136,
+   "replies": [
+    "This document is made of words.",
+    "orbit\nviolet"
+   ]
+  },
+  {
+   "agent": 4,
+   "turn0_prompt": 29941,
+   "replies": [
+    "This document is made of text.",
+    "heron\nmeadow"
+   ]
+  },
+  {
+   "agent": 5,
+   "turn0_prompt": 30117,
+   "replies": [
+    "This document is made of a list of words.",
+    "mosaic\nmeadow"
+   ]
+  },
+  {
+   "agent": 6,
+   "turn0_prompt": 30047,
+   "replies": [
+    "This document is made of text.",
+    "anchor cedar"
+   ]
+  },
+  {
+   "agent": 7,
+   "turn0_prompt": 30051,
+   "replies": [
+    "This document is made of a list of words.",
+    "nimbus\nsable"
+   ]
+  }
+ ]
+}

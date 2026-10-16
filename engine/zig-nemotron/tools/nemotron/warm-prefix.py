@@ -4,7 +4,7 @@ document (turn 0, cold), then every agent asks follow-ups in round robin (turns 
 the agents' states at once. Per follow-up: prompt and cached tokens, and the server's time to first token. A hit is a
 follow-up whose cached tokens reach the previous turn's prompt (the conversation so far was restored).
 `--phase warm` skips turn 0 and replays the follow-ups from a saved run's transcripts (after a restart: what survived).
-  warm-prefix.py URL MODEL OUT.json [AGENTS=8] [PREFIX=30000] [TURNS=3] [--phase all|cold|warm] [--from RUN.json]"""
+  warm-prefix.py URL MODEL OUT.json [AGENTS=8] [PREFIX=30000] [TURNS=3] [--phase all|cold|warm] [--from RUN.json] [--nonce N] [--ask K]"""
 
 import argparse, json, random, statistics as st, time, urllib.request, uuid
 
@@ -13,6 +13,8 @@ ap.add_argument("url"); ap.add_argument("model"); ap.add_argument("out")
 ap.add_argument("agents", nargs="?", type=int, default=8); ap.add_argument("prefix", nargs="?", type=int, default=30000)
 ap.add_argument("turns", nargs="?", type=int, default=3)
 ap.add_argument("--phase", default="all"); ap.add_argument("--from", dest="src")
+ap.add_argument("--ask", type=int, default=0, help="start the follow-up questions this far into the list")
+ap.add_argument("--nonce", help="a fixed nonce prefix (agent i's document opens with NONCE-i): two runs send the same prompts")
 a = ap.parse_args()
 url = a.url.rstrip("/")
 WORDS = """river stone lantern orchard copper meadow harbor violet thunder candle marble falcon willow cedar ember glacier
@@ -71,7 +73,7 @@ if a.phase == "warm":
 else:
     convos = []
     for ag in range(a.agents):
-        c = {"agent": ag, "messages": [{"role": "user", "content": f"[{uuid.uuid4().hex}]\n{doc(ag, words)}\n\nWhat is this document made of? One line."}]}
+        c = {"agent": ag, "messages": [{"role": "user", "content": f"[{f'{a.nonce}-{ag}' if a.nonce else uuid.uuid4().hex}]\n{doc(ag, words)}\n\nWhat is this document made of? One line."}]}
         d, wall = chat(c["messages"])
         text = d["choices"][0]["message"].get("content") or ""
         c["messages"].append({"role": "assistant", "content": text})
@@ -83,7 +85,7 @@ else:
 if a.phase != "cold":
     for t in range(1, a.turns):
         for c in convos:
-            row = turn(c, QUESTIONS[(t - 1) % len(QUESTIONS)])
+            row = turn(c, QUESTIONS[(t - 1 + a.ask) % len(QUESTIONS)])
             row.update(agent=c["agent"], turn=t)
             res["warm"].append(row)
             print(json.dumps(row), flush=True)

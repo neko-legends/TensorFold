@@ -15,6 +15,11 @@ pub const snap_bytes = reuse.bytes;
 pub const snap_save = reuse.save;
 pub const snap_restore = reuse.restore;
 pub const snap_drop = reuse.drop;
+pub const snap_write = reuse.write; // the disk tier (TF_NEMOTRON_DISK)
+pub const snap_read = reuse.read;
+pub const snap_forget = reuse.forget;
+pub const snap_forget_checked = reuse.forgetChecked;
+pub const snap_identity = reuse.identityOf;
 pub const snap_ready = reuse.ready; // the spare Mamba buffers it sets aside come out of the cache's budget
 const core = @import("core");
 

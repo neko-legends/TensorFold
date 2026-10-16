@@ -52,6 +52,25 @@ pub const PlanLink = struct {
         p.sent += 1;
     }
 
+    /// The other ranks: one word back to rank 0, for a call whose outcome every rank must agree on (a state read from
+    /// disk) before rank 0 goes on.
+    pub fn answer(p: *PlanLink, v: i64) Error!void {
+        if (p.rank == 0) return error.NotFollower;
+        sock.sendAll(p.fds[0], std.mem.asBytes(&v)) catch return error.PeerClosed;
+    }
+
+    /// Rank 0: every other rank's `answer`; true when each one sent 1.
+    pub fn answers(p: *PlanLink) Error!bool {
+        if (p.rank != 0) return error.NotRankZero;
+        var all = true;
+        for (p.fds[1..p.world]) |fd| {
+            var v: i64 = 0;
+            sock.recvExact(fd, std.mem.asBytes(&v), null) catch return error.PeerClosed;
+            all = all and v == 1;
+        }
+        return all;
+    }
+
     /// The other ranks: the next plan into `out` (returned: the ints it holds). Blocks as long as rank 0 is idle; a
     /// rank 0 that is gone ends it (`error.PeerClosed`; the fate channel ends the process right after). A frame larger
     /// than `out` is read and dropped (`error.TooLarge`), so the link stays on frame boundaries; `recvGrow` instead

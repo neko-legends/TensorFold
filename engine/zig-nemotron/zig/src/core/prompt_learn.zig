@@ -106,6 +106,34 @@ pub fn learn(s: *Store, e: *const Entry, starts: []const u32) void {
     if (!@import("builtin").is_test) std.log.info("prompt cache: learned {d} tokens to disk", .{e.at});
 }
 
+/// The disk tier (Store.spill): a kept state written before it leaves memory, under the tokens it read, so a later
+/// lookup reads it back (Store.recall), a restarted server's too. Within the imprint's cap (the least recently used
+/// state on disk goes first) and above the free-disk floor; a state already on disk is only marked used.
+pub fn spill(s: *Store, e: *const Entry) void {
+    const im = s.imprint orelse return;
+    const write = s.family.vtable.write orelse return;
+    if (e.decode_spans.len != 0 or e.at < s.spill.min or e.tokens.len == 0 or e.bytes > im.cap) return;
+    const key = imprint.Imprint.keyOf(e.tokens);
+    if (im.has(key)) return im.touch(key);
+    const free = @import("lanes").learned_disk.available(im.dir) orelse return;
+    if (free < e.bytes +| s.spill.floor) return note("disk tier: {d} tokens not written, {d} GiB free is under the floor", .{ e.at, free >> 30 });
+    while (!im.fits(e.bytes)) unlearn(s, im, im.victim() orelse return);
+    finishPending(s, im) catch return;
+    im.beginWrite(key) catch return;
+    write(s.family.ptr, e.saved, im.dir, key) catch |err| {
+        if (s.family.vtable.forget) |f| f(s.family.ptr, im.dir, key);
+        im.clearPending() catch {};
+        return note("disk tier: writing {d} tokens failed ({s})", .{ e.at, @errorName(err) });
+    };
+    im.add(key, e.at, e.tokens, &.{}, e.bytes) catch |err| {
+        if (s.family.vtable.forget) |f| f(s.family.ptr, im.dir, key);
+        im.clearPending() catch {};
+        return note("disk tier: indexing {d} tokens failed ({s})", .{ e.at, @errorName(err) });
+    };
+    im.clearPending() catch {};
+    s.counts.spilled += 1;
+}
+
 /// Learned state `key` forgotten: its files (the family's), then its index record.
 fn unlearnChecked(s: *Store, im: *imprint.Imprint, key: u64) !void {
     if (s.family.vtable.forget_checked) |f| try f(s.family.ptr, im.dir, key) else if (s.family.vtable.forget) |f| f(s.family.ptr, im.dir, key);

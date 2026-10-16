@@ -246,42 +246,74 @@
   {
    "agent": 0,
    "turn0_prompt": 38945,
-   "turns": 3
+   "replies": [
+    "This document is made of a list of words.",
+    "basalt, citadel, and harbor",
+    "ivory\npollen"
+   ]
   },
   {
    "agent": 1,
    "turn0_prompt": 38738,
-   "turns": 3
+   "replies": [
+    "The document is made of a list of words.",
+    "The three words that appear most often are \"thunder\", \"quiver\", and \"orchard\".",
+    "jasper\njasper"
+   ]
   },
   {
    "agent": 2,
    "turn0_prompt": 39029,
-   "turns": 3
+   "replies": [
+    "This document is made of a list of words.",
+    "thunder, kestrel, and cedar",
+    "quiver\ncitadel"
+   ]
   },
   {
    "agent": 3,
    "turn0_prompt": 39021,
-   "turns": 3
+   "replies": [
+    "This document is made of a list of words.",
+    "citadel, orchard, tundra",
+    "orbit\nsable"
+   ]
   },
   {
    "agent": 4,
    "turn0_prompt": 38816,
-   "turns": 3
+   "replies": [
+    "The document is made of text.",
+    "cobalt, mantle, and cedar",
+    "heron willow"
+   ]
   },
   {
    "agent": 5,
    "turn0_prompt": 38949,
-   "turns": 3
+   "replies": [
+    "The document is made of a list of words.",
+    "citadel, quartz, heron",
+    "mosaic willow"
+   ]
   },
   {
    "agent": 6,
    "turn0_prompt": 39059,
-   "turns": 3
+   "replies": [
+    "This document is made of a list of words.",
+    "The three words that appear most often are river, cedar, and mantle.",
+    "anchor\nivory"
+   ]
   },
   {
    "agent": 7,
    "turn0_prompt": 38996,
-   "turns": 3
+   "replies": [
+    "This document is made of a list of words.",
+    "quarry, mantle, and falcon",
+    "nimbus\npewter"
+   ]
   }
  ]
 }

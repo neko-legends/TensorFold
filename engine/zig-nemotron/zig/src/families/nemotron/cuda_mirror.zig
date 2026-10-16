@@ -10,6 +10,11 @@
 //! prefill call carries the key of the state it starts from and the first key of the marks it keeps at; every rank
 //! saves at each mark (rank 0 through its cache, the others into their table), and the keys rank 0's cache did not
 //! keep, or dropped since, go to the others as a drop call ahead of the next call.
+//!
+//! Its disk tier (TF_NEMOTRON_DISK, cuda_reuse.zig's files): each rank writes and reads its own share under the same
+//! disk key. A state rank 0 writes goes to the others as a book call ahead of the next call (before its drop); one it
+//! reads back is read on every rank at once, and each answers whether it could (a rank whose file is gone or damaged
+//! makes it a miss on every rank, never a prefill that runs apart).
 const std = @import("std");
 const lanes = @import("lanes");
 const tp = @import("tp");
@@ -18,7 +23,10 @@ const be = lanes.backend;
 const Stream = lanes.Stream;
 const PlanLink = tp.planlink.PlanLink;
 
-const Op = enum(i64) { prefill = 1, verify, keep, draft, first_masked, release, image, drop, stop };
+const Op = enum(i64) { prefill = 1, verify, keep, draft, first_masked, release, image, drop, book, load, sync, stop };
+
+/// A book call's entries: (spill, mirror key, disk key) writes a kept copy to disk; (forget, disk key, 0) removes it.
+const Book = enum(i64) { spill = 1, forget };
 
 const vstore = @import("vision_store.zig");
 const reuse = @import("cuda_reuse.zig");
@@ -46,6 +54,7 @@ pub const Mirror = struct {
     saved: std.ArrayList(bool) = .empty,
     drops: std.ArrayList(i64) = .empty, // keys the other ranks drop with the next call
     drop_frame: std.ArrayList(i64) = .empty,
+    disk_book: std.ArrayList(i64) = .empty, // the disk tier's writes and removals for the other ranks, in order, before the drops
 
     /// Calls arrive from the round loop (one thread at a time in practice); a spin keeps any other in line.
     fn lock(m: *Mirror) void {
@@ -59,6 +68,14 @@ pub const Mirror = struct {
     /// Tells the other ranks to stop following (they leave their loop and close with rank 0).
     pub fn deinit(m: *Mirror) void {
         m.lock();
+        // a stopping server's last disk writes (Store.spillAll) reach the others, and each has written them before the
+        // stop: a rank 0 that exits first ends the others through the fate channel within a second
+        m.flushDrops() catch {};
+        m.buf.clearRetainingCapacity();
+        m.buf.append(m.gpa, @intFromEnum(Op.sync)) catch {};
+        if (m.link.send(m.buf.items)) |_| {
+            _ = m.link.answers() catch false;
+        } else |_| {}
         m.buf.clearRetainingCapacity();
         m.buf.append(m.gpa, @intFromEnum(Op.stop)) catch {};
         m.link.send(m.buf.items) catch {};
@@ -69,6 +86,7 @@ pub const Mirror = struct {
         m.saved.deinit(m.gpa);
         m.drops.deinit(m.gpa);
         m.drop_frame.deinit(m.gpa);
+        m.disk_book.deinit(m.gpa);
     }
 
     fn lockBook(m: *Mirror) void {
@@ -90,6 +108,55 @@ pub const Mirror = struct {
         defer m.book.unlock();
         const kv = m.keys.fetchRemove(copy) orelse return;
         m.drops.append(m.gpa, kv.value) catch std.log.err("tp mirror: kept state {d} stays on the other ranks", .{kv.value});
+    }
+
+    /// Whether the other ranks hold `copy` (kept at a mirrored call's mark, or read back from disk on every rank).
+    pub fn mirrored(m: *Mirror, copy: *anyopaque) bool {
+        m.lockBook();
+        defer m.book.unlock();
+        return m.keys.contains(copy);
+    }
+
+    /// cuda_reuse.write on rank 0: the others write their copy of `copy` as disk state `key` with the next call.
+    pub fn spilled(m: *Mirror, copy: *anyopaque, key: u64) void {
+        m.lockBook();
+        defer m.book.unlock();
+        const k = m.keys.get(copy) orelse return;
+        m.disk_book.appendSlice(m.gpa, &.{ @intFromEnum(Book.spill), k, @bitCast(key) }) catch std.log.err("tp mirror: disk state {x} stays on rank 0 alone", .{key});
+    }
+
+    /// cuda_reuse.forget on rank 0: the others remove disk state `key` with the next call.
+    pub fn forgot(m: *Mirror, key: u64) void {
+        m.lockBook();
+        defer m.book.unlock();
+        m.disk_book.appendSlice(m.gpa, &.{ @intFromEnum(Book.forget), @bitCast(key), 0 }) catch {};
+    }
+
+    /// cuda_reuse.read on rank 0 (`copy` read from disk state `key`): every other rank reads its own under a new key,
+    /// and all answer; error.PeerDiskRead when any could not (the ones that did drop theirs with the next call).
+    pub fn loaded(m: *Mirror, copy: *anyopaque, key: u64, at: u32) !void {
+        m.lock();
+        defer m.mutex.unlock();
+        const k = blk: {
+            m.lockBook();
+            defer m.book.unlock();
+            const k = m.next_key;
+            m.next_key += 1;
+            break :blk k;
+        };
+        try m.begin(.load);
+        try m.put(@as(i64, @bitCast(key)));
+        try m.put(k);
+        try m.put(at);
+        try m.send(); // the book and drops go first: a spill or removal of this key lands before the read
+        const all = try m.link.answers();
+        m.lockBook();
+        defer m.book.unlock();
+        if (!all) {
+            m.drops.append(m.gpa, k) catch {};
+            return error.PeerDiskRead;
+        }
+        try m.keys.put(m.gpa, copy, k);
     }
 
     /// The wrapping backend; its table lives in the mirror (some entries follow the family's).
@@ -140,10 +207,18 @@ pub const Mirror = struct {
         try m.link.send(m.buf.items);
     }
 
-    /// The keys dropped since the last call, as one drop call (under the mirror's lock).
+    /// The disk tier's book since the last call, then the keys dropped since, each as one call (under the mirror's lock).
     fn flushDrops(m: *Mirror) !void {
         m.lockBook();
         defer m.book.unlock();
+        if (m.disk_book.items.len > 0) {
+            m.drop_frame.clearRetainingCapacity();
+            try m.drop_frame.append(m.gpa, @intFromEnum(Op.book));
+            try m.drop_frame.append(m.gpa, @intCast(m.disk_book.items.len / 3));
+            try m.drop_frame.appendSlice(m.gpa, m.disk_book.items);
+            try m.link.send(m.drop_frame.items);
+            m.disk_book.clearRetainingCapacity();
+        }
         if (m.drops.items.len == 0) return;
         m.drop_frame.clearRetainingCapacity();
         try m.drop_frame.append(m.gpa, @intFromEnum(Op.drop));
@@ -417,11 +492,13 @@ const Kept = struct {
     // the prefill call running: its marks and their first key
     marks: []const u32 = &.{},
     first: i64 = 0,
+    disk: ?[:0]u8 = null, // the disk tier's folder on this rank (TF_NEMOTRON_DISK/<identity>), null when off
 
     fn deinit(k: *Kept) void {
         var it = k.copies.valueIterator();
         while (it.next()) |c| reuse.drop(k.target, c.*);
         k.copies.deinit(k.gpa);
+        if (k.disk) |d| k.gpa.free(d);
     }
 
     /// The prefill's pass stands at a mark (or arms one inside its next chunk): this rank's copy, under its key.
@@ -441,6 +518,10 @@ const Kept = struct {
 pub fn follow(gpa: std.mem.Allocator, inner: be.Backend, link: *PlanLink, images: ?Images, target: ?*reuse.Target) !void {
     var kept: ?Kept = if (target) |t| .{ .gpa = gpa, .target = t } else null;
     defer if (kept) |*k| k.deinit();
+    if (kept) |*k| k.disk = reuse.diskDir(gpa, k.target) catch |e| blk: {
+        std.log.warn("tp follower: no disk tier on this rank ({t}); a state rank 0 reads from disk is a miss everywhere", .{e});
+        break :blk null;
+    };
     var streams: std.AutoHashMapUnmanaged(i64, *Stream) = .empty;
     defer {
         var it = streams.valueIterator();
@@ -473,6 +554,14 @@ pub fn follow(gpa: std.mem.Allocator, inner: be.Backend, link: *PlanLink, images
             return;
         }
         calls += 1;
+        if (op == .load) { // every rank answers, whatever happens here: rank 0 waits for it
+            try link.answer(@intFromBool(load(&r, if (kept) |*k| k else null)));
+            continue;
+        }
+        if (op == .sync) { // every call before it is done here
+            try link.answer(1);
+            continue;
+        }
         apply(gpa, inner, images, op, &r, &streams, &scratch, if (kept) |*k| k else null) catch |e| {
             // a state rank 0 starts from that this rank lacks: its prefill would run apart from rank 0's
             if (e == error.MissingKept) return e;
@@ -480,6 +569,24 @@ pub fn follow(gpa: std.mem.Allocator, inner: be.Backend, link: *PlanLink, images
             std.log.warn("tp follower: {t} call {d} failed: {t}", .{ op, calls, e });
         };
     }
+}
+
+/// A load call: disk state `key` read into this rank's copy under rank 0's new key; whether it could.
+fn load(r: *Reader, kept: ?*Kept) bool {
+    const key: u64 = @bitCast(r.int(i64) catch return false);
+    const mk = r.int(i64) catch return false;
+    const at = r.int(u32) catch return false;
+    const k = kept orelse return false;
+    const dir = k.disk orelse return false;
+    const copy = reuse.readFile(k.target, dir, key, at) catch |e| {
+        std.log.warn("tp follower: disk state {x} ({d} tokens) not read ({t}): a miss on every rank", .{ key, at, e });
+        return false;
+    };
+    k.copies.put(k.gpa, mk, copy) catch {
+        reuse.drop(k.target, copy);
+        return false;
+    };
+    return true;
 }
 
 /// The follower's reusable buffers for decoded calls.
@@ -587,6 +694,28 @@ fn apply(gpa: std.mem.Allocator, inner: be.Backend, images: ?Images, op: Op, r: 
             const k = kept orelse return;
             for (keys) |key| if (k.copies.fetchRemove(key)) |kv| reuse.drop(k.target, kv.value);
         },
+        .book => {
+            const n = try r.int(usize);
+            for (0..n) |_| {
+                const kind = try r.int(i64);
+                const a = try r.int(i64);
+                const b = try r.int(i64);
+                const k = kept orelse continue;
+                const dir = k.disk orelse continue;
+                switch (kind) {
+                    @intFromEnum(Book.spill) => {
+                        const copy = k.copies.get(a) orelse {
+                            std.log.warn("tp follower: no copy {d} to write as disk state {x}", .{ a, @as(u64, @bitCast(b)) });
+                            continue;
+                        };
+                        _ = reuse.writeFile(k.target, copy, dir, @bitCast(b)) catch |e| std.log.warn("tp follower: disk state {x} not written ({t}); reading it back will be a miss", .{ @as(u64, @bitCast(b)), e });
+                    },
+                    @intFromEnum(Book.forget) => reuse.unlinkFile(dir, @bitCast(a)),
+                    else => return error.BadMirrorFrame,
+                }
+            }
+        },
+        .load, .sync => unreachable, // follow answers them
         .verify => {
             const n = try r.int(usize);
             if (n > max_windows) return error.BadMirrorFrame;

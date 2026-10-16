@@ -470,82 +470,146 @@
   {
    "agent": 0,
    "turn0_prompt": 77909,
-   "turns": 3
+   "replies": [
+    "The document is made of a list of words.",
+    "basalt, cedar, and citadel",
+    "ivory\nmarble"
+   ]
   },
   {
    "agent": 1,
    "turn0_prompt": 77757,
-   "turns": 3
+   "replies": [
+    "The document is made of a list of words.",
+    "The three words that appear most often are \"thunder\", \"quiver\", and \"mantle\".",
+    "jasper\nzephyr"
+   ]
   },
   {
    "agent": 2,
    "turn0_prompt": 77797,
-   "turns": 3
+   "replies": [
+    "The document is made of a list of words.",
+    "thunder, quiver, and meadow",
+    "quiver\nkestrel"
+   ]
   },
   {
    "agent": 3,
    "turn0_prompt": 77883,
-   "turns": 3
+   "replies": [
+    "The document is made of a list of words.",
+    "The three words that appear most often are: citadel, ledger, and orchard.",
+    "orbit\ngarnet"
+   ]
   },
   {
    "agent": 4,
    "turn0_prompt": 77769,
-   "turns": 3
+   "replies": [
+    "The document is made of a list of words.",
+    "The three words that appear most often are \"cobalt\", \"quiver\", and \"mantle\".",
+    "heron\njasper"
+   ]
   },
   {
    "agent": 5,
    "turn0_prompt": 77703,
-   "turns": 3
+   "replies": [
+    "The document is made of a list of words.",
+    "The three words that appear most often are \"citadel\", \"quarry\", and \"mosaic\".",
+    "mosaic\nnimbus"
+   ]
   },
   {
    "agent": 6,
    "turn0_prompt": 78043,
-   "turns": 3
+   "replies": [
+    "The document is made of a list of words.",
+    "The three words that appear most often are river, cedar, and mantle.",
+    "anchor\nmarble"
+   ]
   },
   {
    "agent": 7,
    "turn0_prompt": 77965,
-   "turns": 3
+   "replies": [
+    "The document is made of a list of words.",
+    "The three words that appear most often are mantle, quiver, and orchard.",
+    "nimbus\nvessel"
+   ]
   },
   {
    "agent": 8,
    "turn0_prompt": 77664,
-   "turns": 3
+   "replies": [
+    "The document is made of a list of words.",
+    "candle, harbor, and cedar",
+    "quiver prism"
+   ]
   },
   {
    "agent": 9,
    "turn0_prompt": 77920,
-   "turns": 3
+   "replies": [
+    "The document is made of a list of words.",
+    "thunder, cedar, and mantle",
+    "falcon\nbeacon"
+   ]
   },
   {
    "agent": 10,
    "turn0_prompt": 77800,
-   "turns": 3
+   "replies": [
+    "This document is made of a list of words.",
+    "quiver, cedar, and orchard",
+    "almond\nnimbus"
+   ]
   },
   {
    "agent": 11,
    "turn0_prompt": 77666,
-   "turns": 3
+   "replies": [
+    "The document is made of a list of words.",
+    "The three words that appear most often are \"thunder\", \"quiver\", and \"mantle\".",
+    "prism\nalmond"
+   ]
   },
   {
    "agent": 12,
    "turn0_prompt": 77555,
-   "turns": 3
+   "replies": [
+    "The document is made of a list of words.",
+    "The three words that appear most often are \"candle\", \"quiver\", and \"tablet\".",
+    "juniper\nquiver"
+   ]
   },
   {
    "agent": 13,
    "turn0_prompt": 77760,
-   "turns": 3
+   "replies": [
+    "The document is made of a list of words.",
+    "The three words that appear most often are \"cobalt\", \"quiver\", and \"tablet\".",
+    "quartz\nmosaic"
+   ]
   },
   {
    "agent": 14,
    "turn0_prompt": 77904,
-   "turns": 3
+   "replies": [
+    "The document is made of a list of words.",
+    "The three words that appear most often are \"quiver\", \"cedar\", and \"orchard\".",
+    "pewter\ncitadel"
+   ]
   },
   {
    "agent": 15,
    "turn0_prompt": 77851,
-   "turns": 3
+   "replies": [
+    "This document is made of a list of words.",
+    "The three words that appear most often are \"quiver\", \"kestrel\", and \"harbor\".",
+    "harbor\nfalcon"
+   ]
   }
  ]
 }

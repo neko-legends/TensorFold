@@ -1,0 +1,402 @@
+{
+ "date": "2026-10-15T23:02:05-0700",
+ "url": "http://forge:8100",
+ "agents": 0,
+ "prefix": 0,
+ "turns": 2,
+ "phase": "warm",
+ "cold": [],
+ "warm": [
+  {
+   "prompt_tokens": 10055,
+   "cached_tokens": 10012,
+   "wall_s": 0.2,
+   "ttft_s": 0.09119989,
+   "prefill_s": 0.089506813,
+   "prev_prompt": 10018,
+   "hit": true,
+   "agent": 0,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 9974,
+   "cached_tokens": 9931,
+   "wall_s": 0.193,
+   "ttft_s": 0.093271591,
+   "prefill_s": 0.091839876,
+   "prev_prompt": 9937,
+   "hit": true,
+   "agent": 1,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10118,
+   "cached_tokens": 10078,
+   "wall_s": 0.151,
+   "ttft_s": 0.090508656,
+   "prefill_s": 0.088617307,
+   "prev_prompt": 10084,
+   "hit": true,
+   "agent": 2,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10104,
+   "cached_tokens": 10061,
+   "wall_s": 0.149,
+   "ttft_s": 0.088804923,
+   "prefill_s": 0.087056807,
+   "prev_prompt": 10067,
+   "hit": true,
+   "agent": 3,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10057,
+   "cached_tokens": 10014,
+   "wall_s": 0.12,
+   "ttft_s": 0.087569912,
+   "prefill_s": 0.086691701,
+   "prev_prompt": 10020,
+   "hit": true,
+   "agent": 4,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10114,
+   "cached_tokens": 10071,
+   "wall_s": 0.148,
+   "ttft_s": 0.087137222,
+   "prefill_s": 0.086081268,
+   "prev_prompt": 10077,
+   "hit": true,
+   "agent": 5,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10036,
+   "cached_tokens": 9993,
+   "wall_s": 0.156,
+   "ttft_s": 0.089651069,
+   "prefill_s": 0.088031128,
+   "prev_prompt": 9999,
+   "hit": true,
+   "agent": 6,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10072,
+   "cached_tokens": 10029,
+   "wall_s": 0.151,
+   "ttft_s": 0.090403135,
+   "prefill_s": 0.089318604,
+   "prev_prompt": 10035,
+   "hit": true,
+   "agent": 7,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10046,
+   "cached_tokens": 10003,
+   "wall_s": 0.157,
+   "ttft_s": 0.097371986,
+   "prefill_s": 0.095988846,
+   "prev_prompt": 10009,
+   "hit": true,
+   "agent": 8,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10098,
+   "cached_tokens": 10058,
+   "wall_s": 0.149,
+   "ttft_s": 0.087446727,
+   "prefill_s": 0.086139924,
+   "prev_prompt": 10064,
+   "hit": true,
+   "agent": 9,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10073,
+   "cached_tokens": 10030,
+   "wall_s": 0.148,
+   "ttft_s": 0.08699431,
+   "prefill_s": 0.085935042,
+   "prev_prompt": 10036,
+   "hit": true,
+   "agent": 10,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10126,
+   "cached_tokens": 10086,
+   "wall_s": 0.147,
+   "ttft_s": 0.086984645,
+   "prefill_s": 0.085640498,
+   "prev_prompt": 10092,
+   "hit": true,
+   "agent": 11,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10051,
+   "cached_tokens": 10008,
+   "wall_s": 0.15,
+   "ttft_s": 0.089405419,
+   "prefill_s": 0.087311862,
+   "prev_prompt": 10014,
+   "hit": true,
+   "agent": 12,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10075,
+   "cached_tokens": 10035,
+   "wall_s": 0.151,
+   "ttft_s": 0.086041811,
+   "prefill_s": 0.084936943,
+   "prev_prompt": 10041,
+   "hit": true,
+   "agent": 13,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10117,
+   "cached_tokens": 10074,
+   "wall_s": 0.158,
+   "ttft_s": 0.091360369,
+   "prefill_s": 0.089932605,
+   "prev_prompt": 10080,
+   "hit": true,
+   "agent": 14,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10044,
+   "cached_tokens": 10001,
+   "wall_s": 0.159,
+   "ttft_s": 0.096480686,
+   "prefill_s": 0.095427868,
+   "prev_prompt": 10007,
+   "hit": true,
+   "agent": 15,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10073,
+   "cached_tokens": 10030,
+   "wall_s": 0.148,
+   "ttft_s": 0.088153336,
+   "prefill_s": 0.086275107,
+   "prev_prompt": 10036,
+   "hit": true,
+   "agent": 16,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10121,
+   "cached_tokens": 10078,
+   "wall_s": 0.148,
+   "ttft_s": 0.087611334,
+   "prefill_s": 0.086048882,
+   "prev_prompt": 10084,
+   "hit": true,
+   "agent": 17,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10034,
+   "cached_tokens": 9991,
+   "wall_s": 0.149,
+   "ttft_s": 0.08895713,
+   "prefill_s": 0.087328982,
+   "prev_prompt": 9997,
+   "hit": true,
+   "agent": 18,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10109,
+   "cached_tokens": 10066,
+   "wall_s": 0.152,
+   "ttft_s": 0.089783788,
+   "prefill_s": 0.0882778,
+   "prev_prompt": 10072,
+   "hit": true,
+   "agent": 19,
+   "turn": 1
+  }
+ ],
+ "summary": {
+  "followups": 20,
+  "hits": 20,
+  "hit_rate": 1.0,
+  "cached_share": 0.996,
+  "ttft_median_s": 0.089,
+  "ttft_mean_s": 0.09,
+  "ttft_max_s": 0.097371986
+ },
+ "convos": [
+  {
+   "agent": 0,
+   "turn0_prompt": 10018,
+   "replies": [
+    "This document is made of a list of words.",
+    "ivory\nzephyr"
+   ]
+  },
+  {
+   "agent": 1,
+   "turn0_prompt": 9937,
+   "replies": [
+    "This document is made of a list of words.",
+    "jasper zephyr"
+   ]
+  },
+  {
+   "agent": 2,
+   "turn0_prompt": 10084,
+   "replies": [
+    "This document is made of words.",
+    "quiver\nsaffron"
+   ]
+  },
+  {
+   "agent": 3,
+   "turn0_prompt": 10067,
+   "replies": [
+    "This document is made of a list of words.",
+    "orbit\nonyx"
+   ]
+  },
+  {
+   "agent": 4,
+   "turn0_prompt": 10020,
+   "replies": [
+    "This document is made of a list of words.",
+    "heron\nanchor"
+   ]
+  },
+  {
+   "agent": 5,
+   "turn0_prompt": 10077,
+   "replies": [
+    "This document is made of a list of words.",
+    "mosaic prism"
+   ]
+  },
+  {
+   "agent": 6,
+   "turn0_prompt": 9999,
+   "replies": [
+    "This document is made of a list of words.",
+    "anchor thunder"
+   ]
+  },
+  {
+   "agent": 7,
+   "turn0_prompt": 10035,
+   "replies": [
+    "This document is made of a list of words.",
+    "nimbus\njasper"
+   ]
+  },
+  {
+   "agent": 8,
+   "turn0_prompt": 10009,
+   "replies": [
+    "This document is made of a list of words.",
+    "quiver cedar"
+   ]
+  },
+  {
+   "agent": 9,
+   "turn0_prompt": 10064,
+   "replies": [
+    "This document is made of words.",
+    "falcon sable"
+   ]
+  },
+  {
+   "agent": 10,
+   "turn0_prompt": 10036,
+   "replies": [
+    "This document is made of a list of words.",
+    "almond almond"
+   ]
+  },
+  {
+   "agent": 11,
+   "turn0_prompt": 10092,
+   "replies": [
+    "This document is made of text.",
+    "prism yarrow"
+   ]
+  },
+  {
+   "agent": 12,
+   "turn0_prompt": 10014,
+   "replies": [
+    "This document is made of a list of words.",
+    "juniper\npewter"
+   ]
+  },
+  {
+   "agent": 13,
+   "turn0_prompt": 10041,
+   "replies": [
+    "This document is made of words.",
+    "quartz pollen"
+   ]
+  },
+  {
+   "agent": 14,
+   "turn0_prompt": 10080,
+   "replies": [
+    "This document is made of a list of words.",
+    "pewter vessel"
+   ]
+  },
+  {
+   "agent": 15,
+   "turn0_prompt": 10007,
+   "replies": [
+    "This document is made of a list of words.",
+    "harbor mosaic"
+   ]
+  },
+  {
+   "agent": 16,
+   "turn0_prompt": 10036,
+   "replies": [
+    "This document is made of a list of words.",
+    "prism quartz"
+   ]
+  },
+  {
+   "agent": 17,
+   "turn0_prompt": 10084,
+   "replies": [
+    "This document is made of a list of words.",
+    "mosaic\nrusset"
+   ]
+  },
+  {
+   "agent": 18,
+   "turn0_prompt": 9997,
+   "replies": [
+    "This document is made of a list of words.",
+    "citadel\number"
+   ]
+  },
+  {
+   "agent": 19,
+   "turn0_prompt": 10072,
+   "replies": [
+    "This document is made of a list of words.",
+    "lantern lilac"
+   ]
+  }
+ ]
+}

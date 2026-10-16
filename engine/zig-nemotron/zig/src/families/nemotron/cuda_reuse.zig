@@ -199,6 +199,163 @@ pub fn restore(ptr: *anyopaque, owner: ?*anyopaque, saved: *anyopaque) anyerror!
     if (t.head) |h| h.pos = copy.pos;
 }
 
+// -- the disk tier (TF_NEMOTRON_DISK): a kept state as a file, so an evicted state comes back and a restart keeps them --
+
+const disk_magic: u64 = 0x314b53444f4d454e; // "NEMODSK1"
+/// A state file's layout; a change here gives new files a new identity (their own folder), so old ones are never read.
+const disk_version: u64 = 1;
+const disk_head = 9; // words: magic, version, pos, parity, rows, head, key and value bytes, Mamba bytes, payload hash
+
+/// diskIdentity for the cache's family pointer.
+pub fn identityOf(ptr: *anyopaque) u64 {
+    return diskIdentity(@ptrCast(@alignCast(ptr)));
+}
+
+/// Where this rank's state files go under `root`: a folder per layout, rank and world, the same name every start.
+pub fn diskIdentity(t: *const Target) u64 {
+    const c = t.e.c;
+    const m = state.mambaPlanes(c);
+    const words = [_]u64{ disk_version, state.kvRowBytes(c), m[0], m[1], c.count(.attention), c.layers, c.tp_rank, c.tp_world, @intFromBool(t.head != null) };
+    return std.hash.Wyhash.hash(0x4e454d4f, std.mem.sliceAsBytes(&words));
+}
+
+/// TF_NEMOTRON_DISK's folder for this rank's states (made when missing); null when the variable is unset or empty.
+pub fn diskDir(gpa: std.mem.Allocator, t: *const Target) !?[:0]u8 {
+    const root = std.mem.trim(u8, std.mem.span(std.c.getenv("TF_NEMOTRON_DISK") orelse return null), " ");
+    if (root.len == 0) return null;
+    const dir = try std.fmt.allocPrintSentinel(gpa, "{s}/{x:0>16}", .{ root, diskIdentity(t) }, 0);
+    errdefer gpa.free(dir);
+    for (1..dir.len) |i| if (dir[i] == '/') { // each parent, then the folder (one that exists stays)
+        dir[i] = 0;
+        _ = std.c.mkdir(dir[0..i :0], 0o700);
+        dir[i] = '/';
+    };
+    _ = std.c.mkdir(dir, 0o700);
+    const fd = std.c.open(dir, .{ .ACCMODE = .RDONLY, .DIRECTORY = true }, @as(std.c.mode_t, 0));
+    if (fd < 0) return error.DiskDir;
+    _ = std.c.close(fd);
+    return dir;
+}
+
+fn diskPath(buf: []u8, dir: []const u8, key: u64, part: bool) ![:0]u8 {
+    return std.fmt.bufPrintSentinel(buf, "{s}/{x:0>16}.bin{s}", .{ dir, key, if (part) ".part" else "" }, 0);
+}
+
+/// The bytes a state of `at` tokens takes on disk.
+pub fn diskBytes(t: *const Target, at: u32) u64 {
+    const m = state.mambaPlanes(t.e.c);
+    return disk_head * 8 + kvBytes(t.e.c, at, t.head != null) + m[0] + m[1];
+}
+
+/// Kept state `saved` as `dir`/<key>.bin: a header, its key and value rows, its Mamba states (written whole, then
+/// renamed, so a reader never sees half a file); the bytes written.
+pub fn writeFile(t: *const Target, saved: *anyopaque, dir: []const u8, key: u64) !u64 {
+    const copy: *Copy = @ptrCast(@alignCast(saved));
+    if (!copy.whole) return error.Incomplete;
+    if (copy.head != (t.head != null)) return error.NoHead;
+    try t.e.ctx.makeCurrent(); // a lookup's thread may not have made a GPU call yet
+    const kv = kvBytes(t.e.c, copy.pos, copy.head);
+    const m = state.mambaPlanes(t.e.c);
+    const buf = try t.e.gpa.alloc(u8, disk_head * 8 + kv + m[0] + m[1]);
+    defer t.e.gpa.free(buf);
+    const payload = buf[disk_head * 8 ..];
+    try download(t, saved, payload);
+    const words = [disk_head]u64{ disk_magic, disk_version, copy.pos, copy.parity, copy.rows, @intFromBool(copy.head), kv, m[0] + m[1], std.hash.Wyhash.hash(key, payload) };
+    @memcpy(buf[0 .. disk_head * 8], std.mem.sliceAsBytes(&words));
+    var pb: [1100]u8 = undefined;
+    var fb: [1100]u8 = undefined;
+    const part = try diskPath(&pb, dir, key, true);
+    const fd = std.c.open(part, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .NOFOLLOW = true }, @as(std.c.mode_t, 0o600));
+    if (fd < 0) return error.DiskWrite;
+    {
+        defer _ = std.c.close(fd);
+        var off: usize = 0;
+        while (off < buf.len) {
+            const n = std.c.write(fd, buf[off..].ptr, buf.len - off);
+            if (n <= 0) {
+                _ = std.c.unlink(part);
+                return error.DiskWrite;
+            }
+            off += @intCast(n);
+        }
+    }
+    if (std.c.rename(part, try diskPath(&fb, dir, key, false)) != 0) {
+        _ = std.c.unlink(part);
+        return error.DiskWrite;
+    }
+    return buf.len;
+}
+
+/// State `key` of `at` tokens read back from `dir` into a new copy; any header, size or hash mismatch refuses it.
+pub fn readFile(t: *const Target, dir: []const u8, key: u64, at: u32) !*Copy {
+    try t.e.ctx.makeCurrent(); // a lookup's thread may not have made a GPU call yet
+    var pb: [1100]u8 = undefined;
+    const fd = std.c.open(try diskPath(&pb, dir, key, false), .{ .ACCMODE = .RDONLY, .NOFOLLOW = true }, @as(std.c.mode_t, 0));
+    if (fd < 0) return error.DiskMissing;
+    defer _ = std.c.close(fd);
+    const kv = kvBytes(t.e.c, at, t.head != null);
+    const m = state.mambaPlanes(t.e.c);
+    const total = disk_head * 8 + kv + m[0] + m[1];
+    if (std.c.lseek(fd, 0, std.c.SEEK.END) != @as(std.c.off_t, @intCast(total)) or std.c.lseek(fd, 0, std.c.SEEK.SET) != 0) return error.DiskSize;
+    const buf = try t.e.gpa.alloc(u8, total);
+    defer t.e.gpa.free(buf);
+    var off: usize = 0;
+    while (off < total) {
+        const n = std.c.read(fd, buf[off..].ptr, total - off);
+        if (n <= 0) return error.DiskRead;
+        off += @intCast(n);
+    }
+    var words: [disk_head]u64 = undefined;
+    @memcpy(std.mem.sliceAsBytes(&words), buf[0 .. disk_head * 8]);
+    const payload = buf[disk_head * 8 ..];
+    if (words[0] != disk_magic or words[1] != disk_version or words[2] != at or words[5] != @intFromBool(t.head != null) or words[6] != kv or words[7] != m[0] + m[1]) return error.DiskHeader;
+    if (words[8] != std.hash.Wyhash.hash(key, payload)) return error.DiskHash;
+    const copy = try alloc(t, at, true);
+    errdefer drop(@constCast(t), copy);
+    try t.e.ops().upload(copy.kv.ptr, payload[0..kv]);
+    try t.e.ops().upload(copy.mamba.ptr, payload[kv..]);
+    try t.e.stream.synchronize();
+    copy.parity = @intCast(words[3]);
+    copy.rows = @intCast(words[4]);
+    return copy;
+}
+
+/// State `key`'s file removed (none there: nothing to do).
+pub fn unlinkFile(dir: []const u8, key: u64) void {
+    var pb: [1100]u8 = undefined;
+    _ = std.c.unlink(diskPath(&pb, dir, key, false) catch return);
+}
+
+/// The cache's disk tier on rank 0 (prompt_cache.Snapshots.write): this rank's file, then the others' (cuda_mirror.zig).
+pub fn write(ptr: *anyopaque, saved: *anyopaque, dir: [:0]const u8, key: u64) anyerror!void {
+    const t: *Target = @ptrCast(@alignCast(ptr));
+    if (t.mirror) |m| if (!m.mirrored(saved)) return error.NotMirrored; // a copy rank 0 alone holds
+    _ = try writeFile(t, saved, dir, key);
+    if (t.mirror) |m| m.spilled(saved, key);
+}
+
+/// Disk state `key` read back into a new copy, on every rank under tensor parallelism (all of them, or a miss).
+pub fn read(ptr: *anyopaque, dir: [:0]const u8, key: u64, at: u32) anyerror!*anyopaque {
+    const t: *Target = @ptrCast(@alignCast(ptr));
+    const copy = try readFile(t, dir, key, at);
+    if (t.mirror) |m| m.loaded(copy, key, at) catch |e| {
+        drop(t, copy);
+        return e;
+    };
+    return copy;
+}
+
+/// Disk state `key` removed here and on the other ranks.
+pub fn forget(ptr: *anyopaque, dir: [:0]const u8, key: u64) void {
+    const t: *Target = @ptrCast(@alignCast(ptr));
+    unlinkFile(dir, key);
+    if (t.mirror) |m| m.forgot(key);
+}
+
+pub fn forgetChecked(ptr: *anyopaque, dir: [:0]const u8, key: u64) anyerror!void {
+    forget(ptr, dir, key);
+}
+
 /// Free a kept state's device copy; its Mamba buffer waits as a spare while fewer than the cache set aside do.
 pub fn drop(ptr: *anyopaque, saved: *anyopaque) void {
     const t: *Target = @ptrCast(@alignCast(ptr));

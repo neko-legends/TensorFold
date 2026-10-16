@@ -18,6 +18,10 @@ const nemotron_snaps: api.prompt_cache.Snapshots.VTable = .{
     .save = nemotron.native.snap_save,
     .restore = nemotron.native.snap_restore,
     .drop = nemotron.native.snap_drop,
+    .write = nemotron.native.snap_write, // the disk tier, when TF_NEMOTRON_DISK opens one (diskTier)
+    .read = nemotron.native.snap_read,
+    .forget = nemotron.native.snap_forget,
+    .forget_checked = nemotron.native.snap_forget_checked,
 };
 
 pub const backends: []const []const u8 = &.{"cuda"};
@@ -148,6 +152,7 @@ const Host = struct {
     startup: []u8 = &.{},
     lone: ?LoneRun = null, // the family's driver for a lone drafted stream, called with `family`
     store: ?*api.prompt_cache.Store = null, // kept Nemotron states; null when the budget is 0
+    imprint: ?*api.prompt_imprint.Imprint = null, // the store's disk tier (TF_NEMOTRON_DISK), null when off
     learn: ?api.Learner = null, // the family's Sliding Weights learner (--slide), called with the context current
     slide: ?*anyopaque = null, // that learner's adapter, freed by slide_free before the family
     slide_free: ?*const fn (Allocator, *anyopaque) void = null,
@@ -160,8 +165,17 @@ const Host = struct {
         h.cfg.deinit(h.gpa);
         if (h.gpu) |g| g.ctx.makeCurrent() catch {};
         if (h.store) |s| {
+            if (h.imprint != null) {
+                const before = s.counts.spilled;
+                s.spillAll(); // the next server reads them back (under TP the others write theirs before the stop)
+                std.log.info("prompt cache: disk tier: {d} kept states written at stop", .{s.counts.spilled - before});
+            }
             s.deinit();
             h.gpa.destroy(s);
+        }
+        if (h.imprint) |im| {
+            im.deinit();
+            h.gpa.destroy(im);
         }
         if (h.slide) |s| h.slide_free.?(h.gpa, s);
         h.gpa.free(h.dir);
@@ -362,6 +376,10 @@ fn openWith(comptime F: type, a: Allocator, gpa: Allocator, io: std.Io, o: api.O
         // states keep at any row at no prompt call (the head reads one token on); replies prefill when it is quiet
         store.* = pc.Store.init(gpa, .{ .ptr = loaded.target, .vtable = &nemotron_snaps }, .{ .lookahead = 1, .min_prompt = 0, .warm = .waits }, cache - try nemotron.native.snap_ready(loaded.target, cache));
         h.store = store;
+        h.imprint = diskTier(gpa, store, loaded.target) catch |e| blk: {
+            std.log.warn("prompt cache: no disk tier ({s}): states that leave memory are gone", .{@errorName(e)});
+            break :blk null;
+        };
     }
     errdefer if (h.store) |store| {
         store.deinit();
@@ -390,6 +408,33 @@ fn openWith(comptime F: type, a: Allocator, gpa: Allocator, io: std.Io, o: api.O
     try h.serve(io, loaded.facts, loaded.rows, .{ .vision = if (loaded.vision) |v| .{ .ctx = v.ctx, .embed = @ptrCast(v.embed) } else null, .lanes = streams, .context_window = @intCast(window), .startup = h.startup, .prompt_cache = h.store != null, .warm_turns = h.store != null, .logprobs = loaded.backend.vtable.first_row != null, .prompt_logprobs = loaded.backend.vtable.prompt_rows, .structures = loaded.backend.vtable.first_masked != null }, .{ .ctx = loaded.ctx, .text = F.explain });
     opened = true;
     return .{ .engine = h.host.engine(), .close = Host.close, .ctx = h };
+}
+
+/// TF_NEMOTRON_DISK (a folder): the store's disk tier, states of TF_NEMOTRON_DISK_MIN tokens (4096) or more written
+/// there before they leave memory and at stop, up to TF_NEMOTRON_DISK_GIB (128) while TF_NEMOTRON_DISK_FLOOR_GIB (64)
+/// stays free; a later lookup, or the next server, reads them back. Null when the variable is unset or empty.
+fn diskTier(gpa: Allocator, store: *api.prompt_cache.Store, target: *anyopaque) !?*api.prompt_imprint.Imprint {
+    const root = std.mem.trim(u8, getenv("TF_NEMOTRON_DISK") orelse return null, " ");
+    if (root.len == 0) return null;
+    const gib_of = struct {
+        fn f(name: [:0]const u8, default: f64) !u64 {
+            const t = std.mem.trim(u8, getenv(name) orelse return @intFromFloat(default * gib), " ");
+            if (t.len == 0) return @intFromFloat(default * gib);
+            const v = std.fmt.parseFloat(f64, t) catch return error.BadDiskSetting;
+            if (!(v >= 0 and v < 1e6)) return error.BadDiskSetting;
+            return @intFromFloat(v * gib);
+        }
+    }.f;
+    const cap = try gib_of("TF_NEMOTRON_DISK_GIB", 128);
+    const floor = try gib_of("TF_NEMOTRON_DISK_FLOOR_GIB", 64);
+    const min = envNumber(getenv("TF_NEMOTRON_DISK_MIN")) catch return error.BadDiskSetting;
+    const im = try gpa.create(api.prompt_imprint.Imprint);
+    errdefer gpa.destroy(im);
+    im.* = try api.prompt_imprint.Imprint.open(gpa, root, nemotron.native.snap_identity(target), cap);
+    store.imprint = im;
+    store.spill = .{ .min = @max(1, min orelse 4096), .floor = floor };
+    std.log.info("prompt cache: disk tier at {s}: {d} states, {d:.1} GiB on disk (cap {d:.0} GiB, states of {d} tokens or more)", .{ im.dir, im.metas.items.len, toGib(im.total()), toGib(cap), store.spill.min });
+    return im;
 }
 
 fn toGib(bytes: u64) f64 {

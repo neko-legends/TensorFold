@@ -110,7 +110,7 @@ pub const Entry = struct {
     branched: bool = false, // resumed again after a later prompt kept a longer state extending it: never superseded
 };
 
-pub const Counts = struct { hits: u64 = 0, misses: u64 = 0, kept: u64 = 0, evicted: u64 = 0, refused: u64 = 0, failed: u64 = 0 };
+pub const Counts = struct { hits: u64 = 0, misses: u64 = 0, kept: u64 = 0, evicted: u64 = 0, refused: u64 = 0, failed: u64 = 0, spilled: u64 = 0, read: u64 = 0 };
 
 /// Where a prompt pass starts and where it stops to keep its state (marks sorted, in `a`).
 pub const Plan = struct { from: u32 = 0, marks: []const u32 = &.{} };
@@ -120,6 +120,10 @@ pub const Kept = struct { held: bool, shared: usize };
 
 /// The entry a backend restores itself (null: the pass starts at 0) and the pass's marks.
 pub const Lookup = struct { entry: ?*Entry = null, marks: []const u32 = &.{} };
+
+/// The disk tier over `imprint`: a state of `min` tokens or more is written before it leaves memory (0: off), while
+/// the disk keeps `floor` bytes free; a later lookup reads it back as a learned state, after a restart too.
+pub const Spill = struct { min: u32 = 0, floor: u64 = 64 << 30 };
 
 pub const Store = struct {
     gpa: Allocator,
@@ -133,6 +137,7 @@ pub const Store = struct {
     shared_keys: std.ArrayList(u64) = .empty, // the tokens of recently planned shared cuts, hashed (at most SHARED_KEYS)
     imprint: ?*imprint.Imprint = null, // --learn: shared cuts' states on disk, read back by later sessions and servers
     active_rewind_at: u32 = 0, // the last lookup's rewind state (0: none); hosts keep a pass's states before the next lookup
+    spill: Spill = .{}, // the disk tier: evicted states go to `imprint` first (prompt_learn.spill)
 
     const SHARED_KEYS = 64;
 
@@ -159,6 +164,19 @@ pub const Store = struct {
         const e = s.entries.orderedRemove(i);
         s.held -= e.bytes;
         s.free(e);
+    }
+
+    /// Entry `i` makes room: written to the disk tier first (if on), then removed.
+    fn evict(s: *Store, i: usize) void {
+        if (s.spill.min > 0) learned.spill(s, s.entries.items[i]);
+        s.remove(i);
+        s.counts.evicted += 1;
+    }
+
+    /// Every kept state to the disk tier (a server stopping: the next one reads them back).
+    pub fn spillAll(s: *Store) void {
+        if (s.spill.min == 0) return;
+        for (s.entries.items) |e| learned.spill(s, e);
     }
 
     /// The family's free storage kept for later saves.
@@ -188,8 +206,7 @@ pub const Store = struct {
             const skip = for (s.entries.items) |e| {
                 if (restoring != null and e.saved == restoring.?) break e;
             } else null;
-            s.remove(s.victimBut(skip, prompt, @intCast(prompt.len)) orelse return false);
-            s.counts.evicted += 1;
+            s.evict(s.victimBut(skip, prompt, @intCast(prompt.len)) orelse return false);
         }
         return true;
     }
@@ -291,9 +308,7 @@ pub const Store = struct {
             if (!exists) need += s.family.vtable.bytes(s.family.ptr, at);
         }
         while (s.held + need > s.budget) {
-            const i = s.victimBut(from, prompt, born) orelse return;
-            s.remove(i);
-            s.counts.evicted += 1;
+            s.evict(s.victimBut(from, prompt, born) orelse return);
         }
     }
 
@@ -450,8 +465,7 @@ pub const Store = struct {
                 if (s.family.vtable.trim) |f| f(s.family.ptr, s.budget -| s.held -| bytes); // spare that cannot take this state goes before any state
                 if (s.spare() < free_) continue;
             }
-            s.remove(s.victimBut(null, prompt, born).?); // its storage may come back spare and take this state
-            s.counts.evicted += 1;
+            s.evict(s.victimBut(null, prompt, born).?); // its storage may come back spare and take this state
         }
         if (s.entries.items.len == 0) if (s.family.vtable.trim) |f| f(s.family.ptr, s.budget -| bytes);
         const e = s.gpa.create(Entry) catch return s.fail(at, error.OutOfMemory);
@@ -492,8 +506,7 @@ pub const Store = struct {
         if (!modes.equal(&.{}, spans, m.at)) return have; // the request decodes rows the learned prompt pass prefilled
         const bytes = s.family.vtable.bytes(s.family.ptr, m.at);
         while (bytes <= s.budget and s.held + s.spare() + bytes > s.budget) {
-            s.remove(s.victimBut(have, prompt, born) orelse return have);
-            s.counts.evicted += 1;
+            s.evict(s.victimBut(have, prompt, born) orelse return have);
         }
         if (bytes > s.budget) return have;
         const e = s.gpa.create(Entry) catch return have;
@@ -509,6 +522,7 @@ pub const Store = struct {
         im.touch(key);
         s.entries.append(s.gpa, e) catch return s.drop(e, have, true);
         s.held += bytes;
+        s.counts.read += 1;
         if (!@import("builtin").is_test) std.log.info("prompt cache: read {d} learned tokens from disk", .{m.at});
         return e;
     }
@@ -525,7 +539,17 @@ pub const Store = struct {
     /// One log line after a prompt pass: where it resumed, how many states it kept, and what the store holds.
     pub fn report(s: *const Store, prompt: usize, from: u32, kept: u64) void {
         if (@import("builtin").is_test) return;
-        std.log.info("prompt cache: {d} tokens, resumed at {d}, kept {d}; {d} states, {d} MiB and {d} MiB spare of {d} MiB (hits {d}, misses {d}, evicted {d}, refused {d}, failed {d})", .{ prompt, from, kept, s.entries.items.len, s.held >> 20, s.spare() >> 20, s.budget >> 20, s.counts.hits, s.counts.misses, s.counts.evicted, s.counts.refused, s.counts.failed });
+        std.log.info("prompt cache: {d} tokens, resumed at {d}, kept {d}; {d} states, {d} MiB and {d} MiB spare of {d} MiB (hits {d}, misses {d}, evicted {d}, refused {d}, failed {d}){s}", .{ prompt, from, kept, s.entries.items.len, s.held >> 20, s.spare() >> 20, s.budget >> 20, s.counts.hits, s.counts.misses, s.counts.evicted, s.counts.refused, s.counts.failed, s.diskLine() });
+    }
+
+    /// The disk tier's part of the report line ("" when off).
+    fn diskLine(s: *const Store) []const u8 {
+        const im = s.imprint orelse return "";
+        if (s.spill.min == 0) return "";
+        const Line = struct {
+            threadlocal var buf: [160]u8 = undefined;
+        };
+        return std.fmt.bufPrint(&Line.buf, "; disk: {d} states, {d} MiB (spilled {d}, read {d})", .{ im.metas.items.len, im.total() >> 20, s.counts.spilled, s.counts.read }) catch "";
     }
 
     fn fail(s: *Store, at: u32, err: anyerror) bool {
