@@ -35,6 +35,11 @@ Base: upstream TensorFold v1.0.11 vendored here (VENDORED.md). Target: `Nemotron
   prompt length, history ids = reference prefix, pixels >= 99.96% bf16-exact.
 - Swap-window runbook + agenda: `tools/nemotron/swap/` (nemotron-window.sh, WINDOW.md, window-bench.sh, window-vision.py).
 
+- 2026-10-16 (leftovers): confidence-sized lone MTP chains under TP merged and live; the disk tier's identity carries a
+  checkpoint hash (old folders invalidated), one server a folder (flock), followers reap orphans, and a stop is clean
+  past an idle keep-alive (so states are written at stop). Greedy text depends on the prompt cache's state (rounding
+  drift, deterministic per state): A/B tests pin it (`swap/WINDOW.md`, Serving notes).
+
 ## Not done (needs the swap window: Jun's go)
 Full-model TP-4 serving and TP-1 text parity, the per-layer HF gate on late layers, MTP acceptance, qbench + vision
 benches and the comparison table.

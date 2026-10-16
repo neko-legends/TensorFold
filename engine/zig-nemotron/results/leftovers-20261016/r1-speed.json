@@ -1,0 +1,207 @@
+{
+ "code": {
+  "median_tok_s": 187.57,
+  "runs": [
+   {
+    "tokens": 250,
+    "tok_s": 188.16,
+    "decode_s": 1.323367624,
+    "rounds": 32,
+    "drafted": 250,
+    "accepted": 219,
+    "tokens_per_round": 7.812,
+    "ms_per_round": 41.36,
+    "token_sha": "6335d6c43e0c",
+    "text": "```python\ndef merge_sorted_lists(list1, list2):\n    \"\"\"\n    Merges two sorted lists into a single sorted list.\n\n    Args:\n        list1 (list): The first sorted list.\n        list2 (list): The second sorted list.\n\n    Returns:\n        list: A new list containing all elements from both input lists, sorted.\n    \"\"\"\n    merged = []\n    i, j = 0, 0\n\n    while i < len(list1) and j < len(list2):\n        if list1[i] <= list2[j]:\n            merged.append(list1[i])\n            i += 1\n        else:\n            merged.append(list2[j])\n            j += 1\n\n    merged.extend(list1[i:])\n    merged.extend(list2[j:])\n    return merged\n\n\n# Usage example\nif __name__ == \"__main__\":\n    a = [1, 3, 5, 7]\n    b = [2, 4, 6, 8]\n    print(merge_sorted_lists(a, b))  # Output: [1, 2, 3, 4, 5, 6, 7, 8]\n```"
+   },
+   {
+    "tokens": 250,
+    "tok_s": 185.46,
+    "decode_s": 1.342614528,
+    "rounds": 32,
+    "drafted": 250,
+    "accepted": 219,
+    "tokens_per_round": 7.812,
+    "ms_per_round": 41.96,
+    "token_sha": "6335d6c43e0c",
+    "text": "```python\ndef merge_sorted_lists(list1, list2):\n    \"\"\"\n    Merges two sorted lists into a single sorted list.\n\n    Args:\n        list1 (list): The first sorted list.\n        list2 (list): The second sorted list.\n\n    Returns:\n        list: A new list containing all elements from both input lists, sorted.\n    \"\"\"\n    merged = []\n    i, j = 0, 0\n\n    while i < len(list1) and j < len(list2):\n        if list1[i] <= list2[j]:\n            merged.append(list1[i])\n            i += 1\n        else:\n            merged.append(list2[j])\n            j += 1\n\n    merged.extend(list1[i:])\n    merged.extend(list2[j:])\n    return merged\n\n\n# Usage example\nif __name__ == \"__main__\":\n    a = [1, 3, 5, 7]\n    b = [2, 4, 6, 8]\n    print(merge_sorted_lists(a, b))  # Output: [1, 2, 3, 4, 5, 6, 7, 8]\n```"
+   },
+   {
+    "tokens": 250,
+    "tok_s": 187.57,
+    "decode_s": 1.327506784,
+    "rounds": 32,
+    "drafted": 250,
+    "accepted": 219,
+    "tokens_per_round": 7.812,
+    "ms_per_round": 41.48,
+    "token_sha": "6335d6c43e0c",
+    "text": "```python\ndef merge_sorted_lists(list1, list2):\n    \"\"\"\n    Merges two sorted lists into a single sorted list.\n\n    Args:\n        list1 (list): The first sorted list.\n        list2 (list): The second sorted list.\n\n    Returns:\n        list: A new list containing all elements from both input lists, sorted.\n    \"\"\"\n    merged = []\n    i, j = 0, 0\n\n    while i < len(list1) and j < len(list2):\n        if list1[i] <= list2[j]:\n            merged.append(list1[i])\n            i += 1\n        else:\n            merged.append(list2[j])\n            j += 1\n\n    merged.extend(list1[i:])\n    merged.extend(list2[j:])\n    return merged\n\n\n# Usage example\nif __name__ == \"__main__\":\n    a = [1, 3, 5, 7]\n    b = [2, 4, 6, 8]\n    print(merge_sorted_lists(a, b))  # Output: [1, 2, 3, 4, 5, 6, 7, 8]\n```"
+   }
+  ]
+ },
+ "prose": {
+  "median_tok_s": 97.09,
+  "runs": [
+   {
+    "tokens": 239,
+    "tok_s": 97.09,
+    "decode_s": 2.451455697,
+    "rounds": 94,
+    "drafted": 211,
+    "accepted": 146,
+    "tokens_per_round": 2.543,
+    "ms_per_round": 26.08,
+    "token_sha": "9a4434f199b6",
+    "text": "The sky is a pale wash of grey and soft blue, the light just beginning to separate the water from the air. The harbour is still, the surface of the water acting like a sheet of glass that holds the faint reflections of the moored boats. There is no wind, only a slow, rhythmic lap of the tide against the stone quay, a sound that is quiet and constant.\n\nSeveral small fishing vessels are tied to the docks, their ropes taut and their hulls resting low in the water. A few gulls stand on the breakwater, their white feathers blending into the mist, waiting for the day to begin. The air smells of salt and damp wood, a clean scent that feels heavy in the cool morning.\n\nA single lantern still glows on the pier, a small point of yellow light that looks out of place against the growing brightness of the horizon. As the sun climbs higher, the grey of the water shifts to a deeper blue, and the silence of the harbour begins to fill with the distant, muffled sounds of the town waking up. For now, the world feels paused, held in a moment of quiet before the activity of the day returns."
+   },
+   {
+    "tokens": 239,
+    "tok_s": 97.48,
+    "decode_s": 2.441431558,
+    "rounds": 94,
+    "drafted": 211,
+    "accepted": 146,
+    "tokens_per_round": 2.543,
+    "ms_per_round": 25.97,
+    "token_sha": "9a4434f199b6",
+    "text": "The sky is a pale wash of grey and soft blue, the light just beginning to separate the water from the air. The harbour is still, the surface of the water acting like a sheet of glass that holds the faint reflections of the moored boats. There is no wind, only a slow, rhythmic lap of the tide against the stone quay, a sound that is quiet and constant.\n\nSeveral small fishing vessels are tied to the docks, their ropes taut and their hulls resting low in the water. A few gulls stand on the breakwater, their white feathers blending into the mist, waiting for the day to begin. The air smells of salt and damp wood, a clean scent that feels heavy in the cool morning.\n\nA single lantern still glows on the pier, a small point of yellow light that looks out of place against the growing brightness of the horizon. As the sun climbs higher, the grey of the water shifts to a deeper blue, and the silence of the harbour begins to fill with the distant, muffled sounds of the town waking up. For now, the world feels paused, held in a moment of quiet before the activity of the day returns."
+   },
+   {
+    "tokens": 239,
+    "tok_s": 97.08,
+    "decode_s": 2.451534121,
+    "rounds": 94,
+    "drafted": 211,
+    "accepted": 146,
+    "tokens_per_round": 2.543,
+    "ms_per_round": 26.08,
+    "token_sha": "9a4434f199b6",
+    "text": "The sky is a pale wash of grey and soft blue, the light just beginning to separate the water from the air. The harbour is still, the surface of the water acting like a sheet of glass that holds the faint reflections of the moored boats. There is no wind, only a slow, rhythmic lap of the tide against the stone quay, a sound that is quiet and constant.\n\nSeveral small fishing vessels are tied to the docks, their ropes taut and their hulls resting low in the water. A few gulls stand on the breakwater, their white feathers blending into the mist, waiting for the day to begin. The air smells of salt and damp wood, a clean scent that feels heavy in the cool morning.\n\nA single lantern still glows on the pier, a small point of yellow light that looks out of place against the growing brightness of the horizon. As the sun climbs higher, the grey of the water shifts to a deeper blue, and the silence of the harbour begins to fill with the distant, muffled sounds of the town waking up. For now, the world feels paused, held in a moment of quiet before the activity of the day returns."
+   }
+  ]
+ },
+ "story": {
+  "median_tok_s": 103.69,
+  "runs": [
+   {
+    "tokens": 320,
+    "tok_s": 103.44,
+    "decode_s": 3.08395043,
+    "rounds": 117,
+    "drafted": 277,
+    "accepted": 202,
+    "tokens_per_round": 2.735,
+    "ms_per_round": 26.36,
+    "token_sha": "a996d1c26476",
+    "text": "The wind howled like a wounded animal, rattling the shutters of the lighthouse. Elias, the keeper, stood at the lantern room\u2019s peak, watching the beam slice through the oppressive grey of a November storm. He had lived on the rock for twelve years, a solitary sentinel between the sea and the shore, where the only sounds were the crash of waves and the rhythmic tick of the clockwork mechanism.\n\nAfter the storm passed, Elias walked the shingle beach to check for debris. The tide had receded, leaving behind a carpet of kelp and driftwood. Among the wreckage, a glass bottle caught the light, wedged between two jagged rocks.\n\nHe pried it free. Inside, a piece of parchment, yellowed and damp, was rolled tight. With trembling fingers, Elias broke the seal and unfolded the note. The ink was faded, but the handwriting was precise.\n\n*\"To whoever finds this: I am writing this from the deck of the *Marigold*. We are taking on water in the North Atlantic, and the pumps have failed. If you are reading this, I did not make it. Tell my daughter, Clara, that I loved her more than the horizon. Tell her I saw the light of your tower the night before the gale hit, and it gave me hope.\"*\n\nElias stared at the words, the salt spray drying on his cheeks. He checked the date at the bottom: October 14, 1912.\n\nHe looked out at the ocean, now a shimmering"
+   },
+   {
+    "tokens": 320,
+    "tok_s": 103.69,
+    "decode_s": 3.076499283,
+    "rounds": 117,
+    "drafted": 277,
+    "accepted": 202,
+    "tokens_per_round": 2.735,
+    "ms_per_round": 26.29,
+    "token_sha": "a996d1c26476",
+    "text": "The wind howled like a wounded animal, rattling the shutters of the lighthouse. Elias, the keeper, stood at the lantern room\u2019s peak, watching the beam slice through the oppressive grey of a November storm. He had lived on the rock for twelve years, a solitary sentinel between the sea and the shore, where the only sounds were the crash of waves and the rhythmic tick of the clockwork mechanism.\n\nAfter the storm passed, Elias walked the shingle beach to check for debris. The tide had receded, leaving behind a carpet of kelp and driftwood. Among the wreckage, a glass bottle caught the light, wedged between two jagged rocks.\n\nHe pried it free. Inside, a piece of parchment, yellowed and damp, was rolled tight. With trembling fingers, Elias broke the seal and unfolded the note. The ink was faded, but the handwriting was precise.\n\n*\"To whoever finds this: I am writing this from the deck of the *Marigold*. We are taking on water in the North Atlantic, and the pumps have failed. If you are reading this, I did not make it. Tell my daughter, Clara, that I loved her more than the horizon. Tell her I saw the light of your tower the night before the gale hit, and it gave me hope.\"*\n\nElias stared at the words, the salt spray drying on his cheeks. He checked the date at the bottom: October 14, 1912.\n\nHe looked out at the ocean, now a shimmering"
+   },
+   {
+    "tokens": 320,
+    "tok_s": 103.85,
+    "decode_s": 3.071758665,
+    "rounds": 117,
+    "drafted": 279,
+    "accepted": 202,
+    "tokens_per_round": 2.735,
+    "ms_per_round": 26.25,
+    "token_sha": "a996d1c26476",
+    "text": "The wind howled like a wounded animal, rattling the shutters of the lighthouse. Elias, the keeper, stood at the lantern room\u2019s peak, watching the beam slice through the oppressive grey of a November storm. He had lived on the rock for twelve years, a solitary sentinel between the sea and the shore, where the only sounds were the crash of waves and the rhythmic tick of the clockwork mechanism.\n\nAfter the storm passed, Elias walked the shingle beach to check for debris. The tide had receded, leaving behind a carpet of kelp and driftwood. Among the wreckage, a glass bottle caught the light, wedged between two jagged rocks.\n\nHe pried it free. Inside, a piece of parchment, yellowed and damp, was rolled tight. With trembling fingers, Elias broke the seal and unfolded the note. The ink was faded, but the handwriting was precise.\n\n*\"To whoever finds this: I am writing this from the deck of the *Marigold*. We are taking on water in the North Atlantic, and the pumps have failed. If you are reading this, I did not make it. Tell my daughter, Clara, that I loved her more than the horizon. Tell her I saw the light of your tower the night before the gale hit, and it gave me hope.\"*\n\nElias stared at the words, the salt spray drying on his cheeks. He checked the date at the bottom: October 14, 1912.\n\nHe looked out at the ocean, now a shimmering"
+   }
+  ]
+ },
+ "explain": {
+  "median_tok_s": 126.14,
+  "runs": [
+   {
+    "tokens": 320,
+    "tok_s": 126.38,
+    "decode_s": 2.524224717,
+    "rounds": 84,
+    "drafted": 324,
+    "accepted": 236,
+    "tokens_per_round": 3.81,
+    "ms_per_round": 30.05,
+    "token_sha": "2504cb1dac3b",
+    "text": "Here is a step-by-step explanation of how the electrolysis of water works, written for a high-school chemistry student.\n\n---\n\n### What is Electrolysis?\n\n**Electrolysis** is the process of using electricity to drive a chemical reaction that would not happen on its own. In the case of water, we use electrical energy to break water molecules apart into hydrogen gas and oxygen gas.\n\nThe overall reaction looks like this:\n\n$$2H_2O(l) \\rightarrow 2H_2(g) + O_2(g)$$\n\nThis reaction is **non-spontaneous**\u2014water won\u2019t split by itself just sitting in a beaker. You need to pump energy into it, and that energy comes from a battery or power supply.\n\n---\n\n### Step 1: Set Up the Apparatus\n\nYou need a few basic pieces of equipment:\n\n*   **A power source** (like a DC battery or power supply) with a positive terminal and a negative terminal.\n*   **Two electrodes** (conductive rods or wires, often made of graphite or platinum) that you place in the water.\n*   **Water**\u2014but pure water is actually a poor conductor of electricity, so you usually add a small amount of an electrolyte (like a pinch of salt or a little acid) to help the current flow.\n\nThe electrode connected to the **positive** terminal is called the **anode**.  \nThe electrode connected to the **negative** terminal is called the **cathode**.\n\n---\n\n### Step 2: Turn On the Power\n\nWhen you connect the battery, electrons start flowing"
+   },
+   {
+    "tokens": 320,
+    "tok_s": 125.92,
+    "decode_s": 2.533421366,
+    "rounds": 84,
+    "drafted": 326,
+    "accepted": 236,
+    "tokens_per_round": 3.81,
+    "ms_per_round": 30.16,
+    "token_sha": "2504cb1dac3b",
+    "text": "Here is a step-by-step explanation of how the electrolysis of water works, written for a high-school chemistry student.\n\n---\n\n### What is Electrolysis?\n\n**Electrolysis** is the process of using electricity to drive a chemical reaction that would not happen on its own. In the case of water, we use electrical energy to break water molecules apart into hydrogen gas and oxygen gas.\n\nThe overall reaction looks like this:\n\n$$2H_2O(l) \\rightarrow 2H_2(g) + O_2(g)$$\n\nThis reaction is **non-spontaneous**\u2014water won\u2019t split by itself just sitting in a beaker. You need to pump energy into it, and that energy comes from a battery or power supply.\n\n---\n\n### Step 1: Set Up the Apparatus\n\nYou need a few basic pieces of equipment:\n\n*   **A power source** (like a DC battery or power supply) with a positive terminal and a negative terminal.\n*   **Two electrodes** (conductive rods or wires, often made of graphite or platinum) that you place in the water.\n*   **Water**\u2014but pure water is actually a poor conductor of electricity, so you usually add a small amount of an electrolyte (like a pinch of salt or a little acid) to help the current flow.\n\nThe electrode connected to the **positive** terminal is called the **anode**.  \nThe electrode connected to the **negative** terminal is called the **cathode**.\n\n---\n\n### Step 2: Turn On the Power\n\nWhen you connect the battery, electrons start flowing"
+   },
+   {
+    "tokens": 320,
+    "tok_s": 126.14,
+    "decode_s": 2.528929824,
+    "rounds": 85,
+    "drafted": 324,
+    "accepted": 235,
+    "tokens_per_round": 3.765,
+    "ms_per_round": 29.75,
+    "token_sha": "2504cb1dac3b",
+    "text": "Here is a step-by-step explanation of how the electrolysis of water works, written for a high-school chemistry student.\n\n---\n\n### What is Electrolysis?\n\n**Electrolysis** is the process of using electricity to drive a chemical reaction that would not happen on its own. In the case of water, we use electrical energy to break water molecules apart into hydrogen gas and oxygen gas.\n\nThe overall reaction looks like this:\n\n$$2H_2O(l) \\rightarrow 2H_2(g) + O_2(g)$$\n\nThis reaction is **non-spontaneous**\u2014water won\u2019t split by itself just sitting in a beaker. You need to pump energy into it, and that energy comes from a battery or power supply.\n\n---\n\n### Step 1: Set Up the Apparatus\n\nYou need a few basic pieces of equipment:\n\n*   **A power source** (like a DC battery or power supply) with a positive terminal and a negative terminal.\n*   **Two electrodes** (conductive rods or wires, often made of graphite or platinum) that you place in the water.\n*   **Water**\u2014but pure water is actually a poor conductor of electricity, so you usually add a small amount of an electrolyte (like a pinch of salt or a little acid) to help the current flow.\n\nThe electrode connected to the **positive** terminal is called the **anode**.  \nThe electrode connected to the **negative** terminal is called the **cathode**.\n\n---\n\n### Step 2: Turn On the Power\n\nWhen you connect the battery, electrons start flowing"
+   }
+  ]
+ },
+ "essay": {
+  "median_tok_s": 112.66,
+  "runs": [
+   {
+    "tokens": 136,
+    "tok_s": 111.25,
+    "decode_s": 1.213467509,
+    "rounds": 43,
+    "drafted": 124,
+    "accepted": 94,
+    "tokens_per_round": 3.163,
+    "ms_per_round": 28.22,
+    "token_sha": "588ea3040db7",
+    "text": "Cities should invest in public libraries because they are essential community hubs that provide far more than just books. In an era of increasing digital divides, libraries offer free access to computers, high-speed internet, and vital digital literacy training, ensuring that every citizen\u2014regardless of income\u2014can apply for jobs, access government services, and stay connected. Beyond technology, libraries serve as safe, inclusive spaces for lifelong learning, offering early childhood literacy programs, tutoring for students, and resources for seniors. By fostering education, bridging socioeconomic gaps, and strengthening community bonds, public libraries are not a luxury, but a critical investment in the future prosperity and equity of the city."
+   },
+   {
+    "tokens": 136,
+    "tok_s": 113.96,
+    "decode_s": 1.184629235,
+    "rounds": 43,
+    "drafted": 124,
+    "accepted": 94,
+    "tokens_per_round": 3.163,
+    "ms_per_round": 27.55,
+    "token_sha": "588ea3040db7",
+    "text": "Cities should invest in public libraries because they are essential community hubs that provide far more than just books. In an era of increasing digital divides, libraries offer free access to computers, high-speed internet, and vital digital literacy training, ensuring that every citizen\u2014regardless of income\u2014can apply for jobs, access government services, and stay connected. Beyond technology, libraries serve as safe, inclusive spaces for lifelong learning, offering early childhood literacy programs, tutoring for students, and resources for seniors. By fostering education, bridging socioeconomic gaps, and strengthening community bonds, public libraries are not a luxury, but a critical investment in the future prosperity and equity of the city."
+   },
+   {
+    "tokens": 136,
+    "tok_s": 112.66,
+    "decode_s": 1.198255447,
+    "rounds": 43,
+    "drafted": 124,
+    "accepted": 94,
+    "tokens_per_round": 3.163,
+    "ms_per_round": 27.87,
+    "token_sha": "588ea3040db7",
+    "text": "Cities should invest in public libraries because they are essential community hubs that provide far more than just books. In an era of increasing digital divides, libraries offer free access to computers, high-speed internet, and vital digital literacy training, ensuring that every citizen\u2014regardless of income\u2014can apply for jobs, access government services, and stay connected. Beyond technology, libraries serve as safe, inclusive spaces for lifelong learning, offering early childhood literacy programs, tutoring for students, and resources for seniors. By fostering education, bridging socioeconomic gaps, and strengthening community bonds, public libraries are not a luxury, but a critical investment in the future prosperity and equity of the city."
+   }
+  ]
+ }
+}

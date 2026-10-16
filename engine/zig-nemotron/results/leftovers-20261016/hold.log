@@ -1,0 +1,130 @@
+== 2026-10-16T00:17:33-07:00 R0 b846 cache 0 P16
+2026-10-16T00:17:37-07:00 nemotron stopped
+2026-10-16T00:17:39-07:00 nemotron rank 0 started on forge
+2026-10-16T00:17:40-07:00 nemotron rank 1 started on anvil
+2026-10-16T00:17:40-07:00 nemotron rank 2 started on ember
+2026-10-16T00:17:40-07:00 nemotron rank 3 started on flame
+2026-10-16T00:18:06-07:00 nemotron serving at forge:8100
+forge:8100 200
+sky: 27 prompt tokens, 0.6 s, sha 73c6f8b8edbb
+code: 36 prompt tokens, 0.9 s, sha d01114a7c588
+water: 29 prompt tokens, 0.8 s, sha fb624d1812ca
+doc20k: 14952 prompt tokens, 3.9 s, sha 4c952613851b
+doc90k: 81074 prompt tokens, 18.0 s, sha c263591f818e
+r0-greedy-exit=0
+code      160.72 tok/s  [169.52, 151.77, 160.72]  tokens 250 rounds 32 drafted 314 accepted 219 (70%) tok/round 7.812 ms/round 45.9 sha 6335d6c43e0c
+prose      95.46 tok/s  [95.0, 95.65, 95.46]  tokens 239 rounds 82 drafted 338 accepted 158 (47%) tok/round 2.915 ms/round 30.55 sha 9a4434f199b6
+story      96.89 tok/s  [95.01, 97.55, 96.89]  tokens 320 rounds 112 drafted 429 accepted 207 (48%) tok/round 2.857 ms/round 29.98 sha a996d1c26476
+explain   117.10 tok/s  [116.07, 117.1, 119.53]  tokens 320 rounds 91 drafted 370 accepted 229 (62%) tok/round 3.516 ms/round 30.2 sha 2504cb1dac3b
+essay     112.92 tok/s  [112.92, 111.25, 113.02]  tokens 136 rounds 39 drafted 161 accepted 98 (61%) tok/round 3.487 ms/round 30.66 sha 588ea3040db7
+r0-speed-exit=0
+== 2026-10-16T00:19:07-07:00 R1 4803a901 cache 0 P16
+2026-10-16T00:19:10-07:00 nemotron stopped
+2026-10-16T00:19:13-07:00 nemotron rank 0 started on forge
+2026-10-16T00:19:13-07:00 nemotron rank 1 started on anvil
+2026-10-16T00:19:13-07:00 nemotron rank 2 started on ember
+2026-10-16T00:19:14-07:00 nemotron rank 3 started on flame
+2026-10-16T00:19:39-07:00 nemotron serving at forge:8100
+forge:8100 200
+sky: 27 prompt tokens, 0.6 s, sha 73c6f8b8edbb
+code: 36 prompt tokens, 0.8 s, sha d01114a7c588
+water: 29 prompt tokens, 0.8 s, sha fb624d1812ca
+doc20k: 14952 prompt tokens, 3.8 s, sha 4c952613851b
+doc90k: 81074 prompt tokens, 17.9 s, sha c263591f818e
+  sky: identical (318 chars)
+  code: identical (474 chars)
+  water: identical (420 chars)
+  doc20k: identical (486 chars)
+  doc90k: identical (389 chars)
+r1-greedy-vs-r0-exit=0
+code      187.57 tok/s  [188.16, 185.46, 187.57]  tokens 250 rounds 32 drafted 250 accepted 219 (88%) tok/round 7.812 ms/round 41.36 sha 6335d6c43e0c
+prose      97.09 tok/s  [97.09, 97.48, 97.08]  tokens 239 rounds 94 drafted 211 accepted 146 (69%) tok/round 2.543 ms/round 26.08 sha 9a4434f199b6
+story     103.69 tok/s  [103.44, 103.69, 103.85]  tokens 320 rounds 117 drafted 277 accepted 202 (73%) tok/round 2.735 ms/round 26.36 sha a996d1c26476
+explain   126.14 tok/s  [126.38, 125.92, 126.14]  tokens 320 rounds 84 drafted 324 accepted 236 (73%) tok/round 3.81 ms/round 30.05 sha 2504cb1dac3b
+essay     112.66 tok/s  [111.25, 113.96, 112.66]  tokens 136 rounds 43 drafted 124 accepted 94 (76%) tok/round 3.163 ms/round 28.22 sha 588ea3040db7
+code     IDENTICAL ['6335d6c43e0c'] vs ['6335d6c43e0c']  160.72 -> 187.57 tok/s
+prose    IDENTICAL ['9a4434f199b6'] vs ['9a4434f199b6']  95.46 -> 97.09 tok/s
+story    IDENTICAL ['a996d1c26476'] vs ['a996d1c26476']  96.89 -> 103.69 tok/s
+explain  IDENTICAL ['2504cb1dac3b'] vs ['2504cb1dac3b']  117.1 -> 126.14 tok/s
+essay    IDENTICAL ['588ea3040db7'] vs ['588ea3040db7']  112.92 -> 112.66 tok/s
+r1-speed-vs-r0-exit=0
+== 2026-10-16T00:20:38-07:00 install 4803a901 as bin/tensorfold-native (copy to a new name, rename)
+forge d40fe37803e0ffa6
+anvil d40fe37803e0ffa6
+ember d40fe37803e0ffa6
+flame d40fe37803e0ffa6
+== 2026-10-16T00:20:39-07:00 R2 live config (P16, 40 GiB, disk, segments 4, NCCL 2)
+2026-10-16T00:20:43-07:00 nemotron stopped
+2026-10-16T00:20:45-07:00 nemotron rank 0 started on forge
+2026-10-16T00:20:46-07:00 nemotron rank 1 started on anvil
+2026-10-16T00:20:46-07:00 nemotron rank 2 started on ember
+2026-10-16T00:20:47-07:00 nemotron rank 3 started on flame
+2026-10-16T00:21:12-07:00 nemotron serving at forge:8100
+forge:8100 200
+sky: 27 prompt tokens, 0.5 s, sha 80dadd21fc54
+code: 36 prompt tokens, 0.8 s, sha d01114a7c588
+water: 29 prompt tokens, 0.8 s, sha fb624d1812ca
+doc20k: 14952 prompt tokens, 3.9 s, sha 9b75bb79d3c2
+doc90k: 81074 prompt tokens, 17.9 s, sha 0e0e48c4d5a3
+r2-greedy-exit=0
+code      178.14 tok/s  [182.26, 178.14, 175.81]  tokens 250 rounds 32 drafted 265 accepted 219 (83%) tok/round 7.812 ms/round 42.69 sha 6335d6c43e0c
+prose      95.80 tok/s  [93.62, 95.8, 96.36]  tokens 288 rounds 116 drafted 279 accepted 173 (62%) tok/round 2.483 ms/round 26.43 sha 5d38cf788b25
+story      98.45 tok/s  [106.34, 98.43, 98.45]  tokens 320 rounds 111 drafted 285 accepted 208 (73%) tok/round 2.883 ms/round 27.02 sha 11b90ef518ae
+explain   129.89 tok/s  [124.27, 129.89, 130.43]  tokens 320 rounds 87 drafted 321 accepted 233 (73%) tok/round 3.678 ms/round 29.51 sha 05f580ef2305
+essay     112.04 tok/s  [112.04, 113.85, 111.7]  tokens 136 rounds 42 drafted 135 accepted 95 (70%) tok/round 3.238 ms/round 28.69 sha 588ea3040db7
+r2-speed-exit=0
+forge: 657fd129b671c1ba clock 7d90d81df9beba2c 
+anvil: befa2ada25e54d53 1dc3ab816e8e045e 
+ember: f3195ca43f6a20f9 62ed3faa1a988e4e 
+flame: 290430ecc6d4f45d 551e14016008bd01 
+== 2026-10-16T00:22:11-07:00 plant orphans (forge rank 0, anvil rank 1) and test the folder lock
+forge planted in 657fd129b671c1ba: 0000000000000001.bin 0000000000000002.bin.part lock not-a-state.txt used 
+forge flock -n on the live folder exit=0 (1: held by the server)
+anvil planted in befa2ada25e54d53: 0000000000000001.bin 0000000000000002.bin.part lock not-a-state.txt 
+anvil flock -n on the live folder exit=0 (1: held by the server)
+== 2026-10-16T00:22:13-07:00 R3 live config again: disk read-back, reap
+2026-10-16T00:22:17-07:00 nemotron stopped
+2026-10-16T00:22:20-07:00 nemotron rank 0 started on forge
+2026-10-16T00:22:20-07:00 nemotron rank 1 started on anvil
+2026-10-16T00:22:20-07:00 nemotron rank 2 started on ember
+2026-10-16T00:22:21-07:00 nemotron rank 3 started on flame
+2026-10-16T00:22:46-07:00 nemotron serving at forge:8100
+forge:8100 200
+sky: 27 prompt tokens, 0.5 s, sha 80dadd21fc54
+code: 36 prompt tokens, 0.8 s, sha d01114a7c588
+water: 29 prompt tokens, 0.8 s, sha fb624d1812ca
+doc20k: 14952 prompt tokens, 3.9 s, sha 9b75bb79d3c2
+doc90k: 81074 prompt tokens, 17.9 s, sha 0e0e48c4d5a3
+  sky: identical (278 chars)
+  code: identical (474 chars)
+  water: identical (420 chars)
+  doc20k: identical (452 chars)
+  doc90k: identical (354 chars)
+r3-greedy-vs-r2-exit=0
+sky: 27 prompt tokens, 0.5 s, sha 337d04df6014
+code: 36 prompt tokens, 0.8 s, sha d01114a7c588
+water: 29 prompt tokens, 0.7 s, sha a1e94f0418ae
+doc20k: 14952 prompt tokens, 1.0 s, sha 9b75bb79d3c2
+doc90k: 81074 prompt tokens, 1.1 s, sha 0e0e48c4d5a3
+  sky: DIFFERS at char 73: base ..." phenomenon called Rayleigh scattering. As sunlight enters Earth's atmosphere, i"
+      new  ..." phenomenon called Rayleigh scattering. When sunlight enters Earth's atmosphere,"
+  code: identical (474 chars)
+  water: DIFFERS at char 127: base ...'ext{O}$) into its constituent elements: **hydrogen gas** and **oxygen gas**.\n\nHe'
+      new  ...'ext{O}$) into its constituent elements: hydrogen gas ($\\text{H}_2$) and oxygen g'
+  doc20k: identical (452 chars)
+  doc90k: identical (354 chars)
+r3b-greedy-vs-r3-exit=1
+forge after reap 657fd129b671c1ba/: lock not-a-state.txt used 
+anvil after reap befa2ada25e54d53/: lock not-a-state.txt 
+code      184.18 tok/s  [183.6, 185.86, 184.18]  tokens 250 rounds 32 drafted 260 accepted 219 (84%) tok/round 7.812 ms/round 42.38 sha 6335d6c43e0c
+prose      95.22 tok/s  [93.75, 95.88, 95.22]  tokens 288 rounds 118 drafted 276 accepted 171 (62%) tok/round 2.441 ms/round 25.94 sha 5d38cf788b25
+story      99.29 tok/s  [106.11, 99.29, 99.23]  tokens 320 rounds 111 drafted 285 accepted 208 (73%) tok/round 2.883 ms/round 27.08 sha 11b90ef518ae
+explain   129.08 tok/s  [123.75, 129.1, 129.08]  tokens 320 rounds 87 drafted 319 accepted 233 (73%) tok/round 3.678 ms/round 29.63 sha 05f580ef2305
+essay     114.74 tok/s  [114.52, 116.23, 114.74]  tokens 136 rounds 42 drafted 129 accepted 95 (74%) tok/round 3.238 ms/round 28.07 sha 588ea3040db7
+r3-speed-exit=0
+forge d40fe37803e0ffa6 /home/jun/nemotron-tf/bin/tensorfold-native serve /home/jun/models/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 --host 0.0.0.0 --port 8100 --no-update-check --context 307200 --parallel 16 --segments 4 --prompt-cache-gib 40 
+anvil d40fe37803e0ffa6 /home/jun/nemotron-tf/bin/tensorfold-native serve /home/jun/models/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 --host 0.0.0.0 --port 8100 --no-update-check --context 307200 --parallel 16 --segments 4 --prompt-cache-gib 40 
+ember d40fe37803e0ffa6 /home/jun/nemotron-tf/bin/tensorfold-native serve /home/jun/models/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 --host 0.0.0.0 --port 8100 --no-update-check --context 307200 --parallel 16 --segments 4 --prompt-cache-gib 40 
+flame d40fe37803e0ffa6 /home/jun/nemotron-tf/bin/tensorfold-native serve /home/jun/models/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 --host 0.0.0.0 --port 8100 --no-update-check --context 307200 --parallel 16 --segments 4 --prompt-cache-gib 40 
+forge:8100 200
+BGDONE

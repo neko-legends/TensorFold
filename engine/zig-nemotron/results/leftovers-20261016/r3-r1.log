@@ -1,0 +1,11 @@
+info: [tensorfold] tp roce: roceP2p1s0f1 GID 3 (192.168.10.2), MTU enum 5, 3 queue pairs
+info: [tensorfold] tp roce: rank 1 -> rank 0: HCA pairs { 0 }
+info: [tensorfold] tp roce: rank 1 -> rank 2: HCA pairs { 0 }
+info: [tensorfold] tp roce: rank 1 -> rank 3: HCA pairs { 0 }
+warning: [tensorfold] tp roce probe (4 ranks): gather equal against NCCL, sum equal against the rank-order reference (NCCL's: differs, its ring order; not used by the decision)
+info: [tensorfold] tp: rank 1 of 4 up (roce, NCCL 23203, fail-fast on, roce fast on: 1 poller(s), stagger 150 ns)
+info: nemotron tp: rank 1 of 4 (roce)
+info(nemotron_vision): vision tower: 392 tensors, 1.68 GB
+info: nemotron costs: windows of 1-16 rows { 16.446, 19.304, 21.4603, 23.3709, 25.2175, 26.985, 28.7366, 30.3995, 32.0625, 33.7254, 35.2743, 36.8231, 38.372, 39.7529, 41.0655, 42.3781 } ms; a head level 0.735 ms
+info: nemotron tp: rank 1 follows rank 0's calls
+info: tp follower: removed 2 disk state files rank 0's index does not name

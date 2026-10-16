@@ -26,3 +26,23 @@ NCCL: `~/nemotron-tf/lib/libnccl.so.2` (copied out of the DeepSeek image). Rank 
 Expected speed (from 24/48-layer TP-4 runs and the full single-rank share): 1-row window ~16 ms (~60 tok/s plain),
 2/4/8 rows ~19/23/31 ms, a draft level ~0.74 ms -> ~100-110 tok/s on code-like text if the MTP head lands at the
 config's prior (0.8, 0.72, 0.68 ...); the measured acceptance decides.
+
+## Serving notes (2026-10-16)
+
+- **Exactness depends on the prompt cache's state.** With `--prompt-cache-gib > 0` a prompt pass is cut at keep marks
+  and resume points, so under TP greedy text drifts at rounding level from a cache-off pass (prose-type prompts flip,
+  short code/essay prompts usually not), and a cache hit can differ again. It is deterministic per cache state: the same
+  request sequence on a fresh server gives the same text. **A/B speed or exactness tests must pin the cache state**:
+  run both sides with `CACHE_GIB=0`, or the same request sequence on freshly started servers.
+- **Install a new binary by copy to a new name, then rename** (`cp new bin/.tensorfold-native.new && mv -f
+  bin/.tensorfold-native.new bin/tensorfold-native` on each Spark); never scp over a running binary. Keep the previous
+  one beside it (`bin/tensorfold-native.<what>-<sha>`) for rollback, on all four Sparks.
+- Env switches: `TF_NEMOTRON_DISK` (prompt-cache disk tier folder; `DISK=` empty: none) with `TF_NEMOTRON_DISK_GIB`
+  (cap, 128), `TF_NEMOTRON_DISK_FLOOR_GIB` (free space kept, 64), `TF_NEMOTRON_DISK_MIN` (smallest state written, 4096
+  tokens); `TF_NEMOTRON_LONE_DEPTH=0` (lone-stream MTP chains back to the fixed acceptance-rate depth);
+  `TF_NEMOTRON_DRAFT_TRACE=1` (rank 0 logs each lone round's drafts, confidences and landings).
+- The disk tier's folder is `<TF_NEMOTRON_DISK>/<identity>` per rank; the identity hashes the checkpoint (config.json
+  and each shard's name, size, header and last 64 KiB), the layout, the rank and the world, so another checkpoint never
+  reads these states. One server holds a folder (`<identity>/lock`); a second one of the same identity runs without a
+  disk tier. Rank 0 removes files its index does not name at start and the other ranks follow with the first call.
+  States are written when evicted and at a clean stop (an idle keep-alive connection no longer forces an unclean exit).
