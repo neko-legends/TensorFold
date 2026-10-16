@@ -1,0 +1,47 @@
+{
+ "url": "http://forge:8100",
+ "model": "NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4",
+ "date": "2026-10-15T21:05:27-0700",
+ "rows": [
+  {
+   "name": "sky",
+   "prompt_tokens": 27,
+   "completion_tokens": 55,
+   "wall_s": 0.53,
+   "sha": "80dadd21fc54",
+   "text": "The sky appears blue because of a phenomenon called Rayleigh scattering. As sunlight enters Earth's atmosphere, it collides with gas molecules and scatters in all directions. Shorter blue wavelengths scatter more strongly than other colors, making the sky look blue to our eyes."
+  },
+  {
+   "name": "code",
+   "prompt_tokens": 36,
+   "completion_tokens": 128,
+   "wall_s": 0.93,
+   "sha": "d01114a7c588",
+   "text": "Here is a clean, efficient Python function that returns the n-th Fibonacci number using an iterative approach:\n\n```python\ndef fibonacci(n):\n    \"\"\"\n    Return the n-th Fibonacci number using an iterative approach.\n\n    The Fibonacci sequence is defined as:\n        F(0) = 0, F(1) = 1, and F(n) = F(n-1) + F(n-2) for n >= 2.\n\n    Args:\n        n (int): The index of the Fibonacci number to return. Must be a non-negative integer.\n\n    Returns:\n        int: The n-th Fibonacci"
+  },
+  {
+   "name": "water",
+   "prompt_tokens": 29,
+   "completion_tokens": 96,
+   "wall_s": 0.76,
+   "sha": "fb624d1812ca",
+   "text": "Electrolysis of water is the process of using electricity to split water ($\\text{H}_2\\text{O}$) into its constituent elements: **hydrogen gas** and **oxygen gas**.\n\nHere is the step-by-step explanation of how it works.\n\n---\n\n### 1. The Setup (The Apparatus)\nTo perform electrolysis, you need a few basic components:\n*   **A Power Source:** A battery or DC power supply to provide the electrical energy.\n*   **Two Electro"
+  },
+  {
+   "name": "doc20k",
+   "prompt_tokens": 14952,
+   "completion_tokens": 96,
+   "wall_s": 5.1,
+   "sha": "9ccf609f4708",
+   "text": "- TensorFold serves models via OpenAI-compatible, Anthropic Messages, and Responses APIs, with support for chat templates, tool use, structured output, reasoning controls, API keys, and Prometheus metrics.\n- It runs on MLX and CUDA backends, including multi-GPU and two-Mac setups, with features like prefix caching, draft decoding, context-window enforcement, and vision input for supported checkpoints.\n- Cortheon mode adds server-side"
+  },
+  {
+   "name": "doc90k",
+   "prompt_tokens": 81074,
+   "completion_tokens": 96,
+   "wall_s": 19.34,
+   "sha": "0e0e48c4d5a3",
+   "text": "The source files that mention the Mamba scan are:\n\n- `docs/recipes/adding-a-zig-family.md`\n- `docs/recipes/glm-5.3-flash.md`\n\nThe Mamba scan is a linear-recurrence operation over 16 lanes per row (DeltaNet), described as a small gain that was kept in the prompt-path optimization stage. In GLM-5.3-Flash, the gated-delta recurrence runs its Metal kernels"
+  }
+ ]
+}

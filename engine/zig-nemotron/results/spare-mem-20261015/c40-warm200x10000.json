@@ -1,0 +1,4423 @@
+{
+ "date": "2026-10-15T21:58:33-0700",
+ "url": "http://forge:8100",
+ "agents": 200,
+ "prefix": 10000,
+ "turns": 2,
+ "phase": "all",
+ "cold": [
+  {
+   "agent": 0,
+   "prompt_tokens": 10042,
+   "wall_s": 2.175,
+   "ttft_s": 2.044861721
+  },
+  {
+   "agent": 1,
+   "prompt_tokens": 9962,
+   "wall_s": 2.16,
+   "ttft_s": 2.039747811
+  },
+  {
+   "agent": 2,
+   "prompt_tokens": 10109,
+   "wall_s": 2.145,
+   "ttft_s": 2.052152212
+  },
+  {
+   "agent": 3,
+   "prompt_tokens": 10093,
+   "wall_s": 2.171,
+   "ttft_s": 2.050378435
+  },
+  {
+   "agent": 4,
+   "prompt_tokens": 10044,
+   "wall_s": 2.122,
+   "ttft_s": 2.0542166
+  },
+  {
+   "agent": 5,
+   "prompt_tokens": 10098,
+   "wall_s": 2.178,
+   "ttft_s": 2.057883598
+  },
+  {
+   "agent": 6,
+   "prompt_tokens": 10022,
+   "wall_s": 2.127,
+   "ttft_s": 2.036635045
+  },
+  {
+   "agent": 7,
+   "prompt_tokens": 10062,
+   "wall_s": 2.163,
+   "ttft_s": 2.042457421
+  },
+  {
+   "agent": 8,
+   "prompt_tokens": 10036,
+   "wall_s": 2.164,
+   "ttft_s": 2.043073984
+  },
+  {
+   "agent": 9,
+   "prompt_tokens": 10091,
+   "wall_s": 2.107,
+   "ttft_s": 2.043695346
+  },
+  {
+   "agent": 10,
+   "prompt_tokens": 10061,
+   "wall_s": 2.167,
+   "ttft_s": 2.046971399
+  },
+  {
+   "agent": 11,
+   "prompt_tokens": 10118,
+   "wall_s": 2.186,
+   "ttft_s": 2.058062917
+  },
+  {
+   "agent": 12,
+   "prompt_tokens": 10039,
+   "wall_s": 2.177,
+   "ttft_s": 2.05621794
+  },
+  {
+   "agent": 13,
+   "prompt_tokens": 10067,
+   "wall_s": 2.106,
+   "ttft_s": 2.043750183
+  },
+  {
+   "agent": 14,
+   "prompt_tokens": 10102,
+   "wall_s": 2.167,
+   "ttft_s": 2.047580318
+  },
+  {
+   "agent": 15,
+   "prompt_tokens": 10030,
+   "wall_s": 2.17,
+   "ttft_s": 2.050601443
+  },
+  {
+   "agent": 16,
+   "prompt_tokens": 10058,
+   "wall_s": 2.172,
+   "ttft_s": 2.049570019
+  },
+  {
+   "agent": 17,
+   "prompt_tokens": 10111,
+   "wall_s": 2.136,
+   "ttft_s": 2.067228537
+  },
+  {
+   "agent": 18,
+   "prompt_tokens": 10021,
+   "wall_s": 2.17,
+   "ttft_s": 2.048800998
+  },
+  {
+   "agent": 19,
+   "prompt_tokens": 10098,
+   "wall_s": 2.178,
+   "ttft_s": 2.058226882
+  },
+  {
+   "agent": 20,
+   "prompt_tokens": 10043,
+   "wall_s": 2.112,
+   "ttft_s": 2.048261833
+  },
+  {
+   "agent": 21,
+   "prompt_tokens": 9993,
+   "wall_s": 2.16,
+   "ttft_s": 2.040242866
+  },
+  {
+   "agent": 22,
+   "prompt_tokens": 9980,
+   "wall_s": 2.161,
+   "ttft_s": 2.039542917
+  },
+  {
+   "agent": 23,
+   "prompt_tokens": 10065,
+   "wall_s": 2.138,
+   "ttft_s": 2.045652605
+  },
+  {
+   "agent": 24,
+   "prompt_tokens": 10037,
+   "wall_s": 2.181,
+   "ttft_s": 2.054437144
+  },
+  {
+   "agent": 25,
+   "prompt_tokens": 9972,
+   "wall_s": 2.116,
+   "ttft_s": 2.053324233
+  },
+  {
+   "agent": 26,
+   "prompt_tokens": 9962,
+   "wall_s": 2.133,
+   "ttft_s": 2.041696384
+  },
+  {
+   "agent": 27,
+   "prompt_tokens": 9993,
+   "wall_s": 2.171,
+   "ttft_s": 2.047283272
+  },
+  {
+   "agent": 28,
+   "prompt_tokens": 10087,
+   "wall_s": 2.124,
+   "ttft_s": 2.060398504
+  },
+  {
+   "agent": 29,
+   "prompt_tokens": 10006,
+   "wall_s": 2.168,
+   "ttft_s": 2.04627094
+  },
+  {
+   "agent": 30,
+   "prompt_tokens": 10007,
+   "wall_s": 2.172,
+   "ttft_s": 2.046287231
+  },
+  {
+   "agent": 31,
+   "prompt_tokens": 10049,
+   "wall_s": 2.179,
+   "ttft_s": 2.056946125
+  },
+  {
+   "agent": 32,
+   "prompt_tokens": 10024,
+   "wall_s": 2.172,
+   "ttft_s": 2.053323787
+  },
+  {
+   "agent": 33,
+   "prompt_tokens": 9996,
+   "wall_s": 2.165,
+   "ttft_s": 2.044765941
+  },
+  {
+   "agent": 34,
+   "prompt_tokens": 10023,
+   "wall_s": 2.171,
+   "ttft_s": 2.051944255
+  },
+  {
+   "agent": 35,
+   "prompt_tokens": 10205,
+   "wall_s": 2.127,
+   "ttft_s": 2.064700399
+  },
+  {
+   "agent": 36,
+   "prompt_tokens": 10005,
+   "wall_s": 2.172,
+   "ttft_s": 2.042284379
+  },
+  {
+   "agent": 37,
+   "prompt_tokens": 10082,
+   "wall_s": 2.183,
+   "ttft_s": 2.055731115
+  },
+  {
+   "agent": 38,
+   "prompt_tokens": 10107,
+   "wall_s": 2.181,
+   "ttft_s": 2.059761506
+  },
+  {
+   "agent": 39,
+   "prompt_tokens": 10016,
+   "wall_s": 2.135,
+   "ttft_s": 2.043475877
+  },
+  {
+   "agent": 40,
+   "prompt_tokens": 10037,
+   "wall_s": 2.144,
+   "ttft_s": 2.052508993
+  },
+  {
+   "agent": 41,
+   "prompt_tokens": 10074,
+   "wall_s": 2.108,
+   "ttft_s": 2.043032891
+  },
+  {
+   "agent": 42,
+   "prompt_tokens": 10012,
+   "wall_s": 2.158,
+   "ttft_s": 2.038167946
+  },
+  {
+   "agent": 43,
+   "prompt_tokens": 10078,
+   "wall_s": 2.153,
+   "ttft_s": 2.053515995
+  },
+  {
+   "agent": 44,
+   "prompt_tokens": 10066,
+   "wall_s": 2.162,
+   "ttft_s": 2.041593861
+  },
+  {
+   "agent": 45,
+   "prompt_tokens": 10085,
+   "wall_s": 2.181,
+   "ttft_s": 2.055816021
+  },
+  {
+   "agent": 46,
+   "prompt_tokens": 10038,
+   "wall_s": 2.17,
+   "ttft_s": 2.050378867
+  },
+  {
+   "agent": 47,
+   "prompt_tokens": 10129,
+   "wall_s": 2.181,
+   "ttft_s": 2.059373471
+  },
+  {
+   "agent": 48,
+   "prompt_tokens": 10051,
+   "wall_s": 2.146,
+   "ttft_s": 2.053111916
+  },
+  {
+   "agent": 49,
+   "prompt_tokens": 10056,
+   "wall_s": 2.181,
+   "ttft_s": 2.054888242
+  },
+  {
+   "agent": 50,
+   "prompt_tokens": 10098,
+   "wall_s": 2.179,
+   "ttft_s": 2.058537
+  },
+  {
+   "agent": 51,
+   "prompt_tokens": 10058,
+   "wall_s": 2.172,
+   "ttft_s": 2.051396053
+  },
+  {
+   "agent": 52,
+   "prompt_tokens": 10079,
+   "wall_s": 2.171,
+   "ttft_s": 2.050961929
+  },
+  {
+   "agent": 53,
+   "prompt_tokens": 10086,
+   "wall_s": 2.172,
+   "ttft_s": 2.051558429
+  },
+  {
+   "agent": 54,
+   "prompt_tokens": 10012,
+   "wall_s": 2.104,
+   "ttft_s": 2.03929479
+  },
+  {
+   "agent": 55,
+   "prompt_tokens": 10035,
+   "wall_s": 2.194,
+   "ttft_s": 2.067837363
+  },
+  {
+   "agent": 56,
+   "prompt_tokens": 10086,
+   "wall_s": 2.203,
+   "ttft_s": 2.076035566
+  },
+  {
+   "agent": 57,
+   "prompt_tokens": 10069,
+   "wall_s": 2.201,
+   "ttft_s": 2.080279173
+  },
+  {
+   "agent": 58,
+   "prompt_tokens": 10041,
+   "wall_s": 2.147,
+   "ttft_s": 2.083523099
+  },
+  {
+   "agent": 59,
+   "prompt_tokens": 10076,
+   "wall_s": 2.218,
+   "ttft_s": 2.096207322
+  },
+  {
+   "agent": 60,
+   "prompt_tokens": 10068,
+   "wall_s": 2.221,
+   "ttft_s": 2.087991831
+  },
+  {
+   "agent": 61,
+   "prompt_tokens": 10036,
+   "wall_s": 2.144,
+   "ttft_s": 2.052795485
+  },
+  {
+   "agent": 62,
+   "prompt_tokens": 10015,
+   "wall_s": 2.168,
+   "ttft_s": 2.047408076
+  },
+  {
+   "agent": 63,
+   "prompt_tokens": 10027,
+   "wall_s": 2.177,
+   "ttft_s": 2.053078837
+  },
+  {
+   "agent": 64,
+   "prompt_tokens": 9975,
+   "wall_s": 2.175,
+   "ttft_s": 2.052462585
+  },
+  {
+   "agent": 65,
+   "prompt_tokens": 10039,
+   "wall_s": 2.159,
+   "ttft_s": 2.096196529
+  },
+  {
+   "agent": 66,
+   "prompt_tokens": 9985,
+   "wall_s": 2.143,
+   "ttft_s": 2.076474053
+  },
+  {
+   "agent": 67,
+   "prompt_tokens": 10138,
+   "wall_s": 2.207,
+   "ttft_s": 2.083744768
+  },
+  {
+   "agent": 68,
+   "prompt_tokens": 10136,
+   "wall_s": 2.213,
+   "ttft_s": 2.092928187
+  },
+  {
+   "agent": 69,
+   "prompt_tokens": 10050,
+   "wall_s": 2.173,
+   "ttft_s": 2.051333406
+  },
+  {
+   "agent": 70,
+   "prompt_tokens": 10052,
+   "wall_s": 2.193,
+   "ttft_s": 2.072375363
+  },
+  {
+   "agent": 71,
+   "prompt_tokens": 10072,
+   "wall_s": 2.211,
+   "ttft_s": 2.080263438
+  },
+  {
+   "agent": 72,
+   "prompt_tokens": 10031,
+   "wall_s": 2.157,
+   "ttft_s": 2.089135369
+  },
+  {
+   "agent": 73,
+   "prompt_tokens": 10029,
+   "wall_s": 2.199,
+   "ttft_s": 2.074049554
+  },
+  {
+   "agent": 74,
+   "prompt_tokens": 10088,
+   "wall_s": 2.195,
+   "ttft_s": 2.063853871
+  },
+  {
+   "agent": 75,
+   "prompt_tokens": 10036,
+   "wall_s": 2.142,
+   "ttft_s": 2.077488877
+  },
+  {
+   "agent": 76,
+   "prompt_tokens": 10074,
+   "wall_s": 2.176,
+   "ttft_s": 2.05235624
+  },
+  {
+   "agent": 77,
+   "prompt_tokens": 10076,
+   "wall_s": 2.181,
+   "ttft_s": 2.058710121
+  },
+  {
+   "agent": 78,
+   "prompt_tokens": 10143,
+   "wall_s": 2.184,
+   "ttft_s": 2.063555762
+  },
+  {
+   "agent": 79,
+   "prompt_tokens": 10148,
+   "wall_s": 2.13,
+   "ttft_s": 2.065803064
+  },
+  {
+   "agent": 80,
+   "prompt_tokens": 10073,
+   "wall_s": 2.134,
+   "ttft_s": 2.041126315
+  },
+  {
+   "agent": 81,
+   "prompt_tokens": 10017,
+   "wall_s": 2.108,
+   "ttft_s": 2.043762706
+  },
+  {
+   "agent": 82,
+   "prompt_tokens": 10091,
+   "wall_s": 2.169,
+   "ttft_s": 2.051042733
+  },
+  {
+   "agent": 83,
+   "prompt_tokens": 10062,
+   "wall_s": 2.178,
+   "ttft_s": 2.047972432
+  },
+  {
+   "agent": 84,
+   "prompt_tokens": 10107,
+   "wall_s": 2.181,
+   "ttft_s": 2.060239742
+  },
+  {
+   "agent": 85,
+   "prompt_tokens": 10058,
+   "wall_s": 2.171,
+   "ttft_s": 2.050774397
+  },
+  {
+   "agent": 86,
+   "prompt_tokens": 10065,
+   "wall_s": 2.174,
+   "ttft_s": 2.053852708
+  },
+  {
+   "agent": 87,
+   "prompt_tokens": 10098,
+   "wall_s": 2.114,
+   "ttft_s": 2.050858423
+  },
+  {
+   "agent": 88,
+   "prompt_tokens": 9977,
+   "wall_s": 2.134,
+   "ttft_s": 2.042620936
+  },
+  {
+   "agent": 89,
+   "prompt_tokens": 10008,
+   "wall_s": 2.191,
+   "ttft_s": 2.05846756
+  },
+  {
+   "agent": 90,
+   "prompt_tokens": 10027,
+   "wall_s": 2.173,
+   "ttft_s": 2.05250425
+  },
+  {
+   "agent": 91,
+   "prompt_tokens": 10081,
+   "wall_s": 2.172,
+   "ttft_s": 2.052134687
+  },
+  {
+   "agent": 92,
+   "prompt_tokens": 10124,
+   "wall_s": 2.118,
+   "ttft_s": 2.055101478
+  },
+  {
+   "agent": 93,
+   "prompt_tokens": 10062,
+   "wall_s": 2.144,
+   "ttft_s": 2.048828968
+  },
+  {
+   "agent": 94,
+   "prompt_tokens": 9992,
+   "wall_s": 2.162,
+   "ttft_s": 2.038105911
+  },
+  {
+   "agent": 95,
+   "prompt_tokens": 10036,
+   "wall_s": 2.117,
+   "ttft_s": 2.053763831
+  },
+  {
+   "agent": 96,
+   "prompt_tokens": 10032,
+   "wall_s": 2.157,
+   "ttft_s": 2.057900672
+  },
+  {
+   "agent": 97,
+   "prompt_tokens": 10069,
+   "wall_s": 2.12,
+   "ttft_s": 2.057249236
+  },
+  {
+   "agent": 98,
+   "prompt_tokens": 10076,
+   "wall_s": 2.172,
+   "ttft_s": 2.050208295
+  },
+  {
+   "agent": 99,
+   "prompt_tokens": 10044,
+   "wall_s": 2.168,
+   "ttft_s": 2.04809985
+  },
+  {
+   "agent": 100,
+   "prompt_tokens": 10097,
+   "wall_s": 2.177,
+   "ttft_s": 2.055075717
+  },
+  {
+   "agent": 101,
+   "prompt_tokens": 10071,
+   "wall_s": 2.17,
+   "ttft_s": 2.049245239
+  },
+  {
+   "agent": 102,
+   "prompt_tokens": 9987,
+   "wall_s": 2.179,
+   "ttft_s": 2.044217514
+  },
+  {
+   "agent": 103,
+   "prompt_tokens": 10124,
+   "wall_s": 2.176,
+   "ttft_s": 2.055401879
+  },
+  {
+   "agent": 104,
+   "prompt_tokens": 10090,
+   "wall_s": 2.171,
+   "ttft_s": 2.050124122
+  },
+  {
+   "agent": 105,
+   "prompt_tokens": 10022,
+   "wall_s": 2.173,
+   "ttft_s": 2.053344306
+  },
+  {
+   "agent": 106,
+   "prompt_tokens": 10016,
+   "wall_s": 2.167,
+   "ttft_s": 2.046728804
+  },
+  {
+   "agent": 107,
+   "prompt_tokens": 9998,
+   "wall_s": 2.163,
+   "ttft_s": 2.043967721
+  },
+  {
+   "agent": 108,
+   "prompt_tokens": 10080,
+   "wall_s": 2.153,
+   "ttft_s": 2.055494726
+  },
+  {
+   "agent": 109,
+   "prompt_tokens": 10056,
+   "wall_s": 2.117,
+   "ttft_s": 2.056592558
+  },
+  {
+   "agent": 110,
+   "prompt_tokens": 10107,
+   "wall_s": 2.177,
+   "ttft_s": 2.057299173
+  },
+  {
+   "agent": 111,
+   "prompt_tokens": 10121,
+   "wall_s": 2.172,
+   "ttft_s": 2.046759477
+  },
+  {
+   "agent": 112,
+   "prompt_tokens": 10038,
+   "wall_s": 2.172,
+   "ttft_s": 2.053142975
+  },
+  {
+   "agent": 113,
+   "prompt_tokens": 10008,
+   "wall_s": 2.172,
+   "ttft_s": 2.049141635
+  },
+  {
+   "agent": 114,
+   "prompt_tokens": 10057,
+   "wall_s": 2.181,
+   "ttft_s": 2.048883609
+  },
+  {
+   "agent": 115,
+   "prompt_tokens": 10067,
+   "wall_s": 2.144,
+   "ttft_s": 2.053028578
+  },
+  {
+   "agent": 116,
+   "prompt_tokens": 9961,
+   "wall_s": 2.161,
+   "ttft_s": 2.038385536
+  },
+  {
+   "agent": 117,
+   "prompt_tokens": 10048,
+   "wall_s": 2.166,
+   "ttft_s": 2.045014523
+  },
+  {
+   "agent": 118,
+   "prompt_tokens": 10106,
+   "wall_s": 2.178,
+   "ttft_s": 2.056948488
+  },
+  {
+   "agent": 119,
+   "prompt_tokens": 9975,
+   "wall_s": 2.157,
+   "ttft_s": 2.037007988
+  },
+  {
+   "agent": 120,
+   "prompt_tokens": 10122,
+   "wall_s": 2.191,
+   "ttft_s": 2.059122935
+  },
+  {
+   "agent": 121,
+   "prompt_tokens": 10017,
+   "wall_s": 2.174,
+   "ttft_s": 2.053429034
+  },
+  {
+   "agent": 122,
+   "prompt_tokens": 10140,
+   "wall_s": 2.127,
+   "ttft_s": 2.064241446
+  },
+  {
+   "agent": 123,
+   "prompt_tokens": 10087,
+   "wall_s": 2.176,
+   "ttft_s": 2.054892361
+  },
+  {
+   "agent": 124,
+   "prompt_tokens": 10012,
+   "wall_s": 2.173,
+   "ttft_s": 2.052576174
+  },
+  {
+   "agent": 125,
+   "prompt_tokens": 10066,
+   "wall_s": 2.179,
+   "ttft_s": 2.058312728
+  },
+  {
+   "agent": 126,
+   "prompt_tokens": 10044,
+   "wall_s": 2.177,
+   "ttft_s": 2.050531899
+  },
+  {
+   "agent": 127,
+   "prompt_tokens": 10015,
+   "wall_s": 2.17,
+   "ttft_s": 2.046000624
+  },
+  {
+   "agent": 128,
+   "prompt_tokens": 9956,
+   "wall_s": 2.114,
+   "ttft_s": 2.051571802
+  },
+  {
+   "agent": 129,
+   "prompt_tokens": 10023,
+   "wall_s": 2.13,
+   "ttft_s": 2.039540283
+  },
+  {
+   "agent": 130,
+   "prompt_tokens": 10082,
+   "wall_s": 2.154,
+   "ttft_s": 2.060276333
+  },
+  {
+   "agent": 131,
+   "prompt_tokens": 10041,
+   "wall_s": 2.167,
+   "ttft_s": 2.046354157
+  },
+  {
+   "agent": 132,
+   "prompt_tokens": 10066,
+   "wall_s": 2.118,
+   "ttft_s": 2.052762344
+  },
+  {
+   "agent": 133,
+   "prompt_tokens": 10056,
+   "wall_s": 2.193,
+   "ttft_s": 2.065140116
+  },
+  {
+   "agent": 134,
+   "prompt_tokens": 10086,
+   "wall_s": 2.179,
+   "ttft_s": 2.058653753
+  },
+  {
+   "agent": 135,
+   "prompt_tokens": 10100,
+   "wall_s": 2.171,
+   "ttft_s": 2.04965694
+  },
+  {
+   "agent": 136,
+   "prompt_tokens": 10034,
+   "wall_s": 2.172,
+   "ttft_s": 2.052084885
+  },
+  {
+   "agent": 137,
+   "prompt_tokens": 10104,
+   "wall_s": 2.117,
+   "ttft_s": 2.053996524
+  },
+  {
+   "agent": 138,
+   "prompt_tokens": 10006,
+   "wall_s": 2.173,
+   "ttft_s": 2.043494383
+  },
+  {
+   "agent": 139,
+   "prompt_tokens": 10040,
+   "wall_s": 2.184,
+   "ttft_s": 2.0635828
+  },
+  {
+   "agent": 140,
+   "prompt_tokens": 9966,
+   "wall_s": 2.158,
+   "ttft_s": 2.036646923
+  },
+  {
+   "agent": 141,
+   "prompt_tokens": 10002,
+   "wall_s": 2.172,
+   "ttft_s": 2.050660393
+  },
+  {
+   "agent": 142,
+   "prompt_tokens": 10002,
+   "wall_s": 2.138,
+   "ttft_s": 2.046239999
+  },
+  {
+   "agent": 143,
+   "prompt_tokens": 9938,
+   "wall_s": 2.162,
+   "ttft_s": 2.03938434
+  },
+  {
+   "agent": 144,
+   "prompt_tokens": 10060,
+   "wall_s": 2.168,
+   "ttft_s": 2.042215164
+  },
+  {
+   "agent": 145,
+   "prompt_tokens": 10018,
+   "wall_s": 2.179,
+   "ttft_s": 2.053435049
+  },
+  {
+   "agent": 146,
+   "prompt_tokens": 10068,
+   "wall_s": 2.162,
+   "ttft_s": 2.041860668
+  },
+  {
+   "agent": 147,
+   "prompt_tokens": 10103,
+   "wall_s": 2.123,
+   "ttft_s": 2.059821355
+  },
+  {
+   "agent": 148,
+   "prompt_tokens": 9988,
+   "wall_s": 2.157,
+   "ttft_s": 2.035062553
+  },
+  {
+   "agent": 149,
+   "prompt_tokens": 10085,
+   "wall_s": 2.17,
+   "ttft_s": 2.048770854
+  },
+  {
+   "agent": 150,
+   "prompt_tokens": 10001,
+   "wall_s": 2.173,
+   "ttft_s": 2.048230974
+  },
+  {
+   "agent": 151,
+   "prompt_tokens": 10092,
+   "wall_s": 2.194,
+   "ttft_s": 2.07267304
+  },
+  {
+   "agent": 152,
+   "prompt_tokens": 10021,
+   "wall_s": 2.111,
+   "ttft_s": 2.04811363
+  },
+  {
+   "agent": 153,
+   "prompt_tokens": 10005,
+   "wall_s": 2.169,
+   "ttft_s": 2.047757685
+  },
+  {
+   "agent": 154,
+   "prompt_tokens": 10153,
+   "wall_s": 2.187,
+   "ttft_s": 2.066470949
+  },
+  {
+   "agent": 155,
+   "prompt_tokens": 10030,
+   "wall_s": 2.116,
+   "ttft_s": 2.051005383
+  },
+  {
+   "agent": 156,
+   "prompt_tokens": 10030,
+   "wall_s": 2.169,
+   "ttft_s": 2.047549294
+  },
+  {
+   "agent": 157,
+   "prompt_tokens": 10018,
+   "wall_s": 2.127,
+   "ttft_s": 2.061684028
+  },
+  {
+   "agent": 158,
+   "prompt_tokens": 10041,
+   "wall_s": 2.186,
+   "ttft_s": 2.064634308
+  },
+  {
+   "agent": 159,
+   "prompt_tokens": 10019,
+   "wall_s": 2.162,
+   "ttft_s": 2.042023285
+  },
+  {
+   "agent": 160,
+   "prompt_tokens": 10071,
+   "wall_s": 2.175,
+   "ttft_s": 2.055593346
+  },
+  {
+   "agent": 161,
+   "prompt_tokens": 10041,
+   "wall_s": 2.172,
+   "ttft_s": 2.051008696
+  },
+  {
+   "agent": 162,
+   "prompt_tokens": 10041,
+   "wall_s": 2.118,
+   "ttft_s": 2.052058433
+  },
+  {
+   "agent": 163,
+   "prompt_tokens": 10064,
+   "wall_s": 2.18,
+   "ttft_s": 2.047290903
+  },
+  {
+   "agent": 164,
+   "prompt_tokens": 10098,
+   "wall_s": 2.179,
+   "ttft_s": 2.052218722
+  },
+  {
+   "agent": 165,
+   "prompt_tokens": 10002,
+   "wall_s": 2.154,
+   "ttft_s": 2.03358506
+  },
+  {
+   "agent": 166,
+   "prompt_tokens": 10058,
+   "wall_s": 2.162,
+   "ttft_s": 2.041427742
+  },
+  {
+   "agent": 167,
+   "prompt_tokens": 10029,
+   "wall_s": 2.132,
+   "ttft_s": 2.038719078
+  },
+  {
+   "agent": 168,
+   "prompt_tokens": 10053,
+   "wall_s": 2.121,
+   "ttft_s": 2.060129399
+  },
+  {
+   "agent": 169,
+   "prompt_tokens": 10030,
+   "wall_s": 2.105,
+   "ttft_s": 2.043636217
+  },
+  {
+   "agent": 170,
+   "prompt_tokens": 10112,
+   "wall_s": 2.191,
+   "ttft_s": 2.061819144
+  },
+  {
+   "agent": 171,
+   "prompt_tokens": 10019,
+   "wall_s": 2.179,
+   "ttft_s": 2.057172335
+  },
+  {
+   "agent": 172,
+   "prompt_tokens": 10051,
+   "wall_s": 2.169,
+   "ttft_s": 2.050818533
+  },
+  {
+   "agent": 173,
+   "prompt_tokens": 10070,
+   "wall_s": 2.177,
+   "ttft_s": 2.057414768
+  },
+  {
+   "agent": 174,
+   "prompt_tokens": 10020,
+   "wall_s": 2.109,
+   "ttft_s": 2.044538421
+  },
+  {
+   "agent": 175,
+   "prompt_tokens": 10041,
+   "wall_s": 2.181,
+   "ttft_s": 2.057029521
+  },
+  {
+   "agent": 176,
+   "prompt_tokens": 10005,
+   "wall_s": 2.183,
+   "ttft_s": 2.055108905
+  },
+  {
+   "agent": 177,
+   "prompt_tokens": 10048,
+   "wall_s": 2.164,
+   "ttft_s": 2.044780943
+  },
+  {
+   "agent": 178,
+   "prompt_tokens": 10109,
+   "wall_s": 2.148,
+   "ttft_s": 2.055845371
+  },
+  {
+   "agent": 179,
+   "prompt_tokens": 10042,
+   "wall_s": 2.176,
+   "ttft_s": 2.052922803
+  },
+  {
+   "agent": 180,
+   "prompt_tokens": 10066,
+   "wall_s": 2.17,
+   "ttft_s": 2.047163002
+  },
+  {
+   "agent": 181,
+   "prompt_tokens": 10011,
+   "wall_s": 2.164,
+   "ttft_s": 2.042884658
+  },
+  {
+   "agent": 182,
+   "prompt_tokens": 10061,
+   "wall_s": 2.117,
+   "ttft_s": 2.046656027
+  },
+  {
+   "agent": 183,
+   "prompt_tokens": 10054,
+   "wall_s": 2.15,
+   "ttft_s": 2.05837772
+  },
+  {
+   "agent": 184,
+   "prompt_tokens": 10050,
+   "wall_s": 2.149,
+   "ttft_s": 2.057143745
+  },
+  {
+   "agent": 185,
+   "prompt_tokens": 10062,
+   "wall_s": 2.176,
+   "ttft_s": 2.054862521
+  },
+  {
+   "agent": 186,
+   "prompt_tokens": 10045,
+   "wall_s": 2.171,
+   "ttft_s": 2.04860904
+  },
+  {
+   "agent": 187,
+   "prompt_tokens": 10044,
+   "wall_s": 2.164,
+   "ttft_s": 2.043914136
+  },
+  {
+   "agent": 188,
+   "prompt_tokens": 9973,
+   "wall_s": 2.175,
+   "ttft_s": 2.043563986
+  },
+  {
+   "agent": 189,
+   "prompt_tokens": 9995,
+   "wall_s": 2.158,
+   "ttft_s": 2.036308472
+  },
+  {
+   "agent": 190,
+   "prompt_tokens": 10008,
+   "wall_s": 2.111,
+   "ttft_s": 2.047727732
+  },
+  {
+   "agent": 191,
+   "prompt_tokens": 10057,
+   "wall_s": 2.18,
+   "ttft_s": 2.057732593
+  },
+  {
+   "agent": 192,
+   "prompt_tokens": 10104,
+   "wall_s": 2.171,
+   "ttft_s": 2.051046232
+  },
+  {
+   "agent": 193,
+   "prompt_tokens": 10038,
+   "wall_s": 2.136,
+   "ttft_s": 2.042774511
+  },
+  {
+   "agent": 194,
+   "prompt_tokens": 10082,
+   "wall_s": 2.186,
+   "ttft_s": 2.059683212
+  },
+  {
+   "agent": 195,
+   "prompt_tokens": 10039,
+   "wall_s": 2.19,
+   "ttft_s": 2.067436648
+  },
+  {
+   "agent": 196,
+   "prompt_tokens": 10050,
+   "wall_s": 2.18,
+   "ttft_s": 2.059494286
+  },
+  {
+   "agent": 197,
+   "prompt_tokens": 10015,
+   "wall_s": 2.145,
+   "ttft_s": 2.05039903
+  },
+  {
+   "agent": 198,
+   "prompt_tokens": 10032,
+   "wall_s": 2.173,
+   "ttft_s": 2.050600575
+  },
+  {
+   "agent": 199,
+   "prompt_tokens": 10055,
+   "wall_s": 2.179,
+   "ttft_s": 2.056133514
+  }
+ ],
+ "warm": [
+  {
+   "prompt_tokens": 10078,
+   "cached_tokens": 10036,
+   "wall_s": 0.193,
+   "ttft_s": 0.095691415,
+   "prefill_s": 0.094714598,
+   "prev_prompt": 10042,
+   "hit": true,
+   "agent": 0,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 9998,
+   "cached_tokens": 9956,
+   "wall_s": 0.259,
+   "ttft_s": 0.088576965,
+   "prefill_s": 0.087189909,
+   "prev_prompt": 9962,
+   "hit": true,
+   "agent": 1,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10142,
+   "cached_tokens": 10103,
+   "wall_s": 0.174,
+   "ttft_s": 0.086795029,
+   "prefill_s": 0.08558658,
+   "prev_prompt": 10109,
+   "hit": true,
+   "agent": 2,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10129,
+   "cached_tokens": 10087,
+   "wall_s": 0.259,
+   "ttft_s": 0.087366836,
+   "prefill_s": 0.0857797,
+   "prev_prompt": 10093,
+   "hit": true,
+   "agent": 3,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10077,
+   "cached_tokens": 10038,
+   "wall_s": 0.203,
+   "ttft_s": 0.085692581,
+   "prefill_s": 0.084578084,
+   "prev_prompt": 10044,
+   "hit": true,
+   "agent": 4,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10134,
+   "cached_tokens": 10092,
+   "wall_s": 0.198,
+   "ttft_s": 0.106507914,
+   "prefill_s": 0.10488436,
+   "prev_prompt": 10098,
+   "hit": true,
+   "agent": 5,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10058,
+   "cached_tokens": 10016,
+   "wall_s": 0.262,
+   "ttft_s": 0.091772822,
+   "prefill_s": 0.089763285,
+   "prev_prompt": 10022,
+   "hit": true,
+   "agent": 6,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10098,
+   "cached_tokens": 10056,
+   "wall_s": 0.177,
+   "ttft_s": 0.087190116,
+   "prefill_s": 0.08596082,
+   "prev_prompt": 10062,
+   "hit": true,
+   "agent": 7,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10072,
+   "cached_tokens": 10030,
+   "wall_s": 0.177,
+   "ttft_s": 0.089210197,
+   "prefill_s": 0.087435284,
+   "prev_prompt": 10036,
+   "hit": true,
+   "agent": 8,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10124,
+   "cached_tokens": 10085,
+   "wall_s": 0.181,
+   "ttft_s": 0.085935108,
+   "prefill_s": 0.084195731,
+   "prev_prompt": 10091,
+   "hit": true,
+   "agent": 9,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10097,
+   "cached_tokens": 10055,
+   "wall_s": 0.187,
+   "ttft_s": 0.098003591,
+   "prefill_s": 0.096454071,
+   "prev_prompt": 10061,
+   "hit": true,
+   "agent": 10,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10154,
+   "cached_tokens": 10112,
+   "wall_s": 0.175,
+   "ttft_s": 0.089434357,
+   "prefill_s": 0.08773074,
+   "prev_prompt": 10118,
+   "hit": true,
+   "agent": 11,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10075,
+   "cached_tokens": 10033,
+   "wall_s": 0.178,
+   "ttft_s": 0.089385509,
+   "prefill_s": 0.087430116,
+   "prev_prompt": 10039,
+   "hit": true,
+   "agent": 12,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10100,
+   "cached_tokens": 10061,
+   "wall_s": 0.259,
+   "ttft_s": 0.086768292,
+   "prefill_s": 0.085412212,
+   "prev_prompt": 10067,
+   "hit": true,
+   "agent": 13,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10138,
+   "cached_tokens": 10096,
+   "wall_s": 0.269,
+   "ttft_s": 0.089138693,
+   "prefill_s": 0.0879077,
+   "prev_prompt": 10102,
+   "hit": true,
+   "agent": 14,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10066,
+   "cached_tokens": 10024,
+   "wall_s": 0.212,
+   "ttft_s": 0.095855494,
+   "prefill_s": 0.09420247,
+   "prev_prompt": 10030,
+   "hit": true,
+   "agent": 15,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10094,
+   "cached_tokens": 10052,
+   "wall_s": 0.259,
+   "ttft_s": 0.088969269,
+   "prefill_s": 0.08724802,
+   "prev_prompt": 10058,
+   "hit": true,
+   "agent": 16,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10144,
+   "cached_tokens": 10105,
+   "wall_s": 0.201,
+   "ttft_s": 0.086072116,
+   "prefill_s": 0.084280915,
+   "prev_prompt": 10111,
+   "hit": true,
+   "agent": 17,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10057,
+   "cached_tokens": 10015,
+   "wall_s": 0.268,
+   "ttft_s": 0.089323813,
+   "prefill_s": 0.0876277,
+   "prev_prompt": 10021,
+   "hit": true,
+   "agent": 18,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10134,
+   "cached_tokens": 10092,
+   "wall_s": 0.294,
+   "ttft_s": 0.094765622,
+   "prefill_s": 0.093584934,
+   "prev_prompt": 10098,
+   "hit": true,
+   "agent": 19,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10076,
+   "cached_tokens": 10037,
+   "wall_s": 0.257,
+   "ttft_s": 0.08697978,
+   "prefill_s": 0.085722275,
+   "prev_prompt": 10043,
+   "hit": true,
+   "agent": 20,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10029,
+   "cached_tokens": 9987,
+   "wall_s": 0.259,
+   "ttft_s": 0.087905812,
+   "prefill_s": 0.086205396,
+   "prev_prompt": 9993,
+   "hit": true,
+   "agent": 21,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10016,
+   "cached_tokens": 9974,
+   "wall_s": 0.271,
+   "ttft_s": 0.087731092,
+   "prefill_s": 0.08631162,
+   "prev_prompt": 9980,
+   "hit": true,
+   "agent": 22,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10101,
+   "cached_tokens": 10059,
+   "wall_s": 0.279,
+   "ttft_s": 0.095989926,
+   "prefill_s": 0.094636357,
+   "prev_prompt": 10065,
+   "hit": true,
+   "agent": 23,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10073,
+   "cached_tokens": 10031,
+   "wall_s": 0.183,
+   "ttft_s": 0.094696086,
+   "prefill_s": 0.093571957,
+   "prev_prompt": 10037,
+   "hit": true,
+   "agent": 24,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10005,
+   "cached_tokens": 9966,
+   "wall_s": 0.177,
+   "ttft_s": 0.086612676,
+   "prefill_s": 0.08514314,
+   "prev_prompt": 9972,
+   "hit": true,
+   "agent": 25,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 9995,
+   "cached_tokens": 9956,
+   "wall_s": 0.175,
+   "ttft_s": 0.08747618,
+   "prefill_s": 0.086241508,
+   "prev_prompt": 9962,
+   "hit": true,
+   "agent": 26,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10029,
+   "cached_tokens": 9987,
+   "wall_s": 0.191,
+   "ttft_s": 0.092322965,
+   "prefill_s": 0.091196581,
+   "prev_prompt": 9993,
+   "hit": true,
+   "agent": 27,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10120,
+   "cached_tokens": 10081,
+   "wall_s": 0.272,
+   "ttft_s": 0.086399428,
+   "prefill_s": 0.08473618,
+   "prev_prompt": 10087,
+   "hit": true,
+   "agent": 28,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10042,
+   "cached_tokens": 10000,
+   "wall_s": 0.205,
+   "ttft_s": 0.087829316,
+   "prefill_s": 0.086501764,
+   "prev_prompt": 10006,
+   "hit": true,
+   "agent": 29,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10043,
+   "cached_tokens": 10001,
+   "wall_s": 0.179,
+   "ttft_s": 0.089434308,
+   "prefill_s": 0.087700788,
+   "prev_prompt": 10007,
+   "hit": true,
+   "agent": 30,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10085,
+   "cached_tokens": 10043,
+   "wall_s": 0.149,
+   "ttft_s": 0.089504276,
+   "prefill_s": 0.088143828,
+   "prev_prompt": 10049,
+   "hit": true,
+   "agent": 31,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10060,
+   "cached_tokens": 10018,
+   "wall_s": 0.219,
+   "ttft_s": 0.091305973,
+   "prefill_s": 0.090091285,
+   "prev_prompt": 10024,
+   "hit": true,
+   "agent": 32,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10032,
+   "cached_tokens": 9990,
+   "wall_s": 0.192,
+   "ttft_s": 0.103690071,
+   "prefill_s": 0.102110967,
+   "prev_prompt": 9996,
+   "hit": true,
+   "agent": 33,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10059,
+   "cached_tokens": 10017,
+   "wall_s": 0.205,
+   "ttft_s": 0.089728324,
+   "prefill_s": 0.088348132,
+   "prev_prompt": 10023,
+   "hit": true,
+   "agent": 34,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10238,
+   "cached_tokens": 10199,
+   "wall_s": 0.201,
+   "ttft_s": 0.085801988,
+   "prefill_s": 0.084798052,
+   "prev_prompt": 10205,
+   "hit": true,
+   "agent": 35,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10041,
+   "cached_tokens": 9999,
+   "wall_s": 0.222,
+   "ttft_s": 0.099375462,
+   "prefill_s": 0.098069942,
+   "prev_prompt": 10005,
+   "hit": true,
+   "agent": 36,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10118,
+   "cached_tokens": 10076,
+   "wall_s": 0.217,
+   "ttft_s": 0.097694838,
+   "prefill_s": 0.096569766,
+   "prev_prompt": 10082,
+   "hit": true,
+   "agent": 37,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10143,
+   "cached_tokens": 10101,
+   "wall_s": 0.319,
+   "ttft_s": 0.09048658,
+   "prefill_s": 0.088484868,
+   "prev_prompt": 10107,
+   "hit": true,
+   "agent": 38,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10052,
+   "cached_tokens": 10010,
+   "wall_s": 0.259,
+   "ttft_s": 0.08939946,
+   "prefill_s": 0.088062644,
+   "prev_prompt": 10016,
+   "hit": true,
+   "agent": 39,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10073,
+   "cached_tokens": 10031,
+   "wall_s": 0.194,
+   "ttft_s": 0.103758519,
+   "prefill_s": 0.101785062,
+   "prev_prompt": 10037,
+   "hit": true,
+   "agent": 40,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10107,
+   "cached_tokens": 10068,
+   "wall_s": 0.19,
+   "ttft_s": 0.093567429,
+   "prefill_s": 0.092333588,
+   "prev_prompt": 10074,
+   "hit": true,
+   "agent": 41,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10048,
+   "cached_tokens": 10006,
+   "wall_s": 0.181,
+   "ttft_s": 0.092083589,
+   "prefill_s": 0.090081141,
+   "prev_prompt": 10012,
+   "hit": true,
+   "agent": 42,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10114,
+   "cached_tokens": 10072,
+   "wall_s": 0.174,
+   "ttft_s": 0.088128259,
+   "prefill_s": 0.086163539,
+   "prev_prompt": 10078,
+   "hit": true,
+   "agent": 43,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10102,
+   "cached_tokens": 10060,
+   "wall_s": 0.272,
+   "ttft_s": 0.086181923,
+   "prefill_s": 0.084571282,
+   "prev_prompt": 10066,
+   "hit": true,
+   "agent": 44,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10121,
+   "cached_tokens": 10079,
+   "wall_s": 0.181,
+   "ttft_s": 0.091358932,
+   "prefill_s": 0.090122724,
+   "prev_prompt": 10085,
+   "hit": true,
+   "agent": 45,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10074,
+   "cached_tokens": 10032,
+   "wall_s": 0.304,
+   "ttft_s": 0.095315365,
+   "prefill_s": 0.094234757,
+   "prev_prompt": 10038,
+   "hit": true,
+   "agent": 46,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10165,
+   "cached_tokens": 10123,
+   "wall_s": 0.204,
+   "ttft_s": 0.090085076,
+   "prefill_s": 0.088874387,
+   "prev_prompt": 10129,
+   "hit": true,
+   "agent": 47,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10087,
+   "cached_tokens": 10045,
+   "wall_s": 0.271,
+   "ttft_s": 0.087359843,
+   "prefill_s": 0.086196819,
+   "prev_prompt": 10051,
+   "hit": true,
+   "agent": 48,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10092,
+   "cached_tokens": 10050,
+   "wall_s": 0.26,
+   "ttft_s": 0.089446835,
+   "prefill_s": 0.088288851,
+   "prev_prompt": 10056,
+   "hit": true,
+   "agent": 49,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10134,
+   "cached_tokens": 10092,
+   "wall_s": 0.192,
+   "ttft_s": 0.097807078,
+   "prefill_s": 0.096131142,
+   "prev_prompt": 10098,
+   "hit": true,
+   "agent": 50,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10094,
+   "cached_tokens": 10052,
+   "wall_s": 0.259,
+   "ttft_s": 0.088874916,
+   "prefill_s": 0.087582947,
+   "prev_prompt": 10058,
+   "hit": true,
+   "agent": 51,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10115,
+   "cached_tokens": 10073,
+   "wall_s": 0.273,
+   "ttft_s": 0.102201991,
+   "prefill_s": 0.100556918,
+   "prev_prompt": 10079,
+   "hit": true,
+   "agent": 52,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10122,
+   "cached_tokens": 10080,
+   "wall_s": 0.266,
+   "ttft_s": 0.090324916,
+   "prefill_s": 0.088845155,
+   "prev_prompt": 10086,
+   "hit": true,
+   "agent": 53,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10045,
+   "cached_tokens": 10006,
+   "wall_s": 0.191,
+   "ttft_s": 0.096755765,
+   "prefill_s": 0.095335157,
+   "prev_prompt": 10012,
+   "hit": true,
+   "agent": 54,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10071,
+   "cached_tokens": 10029,
+   "wall_s": 0.149,
+   "ttft_s": 0.088068275,
+   "prefill_s": 0.086019363,
+   "prev_prompt": 10035,
+   "hit": true,
+   "agent": 55,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10122,
+   "cached_tokens": 10080,
+   "wall_s": 0.273,
+   "ttft_s": 0.088806756,
+   "prefill_s": 0.087397475,
+   "prev_prompt": 10086,
+   "hit": true,
+   "agent": 56,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10105,
+   "cached_tokens": 10063,
+   "wall_s": 0.259,
+   "ttft_s": 0.088726131,
+   "prefill_s": 0.086547715,
+   "prev_prompt": 10069,
+   "hit": true,
+   "agent": 57,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10074,
+   "cached_tokens": 10035,
+   "wall_s": 0.181,
+   "ttft_s": 0.087375315,
+   "prefill_s": 0.086167442,
+   "prev_prompt": 10041,
+   "hit": true,
+   "agent": 58,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10112,
+   "cached_tokens": 10070,
+   "wall_s": 0.273,
+   "ttft_s": 0.100245078,
+   "prefill_s": 0.098284246,
+   "prev_prompt": 10076,
+   "hit": true,
+   "agent": 59,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10104,
+   "cached_tokens": 10062,
+   "wall_s": 0.215,
+   "ttft_s": 0.097810438,
+   "prefill_s": 0.096371941,
+   "prev_prompt": 10068,
+   "hit": true,
+   "agent": 60,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10072,
+   "cached_tokens": 10030,
+   "wall_s": 0.178,
+   "ttft_s": 0.089779988,
+   "prefill_s": 0.088374772,
+   "prev_prompt": 10036,
+   "hit": true,
+   "agent": 61,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10051,
+   "cached_tokens": 10009,
+   "wall_s": 0.268,
+   "ttft_s": 0.089980547,
+   "prefill_s": 0.088647795,
+   "prev_prompt": 10015,
+   "hit": true,
+   "agent": 62,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10063,
+   "cached_tokens": 10021,
+   "wall_s": 0.188,
+   "ttft_s": 0.096769733,
+   "prefill_s": 0.095607093,
+   "prev_prompt": 10027,
+   "hit": true,
+   "agent": 63,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10011,
+   "cached_tokens": 9969,
+   "wall_s": 0.218,
+   "ttft_s": 0.0914377,
+   "prefill_s": 0.090235683,
+   "prev_prompt": 9975,
+   "hit": true,
+   "agent": 64,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10072,
+   "cached_tokens": 10033,
+   "wall_s": 0.184,
+   "ttft_s": 0.09503994,
+   "prefill_s": 0.09347282,
+   "prev_prompt": 10039,
+   "hit": true,
+   "agent": 65,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10018,
+   "cached_tokens": 9979,
+   "wall_s": 0.174,
+   "ttft_s": 0.086652051,
+   "prefill_s": 0.085121875,
+   "prev_prompt": 9985,
+   "hit": true,
+   "agent": 66,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10174,
+   "cached_tokens": 10132,
+   "wall_s": 0.205,
+   "ttft_s": 0.091166483,
+   "prefill_s": 0.090040739,
+   "prev_prompt": 10138,
+   "hit": true,
+   "agent": 67,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10172,
+   "cached_tokens": 10130,
+   "wall_s": 0.273,
+   "ttft_s": 0.092656708,
+   "prefill_s": 0.09148594,
+   "prev_prompt": 10136,
+   "hit": true,
+   "agent": 68,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10086,
+   "cached_tokens": 10044,
+   "wall_s": 0.175,
+   "ttft_s": 0.087698642,
+   "prefill_s": 0.086199954,
+   "prev_prompt": 10050,
+   "hit": true,
+   "agent": 69,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10088,
+   "cached_tokens": 10046,
+   "wall_s": 0.257,
+   "ttft_s": 0.087548739,
+   "prefill_s": 0.085750515,
+   "prev_prompt": 10052,
+   "hit": true,
+   "agent": 70,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10108,
+   "cached_tokens": 10066,
+   "wall_s": 0.176,
+   "ttft_s": 0.087226131,
+   "prefill_s": 0.086024419,
+   "prev_prompt": 10072,
+   "hit": true,
+   "agent": 71,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10064,
+   "cached_tokens": 10025,
+   "wall_s": 0.149,
+   "ttft_s": 0.085542722,
+   "prefill_s": 0.084417026,
+   "prev_prompt": 10031,
+   "hit": true,
+   "agent": 72,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10065,
+   "cached_tokens": 10023,
+   "wall_s": 0.186,
+   "ttft_s": 0.096827909,
+   "prefill_s": 0.095365188,
+   "prev_prompt": 10029,
+   "hit": true,
+   "agent": 73,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10124,
+   "cached_tokens": 10082,
+   "wall_s": 0.261,
+   "ttft_s": 0.091297044,
+   "prefill_s": 0.089862323,
+   "prev_prompt": 10088,
+   "hit": true,
+   "agent": 74,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10069,
+   "cached_tokens": 10030,
+   "wall_s": 0.144,
+   "ttft_s": 0.08663869,
+   "prefill_s": 0.08526869,
+   "prev_prompt": 10036,
+   "hit": true,
+   "agent": 75,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10110,
+   "cached_tokens": 10068,
+   "wall_s": 0.173,
+   "ttft_s": 0.087469058,
+   "prefill_s": 0.086128882,
+   "prev_prompt": 10074,
+   "hit": true,
+   "agent": 76,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10112,
+   "cached_tokens": 10070,
+   "wall_s": 0.324,
+   "ttft_s": 0.090002403,
+   "prefill_s": 0.088576066,
+   "prev_prompt": 10076,
+   "hit": true,
+   "agent": 77,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10179,
+   "cached_tokens": 10137,
+   "wall_s": 0.185,
+   "ttft_s": 0.096344293,
+   "prefill_s": 0.094944581,
+   "prev_prompt": 10143,
+   "hit": true,
+   "agent": 78,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10181,
+   "cached_tokens": 10142,
+   "wall_s": 0.278,
+   "ttft_s": 0.085956978,
+   "prefill_s": 0.084485842,
+   "prev_prompt": 10148,
+   "hit": true,
+   "agent": 79,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10109,
+   "cached_tokens": 10067,
+   "wall_s": 0.257,
+   "ttft_s": 0.088818115,
+   "prefill_s": 0.087181411,
+   "prev_prompt": 10073,
+   "hit": true,
+   "agent": 80,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10050,
+   "cached_tokens": 10011,
+   "wall_s": 0.207,
+   "ttft_s": 0.088963555,
+   "prefill_s": 0.086699778,
+   "prev_prompt": 10017,
+   "hit": true,
+   "agent": 81,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10127,
+   "cached_tokens": 10085,
+   "wall_s": 0.19,
+   "ttft_s": 0.101020037,
+   "prefill_s": 0.099542309,
+   "prev_prompt": 10091,
+   "hit": true,
+   "agent": 82,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10098,
+   "cached_tokens": 10056,
+   "wall_s": 0.178,
+   "ttft_s": 0.088568339,
+   "prefill_s": 0.086570227,
+   "prev_prompt": 10062,
+   "hit": true,
+   "agent": 83,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10143,
+   "cached_tokens": 10101,
+   "wall_s": 0.177,
+   "ttft_s": 0.089591571,
+   "prefill_s": 0.088166034,
+   "prev_prompt": 10107,
+   "hit": true,
+   "agent": 84,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10094,
+   "cached_tokens": 10052,
+   "wall_s": 0.256,
+   "ttft_s": 0.087254562,
+   "prefill_s": 0.085110722,
+   "prev_prompt": 10058,
+   "hit": true,
+   "agent": 85,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10101,
+   "cached_tokens": 10059,
+   "wall_s": 0.174,
+   "ttft_s": 0.087913554,
+   "prefill_s": 0.086511234,
+   "prev_prompt": 10065,
+   "hit": true,
+   "agent": 86,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10131,
+   "cached_tokens": 10092,
+   "wall_s": 0.275,
+   "ttft_s": 0.092238819,
+   "prefill_s": 0.090770675,
+   "prev_prompt": 10098,
+   "hit": true,
+   "agent": 87,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10013,
+   "cached_tokens": 9971,
+   "wall_s": 0.257,
+   "ttft_s": 0.088565827,
+   "prefill_s": 0.086871442,
+   "prev_prompt": 9977,
+   "hit": true,
+   "agent": 88,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10044,
+   "cached_tokens": 10002,
+   "wall_s": 0.206,
+   "ttft_s": 0.089626594,
+   "prefill_s": 0.087304146,
+   "prev_prompt": 10008,
+   "hit": true,
+   "agent": 89,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10063,
+   "cached_tokens": 10021,
+   "wall_s": 0.258,
+   "ttft_s": 0.08761949,
+   "prefill_s": 0.086230578,
+   "prev_prompt": 10027,
+   "hit": true,
+   "agent": 90,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10117,
+   "cached_tokens": 10075,
+   "wall_s": 0.19,
+   "ttft_s": 0.098804533,
+   "prefill_s": 0.097641445,
+   "prev_prompt": 10081,
+   "hit": true,
+   "agent": 91,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10157,
+   "cached_tokens": 10118,
+   "wall_s": 0.162,
+   "ttft_s": 0.09878362,
+   "prefill_s": 0.09760426,
+   "prev_prompt": 10124,
+   "hit": true,
+   "agent": 92,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10095,
+   "cached_tokens": 10056,
+   "wall_s": 0.177,
+   "ttft_s": 0.089248403,
+   "prefill_s": 0.088018307,
+   "prev_prompt": 10062,
+   "hit": true,
+   "agent": 93,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10028,
+   "cached_tokens": 9986,
+   "wall_s": 0.26,
+   "ttft_s": 0.088328402,
+   "prefill_s": 0.086773986,
+   "prev_prompt": 9992,
+   "hit": true,
+   "agent": 94,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10069,
+   "cached_tokens": 10030,
+   "wall_s": 0.175,
+   "ttft_s": 0.088155859,
+   "prefill_s": 0.086842626,
+   "prev_prompt": 10036,
+   "hit": true,
+   "agent": 95,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10068,
+   "cached_tokens": 10026,
+   "wall_s": 0.285,
+   "ttft_s": 0.089157586,
+   "prefill_s": 0.08787845,
+   "prev_prompt": 10032,
+   "hit": true,
+   "agent": 96,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10102,
+   "cached_tokens": 10063,
+   "wall_s": 0.177,
+   "ttft_s": 0.089269714,
+   "prefill_s": 0.087854354,
+   "prev_prompt": 10069,
+   "hit": true,
+   "agent": 97,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10112,
+   "cached_tokens": 10070,
+   "wall_s": 0.177,
+   "ttft_s": 0.089488082,
+   "prefill_s": 0.087744146,
+   "prev_prompt": 10076,
+   "hit": true,
+   "agent": 98,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10080,
+   "cached_tokens": 10038,
+   "wall_s": 0.175,
+   "ttft_s": 0.088720034,
+   "prefill_s": 0.087438386,
+   "prev_prompt": 10044,
+   "hit": true,
+   "agent": 99,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10133,
+   "cached_tokens": 10091,
+   "wall_s": 0.147,
+   "ttft_s": 0.088883042,
+   "prefill_s": 0.087088338,
+   "prev_prompt": 10097,
+   "hit": true,
+   "agent": 100,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10107,
+   "cached_tokens": 10065,
+   "wall_s": 0.188,
+   "ttft_s": 0.089934323,
+   "prefill_s": 0.088416642,
+   "prev_prompt": 10071,
+   "hit": true,
+   "agent": 101,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10023,
+   "cached_tokens": 9981,
+   "wall_s": 0.212,
+   "ttft_s": 0.091649011,
+   "prefill_s": 0.089878979,
+   "prev_prompt": 9987,
+   "hit": true,
+   "agent": 102,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10160,
+   "cached_tokens": 10118,
+   "wall_s": 0.273,
+   "ttft_s": 0.101870357,
+   "prefill_s": 0.100135988,
+   "prev_prompt": 10124,
+   "hit": true,
+   "agent": 103,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10126,
+   "cached_tokens": 10084,
+   "wall_s": 0.262,
+   "ttft_s": 0.089456594,
+   "prefill_s": 0.087952898,
+   "prev_prompt": 10090,
+   "hit": true,
+   "agent": 104,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10058,
+   "cached_tokens": 10016,
+   "wall_s": 0.286,
+   "ttft_s": 0.098127892,
+   "prefill_s": 0.096712419,
+   "prev_prompt": 10022,
+   "hit": true,
+   "agent": 105,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10052,
+   "cached_tokens": 10010,
+   "wall_s": 0.184,
+   "ttft_s": 0.096920099,
+   "prefill_s": 0.095583811,
+   "prev_prompt": 10016,
+   "hit": true,
+   "agent": 106,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10034,
+   "cached_tokens": 9992,
+   "wall_s": 0.173,
+   "ttft_s": 0.086633458,
+   "prefill_s": 0.085535538,
+   "prev_prompt": 9998,
+   "hit": true,
+   "agent": 107,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10116,
+   "cached_tokens": 10074,
+   "wall_s": 0.254,
+   "ttft_s": 0.086052994,
+   "prefill_s": 0.084782674,
+   "prev_prompt": 10080,
+   "hit": true,
+   "agent": 108,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10089,
+   "cached_tokens": 10050,
+   "wall_s": 0.273,
+   "ttft_s": 0.101594244,
+   "prefill_s": 0.100174804,
+   "prev_prompt": 10056,
+   "hit": true,
+   "agent": 109,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10143,
+   "cached_tokens": 10101,
+   "wall_s": 0.162,
+   "ttft_s": 0.100822868,
+   "prefill_s": 0.099251156,
+   "prev_prompt": 10107,
+   "hit": true,
+   "agent": 110,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10157,
+   "cached_tokens": 10115,
+   "wall_s": 0.263,
+   "ttft_s": 0.089289122,
+   "prefill_s": 0.087234946,
+   "prev_prompt": 10121,
+   "hit": true,
+   "agent": 111,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10074,
+   "cached_tokens": 10032,
+   "wall_s": 0.174,
+   "ttft_s": 0.087211137,
+   "prefill_s": 0.085931537,
+   "prev_prompt": 10038,
+   "hit": true,
+   "agent": 112,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10044,
+   "cached_tokens": 10002,
+   "wall_s": 0.191,
+   "ttft_s": 0.099002564,
+   "prefill_s": 0.096724707,
+   "prev_prompt": 10008,
+   "hit": true,
+   "agent": 113,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10093,
+   "cached_tokens": 10051,
+   "wall_s": 0.179,
+   "ttft_s": 0.091164514,
+   "prefill_s": 0.089845266,
+   "prev_prompt": 10057,
+   "hit": true,
+   "agent": 114,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10103,
+   "cached_tokens": 10061,
+   "wall_s": 0.277,
+   "ttft_s": 0.095743043,
+   "prefill_s": 0.094236499,
+   "prev_prompt": 10067,
+   "hit": true,
+   "agent": 115,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 9997,
+   "cached_tokens": 9955,
+   "wall_s": 0.177,
+   "ttft_s": 0.090629874,
+   "prefill_s": 0.089087825,
+   "prev_prompt": 9961,
+   "hit": true,
+   "agent": 116,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10084,
+   "cached_tokens": 10042,
+   "wall_s": 0.181,
+   "ttft_s": 0.089148546,
+   "prefill_s": 0.087290561,
+   "prev_prompt": 10048,
+   "hit": true,
+   "agent": 117,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10142,
+   "cached_tokens": 10100,
+   "wall_s": 0.3,
+   "ttft_s": 0.098592772,
+   "prefill_s": 0.097444692,
+   "prev_prompt": 10106,
+   "hit": true,
+   "agent": 118,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10011,
+   "cached_tokens": 9969,
+   "wall_s": 0.252,
+   "ttft_s": 0.090994146,
+   "prefill_s": 0.08975197,
+   "prev_prompt": 9975,
+   "hit": true,
+   "agent": 119,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10158,
+   "cached_tokens": 10116,
+   "wall_s": 0.258,
+   "ttft_s": 0.087389105,
+   "prefill_s": 0.085883425,
+   "prev_prompt": 10122,
+   "hit": true,
+   "agent": 120,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10053,
+   "cached_tokens": 10011,
+   "wall_s": 0.191,
+   "ttft_s": 0.09024629,
+   "prefill_s": 0.089102753,
+   "prev_prompt": 10017,
+   "hit": true,
+   "agent": 121,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10173,
+   "cached_tokens": 10134,
+   "wall_s": 0.284,
+   "ttft_s": 0.088769122,
+   "prefill_s": 0.087123153,
+   "prev_prompt": 10140,
+   "hit": true,
+   "agent": 122,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10123,
+   "cached_tokens": 10081,
+   "wall_s": 0.275,
+   "ttft_s": 0.08894661,
+   "prefill_s": 0.087732833,
+   "prev_prompt": 10087,
+   "hit": true,
+   "agent": 123,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10048,
+   "cached_tokens": 10006,
+   "wall_s": 0.148,
+   "ttft_s": 0.088067761,
+   "prefill_s": 0.086819905,
+   "prev_prompt": 10012,
+   "hit": true,
+   "agent": 124,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10102,
+   "cached_tokens": 10060,
+   "wall_s": 0.153,
+   "ttft_s": 0.088622146,
+   "prefill_s": 0.087124642,
+   "prev_prompt": 10066,
+   "hit": true,
+   "agent": 125,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10080,
+   "cached_tokens": 10038,
+   "wall_s": 0.188,
+   "ttft_s": 0.098364355,
+   "prefill_s": 0.096298243,
+   "prev_prompt": 10044,
+   "hit": true,
+   "agent": 126,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10051,
+   "cached_tokens": 10009,
+   "wall_s": 0.259,
+   "ttft_s": 0.08801381,
+   "prefill_s": 0.08658616,
+   "prev_prompt": 10015,
+   "hit": true,
+   "agent": 127,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 9989,
+   "cached_tokens": 9950,
+   "wall_s": 0.188,
+   "ttft_s": 0.087811474,
+   "prefill_s": 0.086597506,
+   "prev_prompt": 9956,
+   "hit": true,
+   "agent": 128,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10059,
+   "cached_tokens": 10017,
+   "wall_s": 0.181,
+   "ttft_s": 0.093816387,
+   "prefill_s": 0.092363042,
+   "prev_prompt": 10023,
+   "hit": true,
+   "agent": 129,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10118,
+   "cached_tokens": 10076,
+   "wall_s": 0.143,
+   "ttft_s": 0.086932065,
+   "prefill_s": 0.085701009,
+   "prev_prompt": 10082,
+   "hit": true,
+   "agent": 130,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10077,
+   "cached_tokens": 10035,
+   "wall_s": 0.274,
+   "ttft_s": 0.096968195,
+   "prefill_s": 0.095583587,
+   "prev_prompt": 10041,
+   "hit": true,
+   "agent": 131,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10099,
+   "cached_tokens": 10060,
+   "wall_s": 0.259,
+   "ttft_s": 0.087013505,
+   "prefill_s": 0.085815777,
+   "prev_prompt": 10066,
+   "hit": true,
+   "agent": 132,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10092,
+   "cached_tokens": 10050,
+   "wall_s": 0.273,
+   "ttft_s": 0.093618866,
+   "prefill_s": 0.092560898,
+   "prev_prompt": 10056,
+   "hit": true,
+   "agent": 133,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10122,
+   "cached_tokens": 10080,
+   "wall_s": 0.146,
+   "ttft_s": 0.087569921,
+   "prefill_s": 0.086466545,
+   "prev_prompt": 10086,
+   "hit": true,
+   "agent": 134,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10136,
+   "cached_tokens": 10094,
+   "wall_s": 0.273,
+   "ttft_s": 0.102251812,
+   "prefill_s": 0.101161347,
+   "prev_prompt": 10100,
+   "hit": true,
+   "agent": 135,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10070,
+   "cached_tokens": 10028,
+   "wall_s": 0.176,
+   "ttft_s": 0.087470881,
+   "prefill_s": 0.08634352,
+   "prev_prompt": 10034,
+   "hit": true,
+   "agent": 136,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10137,
+   "cached_tokens": 10098,
+   "wall_s": 0.175,
+   "ttft_s": 0.086957856,
+   "prefill_s": 0.085421184,
+   "prev_prompt": 10104,
+   "hit": true,
+   "agent": 137,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10042,
+   "cached_tokens": 10000,
+   "wall_s": 0.215,
+   "ttft_s": 0.099260963,
+   "prefill_s": 0.097866851,
+   "prev_prompt": 10006,
+   "hit": true,
+   "agent": 138,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10076,
+   "cached_tokens": 10034,
+   "wall_s": 0.262,
+   "ttft_s": 0.091927202,
+   "prefill_s": 0.090723329,
+   "prev_prompt": 10040,
+   "hit": true,
+   "agent": 139,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10002,
+   "cached_tokens": 9960,
+   "wall_s": 0.179,
+   "ttft_s": 0.090463073,
+   "prefill_s": 0.089348049,
+   "prev_prompt": 9966,
+   "hit": true,
+   "agent": 140,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10038,
+   "cached_tokens": 9996,
+   "wall_s": 0.258,
+   "ttft_s": 0.087745441,
+   "prefill_s": 0.086632145,
+   "prev_prompt": 10002,
+   "hit": true,
+   "agent": 141,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10035,
+   "cached_tokens": 9996,
+   "wall_s": 0.182,
+   "ttft_s": 0.084916672,
+   "prefill_s": 0.083620672,
+   "prev_prompt": 10002,
+   "hit": true,
+   "agent": 142,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 9974,
+   "cached_tokens": 9932,
+   "wall_s": 0.184,
+   "ttft_s": 0.098502227,
+   "prefill_s": 0.097039683,
+   "prev_prompt": 9938,
+   "hit": true,
+   "agent": 143,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10096,
+   "cached_tokens": 10054,
+   "wall_s": 0.257,
+   "ttft_s": 0.087529937,
+   "prefill_s": 0.086383633,
+   "prev_prompt": 10060,
+   "hit": true,
+   "agent": 144,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10054,
+   "cached_tokens": 10012,
+   "wall_s": 0.145,
+   "ttft_s": 0.087135873,
+   "prefill_s": 0.086063681,
+   "prev_prompt": 10018,
+   "hit": true,
+   "agent": 145,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10104,
+   "cached_tokens": 10062,
+   "wall_s": 0.26,
+   "ttft_s": 0.087386353,
+   "prefill_s": 0.086275265,
+   "prev_prompt": 10068,
+   "hit": true,
+   "agent": 146,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10136,
+   "cached_tokens": 10097,
+   "wall_s": 0.19,
+   "ttft_s": 0.093268642,
+   "prefill_s": 0.091831826,
+   "prev_prompt": 10103,
+   "hit": true,
+   "agent": 147,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10024,
+   "cached_tokens": 9982,
+   "wall_s": 0.26,
+   "ttft_s": 0.087728369,
+   "prefill_s": 0.086505713,
+   "prev_prompt": 9988,
+   "hit": true,
+   "agent": 148,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10121,
+   "cached_tokens": 10079,
+   "wall_s": 0.174,
+   "ttft_s": 0.087429344,
+   "prefill_s": 0.085996656,
+   "prev_prompt": 10085,
+   "hit": true,
+   "agent": 149,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10037,
+   "cached_tokens": 9995,
+   "wall_s": 0.178,
+   "ttft_s": 0.091516433,
+   "prefill_s": 0.090311089,
+   "prev_prompt": 10001,
+   "hit": true,
+   "agent": 150,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10128,
+   "cached_tokens": 10086,
+   "wall_s": 0.175,
+   "ttft_s": 0.088700225,
+   "prefill_s": 0.087267921,
+   "prev_prompt": 10092,
+   "hit": true,
+   "agent": 151,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10054,
+   "cached_tokens": 10015,
+   "wall_s": 0.215,
+   "ttft_s": 0.085521888,
+   "prefill_s": 0.084235904,
+   "prev_prompt": 10021,
+   "hit": true,
+   "agent": 152,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10041,
+   "cached_tokens": 9999,
+   "wall_s": 0.177,
+   "ttft_s": 0.090632354,
+   "prefill_s": 0.089359681,
+   "prev_prompt": 10005,
+   "hit": true,
+   "agent": 153,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10189,
+   "cached_tokens": 10147,
+   "wall_s": 0.203,
+   "ttft_s": 0.088545329,
+   "prefill_s": 0.0871596,
+   "prev_prompt": 10153,
+   "hit": true,
+   "agent": 154,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10063,
+   "cached_tokens": 10024,
+   "wall_s": 0.171,
+   "ttft_s": 0.084427968,
+   "prefill_s": 0.083332848,
+   "prev_prompt": 10030,
+   "hit": true,
+   "agent": 155,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10066,
+   "cached_tokens": 10024,
+   "wall_s": 0.279,
+   "ttft_s": 0.087554401,
+   "prefill_s": 0.086455089,
+   "prev_prompt": 10030,
+   "hit": true,
+   "agent": 156,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10051,
+   "cached_tokens": 10012,
+   "wall_s": 0.187,
+   "ttft_s": 0.09500565,
+   "prefill_s": 0.093984818,
+   "prev_prompt": 10018,
+   "hit": true,
+   "agent": 157,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10077,
+   "cached_tokens": 10035,
+   "wall_s": 0.181,
+   "ttft_s": 0.088845761,
+   "prefill_s": 0.086692177,
+   "prev_prompt": 10041,
+   "hit": true,
+   "agent": 158,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10055,
+   "cached_tokens": 10013,
+   "wall_s": 0.258,
+   "ttft_s": 0.088320913,
+   "prefill_s": 0.086684113,
+   "prev_prompt": 10019,
+   "hit": true,
+   "agent": 159,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10107,
+   "cached_tokens": 10065,
+   "wall_s": 0.261,
+   "ttft_s": 0.090757857,
+   "prefill_s": 0.08941552,
+   "prev_prompt": 10071,
+   "hit": true,
+   "agent": 160,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10077,
+   "cached_tokens": 10035,
+   "wall_s": 0.188,
+   "ttft_s": 0.088911313,
+   "prefill_s": 0.086772593,
+   "prev_prompt": 10041,
+   "hit": true,
+   "agent": 161,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10074,
+   "cached_tokens": 10035,
+   "wall_s": 0.218,
+   "ttft_s": 0.101774595,
+   "prefill_s": 0.100268739,
+   "prev_prompt": 10041,
+   "hit": true,
+   "agent": 162,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10100,
+   "cached_tokens": 10058,
+   "wall_s": 0.179,
+   "ttft_s": 0.090371569,
+   "prefill_s": 0.088258737,
+   "prev_prompt": 10064,
+   "hit": true,
+   "agent": 163,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10134,
+   "cached_tokens": 10092,
+   "wall_s": 0.259,
+   "ttft_s": 0.088198736,
+   "prefill_s": 0.086938304,
+   "prev_prompt": 10098,
+   "hit": true,
+   "agent": 164,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10038,
+   "cached_tokens": 9996,
+   "wall_s": 0.177,
+   "ttft_s": 0.088795841,
+   "prefill_s": 0.086475537,
+   "prev_prompt": 10002,
+   "hit": true,
+   "agent": 165,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10094,
+   "cached_tokens": 10052,
+   "wall_s": 0.28,
+   "ttft_s": 0.099569907,
+   "prefill_s": 0.09819189,
+   "prev_prompt": 10058,
+   "hit": true,
+   "agent": 166,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10062,
+   "cached_tokens": 10023,
+   "wall_s": 0.186,
+   "ttft_s": 0.092565729,
+   "prefill_s": 0.091348305,
+   "prev_prompt": 10029,
+   "hit": true,
+   "agent": 167,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10086,
+   "cached_tokens": 10047,
+   "wall_s": 0.178,
+   "ttft_s": 0.089091025,
+   "prefill_s": 0.087331088,
+   "prev_prompt": 10053,
+   "hit": true,
+   "agent": 168,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10063,
+   "cached_tokens": 10024,
+   "wall_s": 0.177,
+   "ttft_s": 0.086629792,
+   "prefill_s": 0.08525144,
+   "prev_prompt": 10030,
+   "hit": true,
+   "agent": 169,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10148,
+   "cached_tokens": 10106,
+   "wall_s": 0.274,
+   "ttft_s": 0.0878548,
+   "prefill_s": 0.086455632,
+   "prev_prompt": 10112,
+   "hit": true,
+   "agent": 170,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10055,
+   "cached_tokens": 10013,
+   "wall_s": 0.184,
+   "ttft_s": 0.08738336,
+   "prefill_s": 0.086204704,
+   "prev_prompt": 10019,
+   "hit": true,
+   "agent": 171,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10087,
+   "cached_tokens": 10045,
+   "wall_s": 0.267,
+   "ttft_s": 0.095179522,
+   "prefill_s": 0.093914402,
+   "prev_prompt": 10051,
+   "hit": true,
+   "agent": 172,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10106,
+   "cached_tokens": 10064,
+   "wall_s": 0.272,
+   "ttft_s": 0.097229378,
+   "prefill_s": 0.095571474,
+   "prev_prompt": 10070,
+   "hit": true,
+   "agent": 173,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10053,
+   "cached_tokens": 10014,
+   "wall_s": 0.175,
+   "ttft_s": 0.086442416,
+   "prefill_s": 0.085057472,
+   "prev_prompt": 10020,
+   "hit": true,
+   "agent": 174,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10077,
+   "cached_tokens": 10035,
+   "wall_s": 0.266,
+   "ttft_s": 0.087773808,
+   "prefill_s": 0.086720352,
+   "prev_prompt": 10041,
+   "hit": true,
+   "agent": 175,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10041,
+   "cached_tokens": 9999,
+   "wall_s": 0.242,
+   "ttft_s": 0.095213074,
+   "prefill_s": 0.093602593,
+   "prev_prompt": 10005,
+   "hit": true,
+   "agent": 176,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10084,
+   "cached_tokens": 10042,
+   "wall_s": 0.275,
+   "ttft_s": 0.101568851,
+   "prefill_s": 0.100379618,
+   "prev_prompt": 10048,
+   "hit": true,
+   "agent": 177,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10145,
+   "cached_tokens": 10103,
+   "wall_s": 0.264,
+   "ttft_s": 0.090872961,
+   "prefill_s": 0.08945424,
+   "prev_prompt": 10109,
+   "hit": true,
+   "agent": 178,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10078,
+   "cached_tokens": 10036,
+   "wall_s": 0.295,
+   "ttft_s": 0.087037888,
+   "prefill_s": 0.08565976,
+   "prev_prompt": 10042,
+   "hit": true,
+   "agent": 179,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10102,
+   "cached_tokens": 10060,
+   "wall_s": 0.194,
+   "ttft_s": 0.102442946,
+   "prefill_s": 0.101254546,
+   "prev_prompt": 10066,
+   "hit": true,
+   "agent": 180,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10047,
+   "cached_tokens": 10005,
+   "wall_s": 0.26,
+   "ttft_s": 0.087357343,
+   "prefill_s": 0.086260527,
+   "prev_prompt": 10011,
+   "hit": true,
+   "agent": 181,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10094,
+   "cached_tokens": 10055,
+   "wall_s": 0.174,
+   "ttft_s": 0.086110223,
+   "prefill_s": 0.084656719,
+   "prev_prompt": 10061,
+   "hit": true,
+   "agent": 182,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10090,
+   "cached_tokens": 10048,
+   "wall_s": 0.261,
+   "ttft_s": 0.085655311,
+   "prefill_s": 0.084075215,
+   "prev_prompt": 10054,
+   "hit": true,
+   "agent": 183,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10086,
+   "cached_tokens": 10044,
+   "wall_s": 0.282,
+   "ttft_s": 0.102616322,
+   "prefill_s": 0.101345218,
+   "prev_prompt": 10050,
+   "hit": true,
+   "agent": 184,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10098,
+   "cached_tokens": 10056,
+   "wall_s": 0.263,
+   "ttft_s": 0.091434273,
+   "prefill_s": 0.089324528,
+   "prev_prompt": 10062,
+   "hit": true,
+   "agent": 185,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10081,
+   "cached_tokens": 10039,
+   "wall_s": 0.259,
+   "ttft_s": 0.08933856,
+   "prefill_s": 0.087784176,
+   "prev_prompt": 10045,
+   "hit": true,
+   "agent": 186,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10080,
+   "cached_tokens": 10038,
+   "wall_s": 0.279,
+   "ttft_s": 0.088454383,
+   "prefill_s": 0.087296479,
+   "prev_prompt": 10044,
+   "hit": true,
+   "agent": 187,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10009,
+   "cached_tokens": 9967,
+   "wall_s": 0.269,
+   "ttft_s": 0.094751569,
+   "prefill_s": 0.093446176,
+   "prev_prompt": 9973,
+   "hit": true,
+   "agent": 188,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10031,
+   "cached_tokens": 9989,
+   "wall_s": 0.177,
+   "ttft_s": 0.088460816,
+   "prefill_s": 0.087001903,
+   "prev_prompt": 9995,
+   "hit": true,
+   "agent": 189,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10041,
+   "cached_tokens": 10002,
+   "wall_s": 0.173,
+   "ttft_s": 0.087313615,
+   "prefill_s": 0.085903903,
+   "prev_prompt": 10008,
+   "hit": true,
+   "agent": 190,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10093,
+   "cached_tokens": 10051,
+   "wall_s": 0.274,
+   "ttft_s": 0.086125024,
+   "prefill_s": 0.084857119,
+   "prev_prompt": 10057,
+   "hit": true,
+   "agent": 191,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10140,
+   "cached_tokens": 10098,
+   "wall_s": 0.214,
+   "ttft_s": 0.091108704,
+   "prefill_s": 0.090031152,
+   "prev_prompt": 10104,
+   "hit": true,
+   "agent": 192,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10071,
+   "cached_tokens": 10032,
+   "wall_s": 0.148,
+   "ttft_s": 0.089328128,
+   "prefill_s": 0.087585584,
+   "prev_prompt": 10038,
+   "hit": true,
+   "agent": 193,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10118,
+   "cached_tokens": 10076,
+   "wall_s": 0.179,
+   "ttft_s": 0.092390128,
+   "prefill_s": 0.09063936,
+   "prev_prompt": 10082,
+   "hit": true,
+   "agent": 194,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10075,
+   "cached_tokens": 10033,
+   "wall_s": 0.177,
+   "ttft_s": 0.087084719,
+   "prefill_s": 0.085863663,
+   "prev_prompt": 10039,
+   "hit": true,
+   "agent": 195,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10086,
+   "cached_tokens": 10044,
+   "wall_s": 0.274,
+   "ttft_s": 0.10179685,
+   "prefill_s": 0.10004997,
+   "prev_prompt": 10050,
+   "hit": true,
+   "agent": 196,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10051,
+   "cached_tokens": 10009,
+   "wall_s": 0.189,
+   "ttft_s": 0.095914177,
+   "prefill_s": 0.094261937,
+   "prev_prompt": 10015,
+   "hit": true,
+   "agent": 197,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10068,
+   "cached_tokens": 10026,
+   "wall_s": 0.26,
+   "ttft_s": 0.09089048,
+   "prefill_s": 0.089540672,
+   "prev_prompt": 10032,
+   "hit": true,
+   "agent": 198,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 10091,
+   "cached_tokens": 10049,
+   "wall_s": 0.176,
+   "ttft_s": 0.088726767,
+   "prefill_s": 0.087004623,
+   "prev_prompt": 10055,
+   "hit": true,
+   "agent": 199,
+   "turn": 1
+  }
+ ],
+ "summary": {
+  "followups": 200,
+  "hits": 200,
+  "hit_rate": 1.0,
+  "cached_share": 0.996,
+  "ttft_median_s": 0.089,
+  "ttft_mean_s": 0.091,
+  "ttft_max_s": 0.106507914
+ },
+ "convos": [
+  {
+   "agent": 0,
+   "turn0_prompt": 10042,
+   "turns": 2
+  },
+  {
+   "agent": 1,
+   "turn0_prompt": 9962,
+   "turns": 2
+  },
+  {
+   "agent": 2,
+   "turn0_prompt": 10109,
+   "turns": 2
+  },
+  {
+   "agent": 3,
+   "turn0_prompt": 10093,
+   "turns": 2
+  },
+  {
+   "agent": 4,
+   "turn0_prompt": 10044,
+   "turns": 2
+  },
+  {
+   "agent": 5,
+   "turn0_prompt": 10098,
+   "turns": 2
+  },
+  {
+   "agent": 6,
+   "turn0_prompt": 10022,
+   "turns": 2
+  },
+  {
+   "agent": 7,
+   "turn0_prompt": 10062,
+   "turns": 2
+  },
+  {
+   "agent": 8,
+   "turn0_prompt": 10036,
+   "turns": 2
+  },
+  {
+   "agent": 9,
+   "turn0_prompt": 10091,
+   "turns": 2
+  },
+  {
+   "agent": 10,
+   "turn0_prompt": 10061,
+   "turns": 2
+  },
+  {
+   "agent": 11,
+   "turn0_prompt": 10118,
+   "turns": 2
+  },
+  {
+   "agent": 12,
+   "turn0_prompt": 10039,
+   "turns": 2
+  },
+  {
+   "agent": 13,
+   "turn0_prompt": 10067,
+   "turns": 2
+  },
+  {
+   "agent": 14,
+   "turn0_prompt": 10102,
+   "turns": 2
+  },
+  {
+   "agent": 15,
+   "turn0_prompt": 10030,
+   "turns": 2
+  },
+  {
+   "agent": 16,
+   "turn0_prompt": 10058,
+   "turns": 2
+  },
+  {
+   "agent": 17,
+   "turn0_prompt": 10111,
+   "turns": 2
+  },
+  {
+   "agent": 18,
+   "turn0_prompt": 10021,
+   "turns": 2
+  },
+  {
+   "agent": 19,
+   "turn0_prompt": 10098,
+   "turns": 2
+  },
+  {
+   "agent": 20,
+   "turn0_prompt": 10043,
+   "turns": 2
+  },
+  {
+   "agent": 21,
+   "turn0_prompt": 9993,
+   "turns": 2
+  },
+  {
+   "agent": 22,
+   "turn0_prompt": 9980,
+   "turns": 2
+  },
+  {
+   "agent": 23,
+   "turn0_prompt": 10065,
+   "turns": 2
+  },
+  {
+   "agent": 24,
+   "turn0_prompt": 10037,
+   "turns": 2
+  },
+  {
+   "agent": 25,
+   "turn0_prompt": 9972,
+   "turns": 2
+  },
+  {
+   "agent": 26,
+   "turn0_prompt": 9962,
+   "turns": 2
+  },
+  {
+   "agent": 27,
+   "turn0_prompt": 9993,
+   "turns": 2
+  },
+  {
+   "agent": 28,
+   "turn0_prompt": 10087,
+   "turns": 2
+  },
+  {
+   "agent": 29,
+   "turn0_prompt": 10006,
+   "turns": 2
+  },
+  {
+   "agent": 30,
+   "turn0_prompt": 10007,
+   "turns": 2
+  },
+  {
+   "agent": 31,
+   "turn0_prompt": 10049,
+   "turns": 2
+  },
+  {
+   "agent": 32,
+   "turn0_prompt": 10024,
+   "turns": 2
+  },
+  {
+   "agent": 33,
+   "turn0_prompt": 9996,
+   "turns": 2
+  },
+  {
+   "agent": 34,
+   "turn0_prompt": 10023,
+   "turns": 2
+  },
+  {
+   "agent": 35,
+   "turn0_prompt": 10205,
+   "turns": 2
+  },
+  {
+   "agent": 36,
+   "turn0_prompt": 10005,
+   "turns": 2
+  },
+  {
+   "agent": 37,
+   "turn0_prompt": 10082,
+   "turns": 2
+  },
+  {
+   "agent": 38,
+   "turn0_prompt": 10107,
+   "turns": 2
+  },
+  {
+   "agent": 39,
+   "turn0_prompt": 10016,
+   "turns": 2
+  },
+  {
+   "agent": 40,
+   "turn0_prompt": 10037,
+   "turns": 2
+  },
+  {
+   "agent": 41,
+   "turn0_prompt": 10074,
+   "turns": 2
+  },
+  {
+   "agent": 42,
+   "turn0_prompt": 10012,
+   "turns": 2
+  },
+  {
+   "agent": 43,
+   "turn0_prompt": 10078,
+   "turns": 2
+  },
+  {
+   "agent": 44,
+   "turn0_prompt": 10066,
+   "turns": 2
+  },
+  {
+   "agent": 45,
+   "turn0_prompt": 10085,
+   "turns": 2
+  },
+  {
+   "agent": 46,
+   "turn0_prompt": 10038,
+   "turns": 2
+  },
+  {
+   "agent": 47,
+   "turn0_prompt": 10129,
+   "turns": 2
+  },
+  {
+   "agent": 48,
+   "turn0_prompt": 10051,
+   "turns": 2
+  },
+  {
+   "agent": 49,
+   "turn0_prompt": 10056,
+   "turns": 2
+  },
+  {
+   "agent": 50,
+   "turn0_prompt": 10098,
+   "turns": 2
+  },
+  {
+   "agent": 51,
+   "turn0_prompt": 10058,
+   "turns": 2
+  },
+  {
+   "agent": 52,
+   "turn0_prompt": 10079,
+   "turns": 2
+  },
+  {
+   "agent": 53,
+   "turn0_prompt": 10086,
+   "turns": 2
+  },
+  {
+   "agent": 54,
+   "turn0_prompt": 10012,
+   "turns": 2
+  },
+  {
+   "agent": 55,
+   "turn0_prompt": 10035,
+   "turns": 2
+  },
+  {
+   "agent": 56,
+   "turn0_prompt": 10086,
+   "turns": 2
+  },
+  {
+   "agent": 57,
+   "turn0_prompt": 10069,
+   "turns": 2
+  },
+  {
+   "agent": 58,
+   "turn0_prompt": 10041,
+   "turns": 2
+  },
+  {
+   "agent": 59,
+   "turn0_prompt": 10076,
+   "turns": 2
+  },
+  {
+   "agent": 60,
+   "turn0_prompt": 10068,
+   "turns": 2
+  },
+  {
+   "agent": 61,
+   "turn0_prompt": 10036,
+   "turns": 2
+  },
+  {
+   "agent": 62,
+   "turn0_prompt": 10015,
+   "turns": 2
+  },
+  {
+   "agent": 63,
+   "turn0_prompt": 10027,
+   "turns": 2
+  },
+  {
+   "agent": 64,
+   "turn0_prompt": 9975,
+   "turns": 2
+  },
+  {
+   "agent": 65,
+   "turn0_prompt": 10039,
+   "turns": 2
+  },
+  {
+   "agent": 66,
+   "turn0_prompt": 9985,
+   "turns": 2
+  },
+  {
+   "agent": 67,
+   "turn0_prompt": 10138,
+   "turns": 2
+  },
+  {
+   "agent": 68,
+   "turn0_prompt": 10136,
+   "turns": 2
+  },
+  {
+   "agent": 69,
+   "turn0_prompt": 10050,
+   "turns": 2
+  },
+  {
+   "agent": 70,
+   "turn0_prompt": 10052,
+   "turns": 2
+  },
+  {
+   "agent": 71,
+   "turn0_prompt": 10072,
+   "turns": 2
+  },
+  {
+   "agent": 72,
+   "turn0_prompt": 10031,
+   "turns": 2
+  },
+  {
+   "agent": 73,
+   "turn0_prompt": 10029,
+   "turns": 2
+  },
+  {
+   "agent": 74,
+   "turn0_prompt": 10088,
+   "turns": 2
+  },
+  {
+   "agent": 75,
+   "turn0_prompt": 10036,
+   "turns": 2
+  },
+  {
+   "agent": 76,
+   "turn0_prompt": 10074,
+   "turns": 2
+  },
+  {
+   "agent": 77,
+   "turn0_prompt": 10076,
+   "turns": 2
+  },
+  {
+   "agent": 78,
+   "turn0_prompt": 10143,
+   "turns": 2
+  },
+  {
+   "agent": 79,
+   "turn0_prompt": 10148,
+   "turns": 2
+  },
+  {
+   "agent": 80,
+   "turn0_prompt": 10073,
+   "turns": 2
+  },
+  {
+   "agent": 81,
+   "turn0_prompt": 10017,
+   "turns": 2
+  },
+  {
+   "agent": 82,
+   "turn0_prompt": 10091,
+   "turns": 2
+  },
+  {
+   "agent": 83,
+   "turn0_prompt": 10062,
+   "turns": 2
+  },
+  {
+   "agent": 84,
+   "turn0_prompt": 10107,
+   "turns": 2
+  },
+  {
+   "agent": 85,
+   "turn0_prompt": 10058,
+   "turns": 2
+  },
+  {
+   "agent": 86,
+   "turn0_prompt": 10065,
+   "turns": 2
+  },
+  {
+   "agent": 87,
+   "turn0_prompt": 10098,
+   "turns": 2
+  },
+  {
+   "agent": 88,
+   "turn0_prompt": 9977,
+   "turns": 2
+  },
+  {
+   "agent": 89,
+   "turn0_prompt": 10008,
+   "turns": 2
+  },
+  {
+   "agent": 90,
+   "turn0_prompt": 10027,
+   "turns": 2
+  },
+  {
+   "agent": 91,
+   "turn0_prompt": 10081,
+   "turns": 2
+  },
+  {
+   "agent": 92,
+   "turn0_prompt": 10124,
+   "turns": 2
+  },
+  {
+   "agent": 93,
+   "turn0_prompt": 10062,
+   "turns": 2
+  },
+  {
+   "agent": 94,
+   "turn0_prompt": 9992,
+   "turns": 2
+  },
+  {
+   "agent": 95,
+   "turn0_prompt": 10036,
+   "turns": 2
+  },
+  {
+   "agent": 96,
+   "turn0_prompt": 10032,
+   "turns": 2
+  },
+  {
+   "agent": 97,
+   "turn0_prompt": 10069,
+   "turns": 2
+  },
+  {
+   "agent": 98,
+   "turn0_prompt": 10076,
+   "turns": 2
+  },
+  {
+   "agent": 99,
+   "turn0_prompt": 10044,
+   "turns": 2
+  },
+  {
+   "agent": 100,
+   "turn0_prompt": 10097,
+   "turns": 2
+  },
+  {
+   "agent": 101,
+   "turn0_prompt": 10071,
+   "turns": 2
+  },
+  {
+   "agent": 102,
+   "turn0_prompt": 9987,
+   "turns": 2
+  },
+  {
+   "agent": 103,
+   "turn0_prompt": 10124,
+   "turns": 2
+  },
+  {
+   "agent": 104,
+   "turn0_prompt": 10090,
+   "turns": 2
+  },
+  {
+   "agent": 105,
+   "turn0_prompt": 10022,
+   "turns": 2
+  },
+  {
+   "agent": 106,
+   "turn0_prompt": 10016,
+   "turns": 2
+  },
+  {
+   "agent": 107,
+   "turn0_prompt": 9998,
+   "turns": 2
+  },
+  {
+   "agent": 108,
+   "turn0_prompt": 10080,
+   "turns": 2
+  },
+  {
+   "agent": 109,
+   "turn0_prompt": 10056,
+   "turns": 2
+  },
+  {
+   "agent": 110,
+   "turn0_prompt": 10107,
+   "turns": 2
+  },
+  {
+   "agent": 111,
+   "turn0_prompt": 10121,
+   "turns": 2
+  },
+  {
+   "agent": 112,
+   "turn0_prompt": 10038,
+   "turns": 2
+  },
+  {
+   "agent": 113,
+   "turn0_prompt": 10008,
+   "turns": 2
+  },
+  {
+   "agent": 114,
+   "turn0_prompt": 10057,
+   "turns": 2
+  },
+  {
+   "agent": 115,
+   "turn0_prompt": 10067,
+   "turns": 2
+  },
+  {
+   "agent": 116,
+   "turn0_prompt": 9961,
+   "turns": 2
+  },
+  {
+   "agent": 117,
+   "turn0_prompt": 10048,
+   "turns": 2
+  },
+  {
+   "agent": 118,
+   "turn0_prompt": 10106,
+   "turns": 2
+  },
+  {
+   "agent": 119,
+   "turn0_prompt": 9975,
+   "turns": 2
+  },
+  {
+   "agent": 120,
+   "turn0_prompt": 10122,
+   "turns": 2
+  },
+  {
+   "agent": 121,
+   "turn0_prompt": 10017,
+   "turns": 2
+  },
+  {
+   "agent": 122,
+   "turn0_prompt": 10140,
+   "turns": 2
+  },
+  {
+   "agent": 123,
+   "turn0_prompt": 10087,
+   "turns": 2
+  },
+  {
+   "agent": 124,
+   "turn0_prompt": 10012,
+   "turns": 2
+  },
+  {
+   "agent": 125,
+   "turn0_prompt": 10066,
+   "turns": 2
+  },
+  {
+   "agent": 126,
+   "turn0_prompt": 10044,
+   "turns": 2
+  },
+  {
+   "agent": 127,
+   "turn0_prompt": 10015,
+   "turns": 2
+  },
+  {
+   "agent": 128,
+   "turn0_prompt": 9956,
+   "turns": 2
+  },
+  {
+   "agent": 129,
+   "turn0_prompt": 10023,
+   "turns": 2
+  },
+  {
+   "agent": 130,
+   "turn0_prompt": 10082,
+   "turns": 2
+  },
+  {
+   "agent": 131,
+   "turn0_prompt": 10041,
+   "turns": 2
+  },
+  {
+   "agent": 132,
+   "turn0_prompt": 10066,
+   "turns": 2
+  },
+  {
+   "agent": 133,
+   "turn0_prompt": 10056,
+   "turns": 2
+  },
+  {
+   "agent": 134,
+   "turn0_prompt": 10086,
+   "turns": 2
+  },
+  {
+   "agent": 135,
+   "turn0_prompt": 10100,
+   "turns": 2
+  },
+  {
+   "agent": 136,
+   "turn0_prompt": 10034,
+   "turns": 2
+  },
+  {
+   "agent": 137,
+   "turn0_prompt": 10104,
+   "turns": 2
+  },
+  {
+   "agent": 138,
+   "turn0_prompt": 10006,
+   "turns": 2
+  },
+  {
+   "agent": 139,
+   "turn0_prompt": 10040,
+   "turns": 2
+  },
+  {
+   "agent": 140,
+   "turn0_prompt": 9966,
+   "turns": 2
+  },
+  {
+   "agent": 141,
+   "turn0_prompt": 10002,
+   "turns": 2
+  },
+  {
+   "agent": 142,
+   "turn0_prompt": 10002,
+   "turns": 2
+  },
+  {
+   "agent": 143,
+   "turn0_prompt": 9938,
+   "turns": 2
+  },
+  {
+   "agent": 144,
+   "turn0_prompt": 10060,
+   "turns": 2
+  },
+  {
+   "agent": 145,
+   "turn0_prompt": 10018,
+   "turns": 2
+  },
+  {
+   "agent": 146,
+   "turn0_prompt": 10068,
+   "turns": 2
+  },
+  {
+   "agent": 147,
+   "turn0_prompt": 10103,
+   "turns": 2
+  },
+  {
+   "agent": 148,
+   "turn0_prompt": 9988,
+   "turns": 2
+  },
+  {
+   "agent": 149,
+   "turn0_prompt": 10085,
+   "turns": 2
+  },
+  {
+   "agent": 150,
+   "turn0_prompt": 10001,
+   "turns": 2
+  },
+  {
+   "agent": 151,
+   "turn0_prompt": 10092,
+   "turns": 2
+  },
+  {
+   "agent": 152,
+   "turn0_prompt": 10021,
+   "turns": 2
+  },
+  {
+   "agent": 153,
+   "turn0_prompt": 10005,
+   "turns": 2
+  },
+  {
+   "agent": 154,
+   "turn0_prompt": 10153,
+   "turns": 2
+  },
+  {
+   "agent": 155,
+   "turn0_prompt": 10030,
+   "turns": 2
+  },
+  {
+   "agent": 156,
+   "turn0_prompt": 10030,
+   "turns": 2
+  },
+  {
+   "agent": 157,
+   "turn0_prompt": 10018,
+   "turns": 2
+  },
+  {
+   "agent": 158,
+   "turn0_prompt": 10041,
+   "turns": 2
+  },
+  {
+   "agent": 159,
+   "turn0_prompt": 10019,
+   "turns": 2
+  },
+  {
+   "agent": 160,
+   "turn0_prompt": 10071,
+   "turns": 2
+  },
+  {
+   "agent": 161,
+   "turn0_prompt": 10041,
+   "turns": 2
+  },
+  {
+   "agent": 162,
+   "turn0_prompt": 10041,
+   "turns": 2
+  },
+  {
+   "agent": 163,
+   "turn0_prompt": 10064,
+   "turns": 2
+  },
+  {
+   "agent": 164,
+   "turn0_prompt": 10098,
+   "turns": 2
+  },
+  {
+   "agent": 165,
+   "turn0_prompt": 10002,
+   "turns": 2
+  },
+  {
+   "agent": 166,
+   "turn0_prompt": 10058,
+   "turns": 2
+  },
+  {
+   "agent": 167,
+   "turn0_prompt": 10029,
+   "turns": 2
+  },
+  {
+   "agent": 168,
+   "turn0_prompt": 10053,
+   "turns": 2
+  },
+  {
+   "agent": 169,
+   "turn0_prompt": 10030,
+   "turns": 2
+  },
+  {
+   "agent": 170,
+   "turn0_prompt": 10112,
+   "turns": 2
+  },
+  {
+   "agent": 171,
+   "turn0_prompt": 10019,
+   "turns": 2
+  },
+  {
+   "agent": 172,
+   "turn0_prompt": 10051,
+   "turns": 2
+  },
+  {
+   "agent": 173,
+   "turn0_prompt": 10070,
+   "turns": 2
+  },
+  {
+   "agent": 174,
+   "turn0_prompt": 10020,
+   "turns": 2
+  },
+  {
+   "agent": 175,
+   "turn0_prompt": 10041,
+   "turns": 2
+  },
+  {
+   "agent": 176,
+   "turn0_prompt": 10005,
+   "turns": 2
+  },
+  {
+   "agent": 177,
+   "turn0_prompt": 10048,
+   "turns": 2
+  },
+  {
+   "agent": 178,
+   "turn0_prompt": 10109,
+   "turns": 2
+  },
+  {
+   "agent": 179,
+   "turn0_prompt": 10042,
+   "turns": 2
+  },
+  {
+   "agent": 180,
+   "turn0_prompt": 10066,
+   "turns": 2
+  },
+  {
+   "agent": 181,
+   "turn0_prompt": 10011,
+   "turns": 2
+  },
+  {
+   "agent": 182,
+   "turn0_prompt": 10061,
+   "turns": 2
+  },
+  {
+   "agent": 183,
+   "turn0_prompt": 10054,
+   "turns": 2
+  },
+  {
+   "agent": 184,
+   "turn0_prompt": 10050,
+   "turns": 2
+  },
+  {
+   "agent": 185,
+   "turn0_prompt": 10062,
+   "turns": 2
+  },
+  {
+   "agent": 186,
+   "turn0_prompt": 10045,
+   "turns": 2
+  },
+  {
+   "agent": 187,
+   "turn0_prompt": 10044,
+   "turns": 2
+  },
+  {
+   "agent": 188,
+   "turn0_prompt": 9973,
+   "turns": 2
+  },
+  {
+   "agent": 189,
+   "turn0_prompt": 9995,
+   "turns": 2
+  },
+  {
+   "agent": 190,
+   "turn0_prompt": 10008,
+   "turns": 2
+  },
+  {
+   "agent": 191,
+   "turn0_prompt": 10057,
+   "turns": 2
+  },
+  {
+   "agent": 192,
+   "turn0_prompt": 10104,
+   "turns": 2
+  },
+  {
+   "agent": 193,
+   "turn0_prompt": 10038,
+   "turns": 2
+  },
+  {
+   "agent": 194,
+   "turn0_prompt": 10082,
+   "turns": 2
+  },
+  {
+   "agent": 195,
+   "turn0_prompt": 10039,
+   "turns": 2
+  },
+  {
+   "agent": 196,
+   "turn0_prompt": 10050,
+   "turns": 2
+  },
+  {
+   "agent": 197,
+   "turn0_prompt": 10015,
+   "turns": 2
+  },
+  {
+   "agent": 198,
+   "turn0_prompt": 10032,
+   "turns": 2
+  },
+  {
+   "agent": 199,
+   "turn0_prompt": 10055,
+   "turns": 2
+  }
+ ]
+}

@@ -1,0 +1,815 @@
+{
+ "date": "2026-10-15T21:17:26-0700",
+ "url": "http://forge:8100",
+ "agents": 36,
+ "prefix": 78000,
+ "turns": 2,
+ "phase": "all",
+ "cold": [
+  {
+   "agent": 0,
+   "prompt_tokens": 78178,
+   "wall_s": 16.601,
+   "ttft_s": 16.439048137
+  },
+  {
+   "agent": 1,
+   "prompt_tokens": 78016,
+   "wall_s": 16.35,
+   "ttft_s": 16.205897425
+  },
+  {
+   "agent": 2,
+   "prompt_tokens": 78054,
+   "wall_s": 16.34,
+   "ttft_s": 16.236841878
+  },
+  {
+   "agent": 3,
+   "prompt_tokens": 78156,
+   "wall_s": 16.392,
+   "ttft_s": 16.277302628
+  },
+  {
+   "agent": 4,
+   "prompt_tokens": 78039,
+   "wall_s": 16.41,
+   "ttft_s": 16.259918672
+  },
+  {
+   "agent": 5,
+   "prompt_tokens": 77981,
+   "wall_s": 16.437,
+   "ttft_s": 16.26652041
+  },
+  {
+   "agent": 6,
+   "prompt_tokens": 78312,
+   "wall_s": 16.421,
+   "ttft_s": 16.306361508
+  },
+  {
+   "agent": 7,
+   "prompt_tokens": 78232,
+   "wall_s": 16.433,
+   "ttft_s": 16.318120008
+  },
+  {
+   "agent": 8,
+   "prompt_tokens": 77943,
+   "wall_s": 16.358,
+   "ttft_s": 16.24302047
+  },
+  {
+   "agent": 9,
+   "prompt_tokens": 78180,
+   "wall_s": 16.408,
+   "ttft_s": 16.289525024
+  },
+  {
+   "agent": 10,
+   "prompt_tokens": 78067,
+   "wall_s": 16.382,
+   "ttft_s": 16.239778387
+  },
+  {
+   "agent": 11,
+   "prompt_tokens": 77945,
+   "wall_s": 16.356,
+   "ttft_s": 16.243371206
+  },
+  {
+   "agent": 12,
+   "prompt_tokens": 77838,
+   "wall_s": 16.35,
+   "ttft_s": 16.211597038
+  },
+  {
+   "agent": 13,
+   "prompt_tokens": 78029,
+   "wall_s": 16.352,
+   "ttft_s": 16.237578593
+  },
+  {
+   "agent": 14,
+   "prompt_tokens": 78177,
+   "wall_s": 16.375,
+   "ttft_s": 16.253353678
+  },
+  {
+   "agent": 15,
+   "prompt_tokens": 78113,
+   "wall_s": 16.409,
+   "ttft_s": 16.295944093
+  },
+  {
+   "agent": 16,
+   "prompt_tokens": 78160,
+   "wall_s": 16.383,
+   "ttft_s": 16.270710546
+  },
+  {
+   "agent": 17,
+   "prompt_tokens": 78244,
+   "wall_s": 16.461,
+   "ttft_s": 16.315990674
+  },
+  {
+   "agent": 18,
+   "prompt_tokens": 78031,
+   "wall_s": 16.394,
+   "ttft_s": 16.252298904
+  },
+  {
+   "agent": 19,
+   "prompt_tokens": 78028,
+   "wall_s": 16.38,
+   "ttft_s": 16.2597086
+  },
+  {
+   "agent": 20,
+   "prompt_tokens": 77916,
+   "wall_s": 16.35,
+   "ttft_s": 16.212049018
+  },
+  {
+   "agent": 21,
+   "prompt_tokens": 78046,
+   "wall_s": 16.414,
+   "ttft_s": 16.275478347
+  },
+  {
+   "agent": 22,
+   "prompt_tokens": 77984,
+   "wall_s": 16.351,
+   "ttft_s": 16.216593458
+  },
+  {
+   "agent": 23,
+   "prompt_tokens": 78075,
+   "wall_s": 16.399,
+   "ttft_s": 16.262387415
+  },
+  {
+   "agent": 24,
+   "prompt_tokens": 78106,
+   "wall_s": 16.426,
+   "ttft_s": 16.281303904
+  },
+  {
+   "agent": 25,
+   "prompt_tokens": 78024,
+   "wall_s": 16.4,
+   "ttft_s": 16.265086426
+  },
+  {
+   "agent": 26,
+   "prompt_tokens": 77932,
+   "wall_s": 16.379,
+   "ttft_s": 16.241431034
+  },
+  {
+   "agent": 27,
+   "prompt_tokens": 78090,
+   "wall_s": 16.419,
+   "ttft_s": 16.286187776
+  },
+  {
+   "agent": 28,
+   "prompt_tokens": 78202,
+   "wall_s": 16.391,
+   "ttft_s": 16.314653277
+  },
+  {
+   "agent": 29,
+   "prompt_tokens": 78068,
+   "wall_s": 16.41,
+   "ttft_s": 16.292762879
+  },
+  {
+   "agent": 30,
+   "prompt_tokens": 77977,
+   "wall_s": 16.379,
+   "ttft_s": 16.24661448
+  },
+  {
+   "agent": 31,
+   "prompt_tokens": 78118,
+   "wall_s": 16.413,
+   "ttft_s": 16.278703915
+  },
+  {
+   "agent": 32,
+   "prompt_tokens": 78099,
+   "wall_s": 16.41,
+   "ttft_s": 16.281592351
+  },
+  {
+   "agent": 33,
+   "prompt_tokens": 78180,
+   "wall_s": 16.453,
+   "ttft_s": 16.323362663
+  },
+  {
+   "agent": 34,
+   "prompt_tokens": 78216,
+   "wall_s": 16.478,
+   "ttft_s": 16.344764058
+  },
+  {
+   "agent": 35,
+   "prompt_tokens": 78109,
+   "wall_s": 16.427,
+   "ttft_s": 16.295454815
+  }
+ ],
+ "warm": [
+  {
+   "prompt_tokens": 78214,
+   "cached_tokens": 78172,
+   "wall_s": 0.271,
+   "ttft_s": 0.128364297,
+   "prefill_s": 0.120637972,
+   "prev_prompt": 78178,
+   "hit": true,
+   "agent": 0,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78052,
+   "cached_tokens": 78010,
+   "wall_s": 0.439,
+   "ttft_s": 0.124092527,
+   "prefill_s": 0.117919703,
+   "prev_prompt": 78016,
+   "hit": true,
+   "agent": 1,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78090,
+   "cached_tokens": 78048,
+   "wall_s": 0.25,
+   "ttft_s": 0.133753744,
+   "prefill_s": 0.127258106,
+   "prev_prompt": 78054,
+   "hit": true,
+   "agent": 2,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78192,
+   "cached_tokens": 78150,
+   "wall_s": 0.374,
+   "ttft_s": 0.125198749,
+   "prefill_s": 0.118587991,
+   "prev_prompt": 78156,
+   "hit": true,
+   "agent": 3,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78075,
+   "cached_tokens": 78033,
+   "wall_s": 0.444,
+   "ttft_s": 0.133394369,
+   "prefill_s": 0.127159099,
+   "prev_prompt": 78039,
+   "hit": true,
+   "agent": 4,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78017,
+   "cached_tokens": 77975,
+   "wall_s": 0.45,
+   "ttft_s": 0.134763935,
+   "prefill_s": 0.122617793,
+   "prev_prompt": 77981,
+   "hit": true,
+   "agent": 5,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78348,
+   "cached_tokens": 78306,
+   "wall_s": 0.379,
+   "ttft_s": 0.138825017,
+   "prefill_s": 0.126665403,
+   "prev_prompt": 78312,
+   "hit": true,
+   "agent": 6,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78268,
+   "cached_tokens": 78226,
+   "wall_s": 0.456,
+   "ttft_s": 0.136339117,
+   "prefill_s": 0.125651229,
+   "prev_prompt": 78232,
+   "hit": true,
+   "agent": 7,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 77979,
+   "cached_tokens": 77937,
+   "wall_s": 0.26,
+   "ttft_s": 0.138317851,
+   "prefill_s": 0.125635805,
+   "prev_prompt": 77943,
+   "hit": true,
+   "agent": 8,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78216,
+   "cached_tokens": 78174,
+   "wall_s": 0.253,
+   "ttft_s": 0.140733911,
+   "prefill_s": 0.130600133,
+   "prev_prompt": 78180,
+   "hit": true,
+   "agent": 9,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78103,
+   "cached_tokens": 78061,
+   "wall_s": 0.245,
+   "ttft_s": 0.133651458,
+   "prefill_s": 0.122428801,
+   "prev_prompt": 78067,
+   "hit": true,
+   "agent": 10,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 77981,
+   "cached_tokens": 77939,
+   "wall_s": 0.453,
+   "ttft_s": 0.135933758,
+   "prefill_s": 0.123623424,
+   "prev_prompt": 77945,
+   "hit": true,
+   "agent": 11,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 77874,
+   "cached_tokens": 77832,
+   "wall_s": 0.412,
+   "ttft_s": 0.136157854,
+   "prefill_s": 0.124179903,
+   "prev_prompt": 77838,
+   "hit": true,
+   "agent": 12,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78062,
+   "cached_tokens": 78023,
+   "wall_s": 0.252,
+   "ttft_s": 0.139047626,
+   "prefill_s": 0.128893319,
+   "prev_prompt": 78029,
+   "hit": true,
+   "agent": 13,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78213,
+   "cached_tokens": 78171,
+   "wall_s": 0.387,
+   "ttft_s": 0.138491738,
+   "prefill_s": 0.126397643,
+   "prev_prompt": 78177,
+   "hit": true,
+   "agent": 14,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78149,
+   "cached_tokens": 78107,
+   "wall_s": 0.251,
+   "ttft_s": 0.14307402,
+   "prefill_s": 0.130503285,
+   "prev_prompt": 78113,
+   "hit": true,
+   "agent": 15,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78196,
+   "cached_tokens": 78154,
+   "wall_s": 0.478,
+   "ttft_s": 0.134004432,
+   "prefill_s": 0.123099824,
+   "prev_prompt": 78160,
+   "hit": true,
+   "agent": 16,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78280,
+   "cached_tokens": 78238,
+   "wall_s": 0.382,
+   "ttft_s": 0.141359399,
+   "prefill_s": 0.129058632,
+   "prev_prompt": 78244,
+   "hit": true,
+   "agent": 17,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78067,
+   "cached_tokens": 78025,
+   "wall_s": 0.382,
+   "ttft_s": 0.134495232,
+   "prefill_s": 0.123546383,
+   "prev_prompt": 78031,
+   "hit": true,
+   "agent": 18,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78064,
+   "cached_tokens": 78022,
+   "wall_s": 0.452,
+   "ttft_s": 0.133239186,
+   "prefill_s": 0.122920592,
+   "prev_prompt": 78028,
+   "hit": true,
+   "agent": 19,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 77952,
+   "cached_tokens": 77910,
+   "wall_s": 0.408,
+   "ttft_s": 0.136234781,
+   "prefill_s": 0.126412492,
+   "prev_prompt": 77916,
+   "hit": true,
+   "agent": 20,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78082,
+   "cached_tokens": 78040,
+   "wall_s": 0.446,
+   "ttft_s": 0.13606435,
+   "prefill_s": 0.123560464,
+   "prev_prompt": 78046,
+   "hit": true,
+   "agent": 21,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78020,
+   "cached_tokens": 77978,
+   "wall_s": 0.417,
+   "ttft_s": 0.142879588,
+   "prefill_s": 0.131267749,
+   "prev_prompt": 77984,
+   "hit": true,
+   "agent": 22,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78111,
+   "cached_tokens": 78069,
+   "wall_s": 0.455,
+   "ttft_s": 0.13712798,
+   "prefill_s": 0.124453646,
+   "prev_prompt": 78075,
+   "hit": true,
+   "agent": 23,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78142,
+   "cached_tokens": 78100,
+   "wall_s": 0.254,
+   "ttft_s": 0.135071855,
+   "prefill_s": 0.125232669,
+   "prev_prompt": 78106,
+   "hit": true,
+   "agent": 24,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78060,
+   "cached_tokens": 78018,
+   "wall_s": 0.348,
+   "ttft_s": 0.136985612,
+   "prefill_s": 0.125054446,
+   "prev_prompt": 78024,
+   "hit": true,
+   "agent": 25,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 77968,
+   "cached_tokens": 77926,
+   "wall_s": 0.409,
+   "ttft_s": 0.134233441,
+   "prefill_s": 0.123059584,
+   "prev_prompt": 77932,
+   "hit": true,
+   "agent": 26,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78126,
+   "cached_tokens": 78084,
+   "wall_s": 0.217,
+   "ttft_s": 0.133302146,
+   "prefill_s": 0.122566049,
+   "prev_prompt": 78090,
+   "hit": true,
+   "agent": 27,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78235,
+   "cached_tokens": 78196,
+   "wall_s": 0.376,
+   "ttft_s": 0.134292448,
+   "prefill_s": 0.12210341,
+   "prev_prompt": 78202,
+   "hit": true,
+   "agent": 28,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78104,
+   "cached_tokens": 78062,
+   "wall_s": 0.412,
+   "ttft_s": 0.135604223,
+   "prefill_s": 0.125595261,
+   "prev_prompt": 78068,
+   "hit": true,
+   "agent": 29,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78013,
+   "cached_tokens": 77971,
+   "wall_s": 0.258,
+   "ttft_s": 0.138339963,
+   "prefill_s": 0.125953868,
+   "prev_prompt": 77977,
+   "hit": true,
+   "agent": 30,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78154,
+   "cached_tokens": 78112,
+   "wall_s": 0.253,
+   "ttft_s": 0.138657035,
+   "prefill_s": 0.128977224,
+   "prev_prompt": 78118,
+   "hit": true,
+   "agent": 31,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78135,
+   "cached_tokens": 78093,
+   "wall_s": 0.28,
+   "ttft_s": 0.135069119,
+   "prefill_s": 0.122745105,
+   "prev_prompt": 78099,
+   "hit": true,
+   "agent": 32,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78216,
+   "cached_tokens": 78174,
+   "wall_s": 0.382,
+   "ttft_s": 0.135502462,
+   "prefill_s": 0.124120655,
+   "prev_prompt": 78180,
+   "hit": true,
+   "agent": 33,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78252,
+   "cached_tokens": 78210,
+   "wall_s": 0.412,
+   "ttft_s": 0.137026925,
+   "prefill_s": 0.125849148,
+   "prev_prompt": 78216,
+   "hit": true,
+   "agent": 34,
+   "turn": 1
+  },
+  {
+   "prompt_tokens": 78145,
+   "cached_tokens": 78103,
+   "wall_s": 0.518,
+   "ttft_s": 0.136675341,
+   "prefill_s": 0.125140701,
+   "prev_prompt": 78109,
+   "hit": true,
+   "agent": 35,
+   "turn": 1
+  }
+ ],
+ "summary": {
+  "followups": 36,
+  "hits": 36,
+  "hit_rate": 1.0,
+  "cached_share": 0.999,
+  "ttft_median_s": 0.136,
+  "ttft_mean_s": 0.136,
+  "ttft_max_s": 0.14307402
+ },
+ "convos": [
+  {
+   "agent": 0,
+   "turn0_prompt": 78178,
+   "turns": 2
+  },
+  {
+   "agent": 1,
+   "turn0_prompt": 78016,
+   "turns": 2
+  },
+  {
+   "agent": 2,
+   "turn0_prompt": 78054,
+   "turns": 2
+  },
+  {
+   "agent": 3,
+   "turn0_prompt": 78156,
+   "turns": 2
+  },
+  {
+   "agent": 4,
+   "turn0_prompt": 78039,
+   "turns": 2
+  },
+  {
+   "agent": 5,
+   "turn0_prompt": 77981,
+   "turns": 2
+  },
+  {
+   "agent": 6,
+   "turn0_prompt": 78312,
+   "turns": 2
+  },
+  {
+   "agent": 7,
+   "turn0_prompt": 78232,
+   "turns": 2
+  },
+  {
+   "agent": 8,
+   "turn0_prompt": 77943,
+   "turns": 2
+  },
+  {
+   "agent": 9,
+   "turn0_prompt": 78180,
+   "turns": 2
+  },
+  {
+   "agent": 10,
+   "turn0_prompt": 78067,
+   "turns": 2
+  },
+  {
+   "agent": 11,
+   "turn0_prompt": 77945,
+   "turns": 2
+  },
+  {
+   "agent": 12,
+   "turn0_prompt": 77838,
+   "turns": 2
+  },
+  {
+   "agent": 13,
+   "turn0_prompt": 78029,
+   "turns": 2
+  },
+  {
+   "agent": 14,
+   "turn0_prompt": 78177,
+   "turns": 2
+  },
+  {
+   "agent": 15,
+   "turn0_prompt": 78113,
+   "turns": 2
+  },
+  {
+   "agent": 16,
+   "turn0_prompt": 78160,
+   "turns": 2
+  },
+  {
+   "agent": 17,
+   "turn0_prompt": 78244,
+   "turns": 2
+  },
+  {
+   "agent": 18,
+   "turn0_prompt": 78031,
+   "turns": 2
+  },
+  {
+   "agent": 19,
+   "turn0_prompt": 78028,
+   "turns": 2
+  },
+  {
+   "agent": 20,
+   "turn0_prompt": 77916,
+   "turns": 2
+  },
+  {
+   "agent": 21,
+   "turn0_prompt": 78046,
+   "turns": 2
+  },
+  {
+   "agent": 22,
+   "turn0_prompt": 77984,
+   "turns": 2
+  },
+  {
+   "agent": 23,
+   "turn0_prompt": 78075,
+   "turns": 2
+  },
+  {
+   "agent": 24,
+   "turn0_prompt": 78106,
+   "turns": 2
+  },
+  {
+   "agent": 25,
+   "turn0_prompt": 78024,
+   "turns": 2
+  },
+  {
+   "agent": 26,
+   "turn0_prompt": 77932,
+   "turns": 2
+  },
+  {
+   "agent": 27,
+   "turn0_prompt": 78090,
+   "turns": 2
+  },
+  {
+   "agent": 28,
+   "turn0_prompt": 78202,
+   "turns": 2
+  },
+  {
+   "agent": 29,
+   "turn0_prompt": 78068,
+   "turns": 2
+  },
+  {
+   "agent": 30,
+   "turn0_prompt": 77977,
+   "turns": 2
+  },
+  {
+   "agent": 31,
+   "turn0_prompt": 78118,
+   "turns": 2
+  },
+  {
+   "agent": 32,
+   "turn0_prompt": 78099,
+   "turns": 2
+  },
+  {
+   "agent": 33,
+   "turn0_prompt": 78180,
+   "turns": 2
+  },
+  {
+   "agent": 34,
+   "turn0_prompt": 78216,
+   "turns": 2
+  },
+  {
+   "agent": 35,
+   "turn0_prompt": 78109,
+   "turns": 2
+  }
+ ]
+}
