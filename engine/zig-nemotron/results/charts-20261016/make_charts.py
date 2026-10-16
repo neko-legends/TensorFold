@@ -170,6 +170,29 @@ def extract() -> dict:
                                               max(b["available_gib"] for b in m["full_load"]["boxes"])]}
     src["memory"] = rel(mp) + " (idle: free -b / nvidia-smi on each Spark; full: spare-mem-20261015/final.log)"
 
+    # vision serving: 1/4/8/16 concurrent image requests, cold (every image new) and warm (asked again); single-stream
+    # decode on image vs text prompts; accuracy of 16 concurrent tiled reads vs one stream
+    vs = RES / "vision-serving-20261016"
+    cold, warm = load(vs / "load.json"), load(vs / "load-warm.json")
+    assert all(lv["summary"]["cached_tokens_max"] <= 16 for lv in cold["levels"]) and warm["warm"]
+    keep = ("concurrency", "images_per_min", "ttft_s_median", "ttft_s_worst", "prefill_s_median",
+            "decode_tok_s_per_stream_median", "aggregate_tok_s", "mtp_acceptance", "text_exact", "text_gt")
+    acc = lambda rows: {"text": [sum(r["t_exact"] for r in rows), sum(r["t_n_gt"] for r in rows)],
+                        "shapes_a3": [sum(r["s_matched"] for r in rows if r["bench"] == "a3_shapes"),
+                                      sum(r["s_n_gt"] for r in rows if r["bench"] == "a3_shapes")]}
+    c16 = [r for f in sorted((vs / "accuracy").glob("c16-*.json")) for r in load(f)["rows"]]
+    one = load(vs / "accuracy" / "single-tiles.json")["rows"]
+    assert len(c16) == 16 and not any(r.get("error") for r in c16 + one)
+    out["vision_serving"] = {
+        "date": cold["date"][:10],
+        "cold": [{k: lv["summary"][k] for k in keep} for lv in cold["levels"]],
+        "warm": [{k: lv["summary"][k] for k in keep} for lv in warm["levels"]],
+        "single": {k: {"tok_s": v["summary"]["median_tok_s"], "mtp": v["summary"]["mtp_acceptance"]}
+                   for k, v in cold["single"].items()},
+        "accuracy": {"single": acc(one), "c16": acc(c16)},
+    }
+    src["vision_serving"] = rel(vs) + "/load.json, load-warm.json, accuracy/*.json"
+
     NUMBERS.write_text(json.dumps(out, indent=1) + "\n")
     return out
 
@@ -545,6 +568,53 @@ def chart_memory(c: Chart, d: dict):
                                            ("system", "OS, runtime, buffers, short sequences"))])
 
 
+def chart_vision_serving(c: Chart, d: dict):
+    """Images a minute and first-token wait at 1/4/8/16 concurrent image requests (cold vs warm), then one stream's
+    writing speed on image prompts vs text."""
+    t, v = c.t, d["vision_serving"]
+    rows = [("1 request", "one at a time"), ("4 at once", ""), ("8 at once", ""), ("16 at once", "every slot busy")]
+    pairs = (("cold", t["ne"], t["ink"]), ("warm", t["cache"], t["ink"]))
+    a, ys = c.panel(1.75, 4.6, c.h - TOP, 4, 0.8, "Images a minute  (higher is better)", 0.42, 100,
+                    [0, 25, 50, 75], str)
+    for y, i in zip(ys, range(4)):
+        for j, (tag, col, lc) in enumerate(pairs):
+            x = v[tag][i]["images_per_min"]
+            c.bar(a, y + c.slot(a, j, 2), x, col, f"{x:.0f}", label_color=lc)
+    c.ylabels(a, rows, 1.55)
+    b, ys = c.panel(7.55, 10.6, c.h - TOP, 4, 0.8, "Wait for the first token  (lower is better)", 5.55, 40,
+                    [0, 10, 20, 30], lambda x: f"{x} s")
+    for y, i in zip(ys, range(4)):
+        for j, (tag, col, lc) in enumerate(pairs):
+            m, w = v[tag][i]["ttft_s_median"], v[tag][i]["ttft_s_worst"]
+            yy = y + c.slot(b, j, 2)
+            c.bar(b, yy, m, col)
+            b.plot([m, w], [yy, yy], color=col, linewidth=1.5, solid_capstyle="butt", zorder=2)
+            b.plot([w, w], [yy - 0.07, yy + 0.07], color=col, linewidth=1.5, zorder=2)
+            c.bar(b, yy, 0, col, f"{m:.1f} s", label_color=lc, note=f"worst {w:.1f} s", label_x=w)
+    c.ylabels(b, [r[0] for r in rows], 7.35)
+    s = v["single"]
+    top2 = a.box[1] - 1.05
+    e, ys = c.panel(3.7, 7.9, top2, 3, 0.62, "One stream: writing speed by prompt  (tok/s, MTP drafting on)", 0.42, 220,
+                    [0, 50, 100, 150, 200], str)
+    for y, (k, col) in zip(ys, (("image", t["ne"]), ("prose", t["old"]), ("code", t["old"]))):
+        c.bar(e, y, s[k]["tok_s"], col, f"{s[k]['tok_s']:.0f}", note=f"{100 * s[k]['mtp']:.0f}% of drafts accepted")
+    c.ylabels(e, [("Image", "transcribe + describe, 8 images"), ("Prose", "a 250-word description"),
+                  ("Code", "a Python function")], 3.5)
+    acc1, acc16 = v["accuracy"]["single"], v["accuracy"]["c16"]
+    pc = lambda r: 100 * r[0] / r[1]
+    c.notes([f"{NE}, live server {v['date']} · cold = every request a new image (one low pixel bit changed per request, "
+             "so no cache can serve it: full image encode + prompt read) · warm = the same images asked again (prompt "
+             "cache hits) · 16 requests a level, 8 bench images, one fixed transcribe-and-describe prompt, greedy, "
+             "thinking off, up to 600 tokens · bar = median, line out to the worst request",
+             f"Accuracy holds under load: text read exactly {acc1['text'][0]}/{acc1['text'][1]} ({pc(acc1['text']):.1f}%) "
+             f"on one stream vs {acc16['text'][0]}/{acc16['text'][1]} ({pc(acc16['text']):.1f}%) with 16 tiled reads at "
+             f"once; shapes {acc1['shapes_a3'][0]}/{acc1['shapes_a3'][1]} vs {acc16['shapes_a3'][0]}/{acc16['shapes_a3'][1]} "
+             f"· the transcriptions above found {v['cold'][0]['text_exact']} of {v['cold'][0]['text_gt']} strings at every "
+             "level, cold and warm"])
+    c.legend([("Cold: a new image every request", t["ne"]), ("Warm: an image the server has seen", t["cache"]),
+              ("Text prompts", t["old"])])
+
+
 CHARTS = [
     ("nemotron-vs-deepseek-quality", 11.2, 9.0, "Quality: DeepSeek V4.1 Flash vs Nemotron 3.5 Super VL",
      "Four DGX Sparks · TensorFold Zig engine, TP=4 · DeepSeek 2.9-bit EXL3, Nemotron 120B-A12B NVFP4", chart_quality),
@@ -564,6 +634,9 @@ CHARTS = [
     ("nemotron-memory", 12, 6.6, "Nemotron 3.5 Super VL: where the memory goes",
      "Four DGX Sparks, one rank each · 16 conversations at once, 307,200-token window, 40 GiB prompt cache + disk tier",
      chart_memory),
+    ("nemotron-vision-serving", 12.4, 10.6, "Nemotron 3.5 Super VL: images under load",
+     "Four DGX Sparks · 1 to 16 image requests at once on the live server · new images vs images it has seen",
+     chart_vision_serving),
 ]
 
 

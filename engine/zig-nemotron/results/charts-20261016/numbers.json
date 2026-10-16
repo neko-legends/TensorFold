@@ -15,7 +15,8 @@
   "warm.restart_nodisk": "tensorfold:engine/zig-nemotron/results/spare-mem-20261015/gA-warmfrom.json",
   "warm.restart_disk": "tensorfold:engine/zig-nemotron/results/spare-mem-20261015/gB-warmfrom.json",
   "drafting": "tensorfold:engine/zig-nemotron/results/drafting-20261015/final-before.json, tensorfold:engine/zig-nemotron/results/live-speed-20261016/draft-live.json",
-  "memory": "tensorfold:engine/zig-nemotron/results/memory-20261016/memory.json (idle: free -b / nvidia-smi on each Spark; full: spare-mem-20261015/final.log)"
+  "memory": "tensorfold:engine/zig-nemotron/results/memory-20261016/memory.json (idle: free -b / nvidia-smi on each Spark; full: spare-mem-20261015/final.log)",
+  "vision_serving": "tensorfold:engine/zig-nemotron/results/vision-serving-20261016/load.json, load-warm.json, accuracy/*.json"
  },
  "quality": {
   "mmlu": {
@@ -362,5 +363,144 @@
    46.7,
    48.6
   ]
+ },
+ "vision_serving": {
+  "date": "2026-10-16",
+  "cold": [
+   {
+    "concurrency": 1,
+    "images_per_min": 18.5,
+    "ttft_s_median": 1.877,
+    "ttft_s_worst": 2.703,
+    "prefill_s_median": 0.692,
+    "decode_tok_s_per_stream_median": 144.03,
+    "aggregate_tok_s": 51.79,
+    "mtp_acceptance": 0.784,
+    "text_exact": 304,
+    "text_gt": 314
+   },
+   {
+    "concurrency": 4,
+    "images_per_min": 22.91,
+    "ttft_s_median": 3.826,
+    "ttft_s_worst": 7.847,
+    "prefill_s_median": 0.811,
+    "decode_tok_s_per_stream_median": 32.77,
+    "aggregate_tok_s": 64.33,
+    "mtp_acceptance": 0.83,
+    "text_exact": 304,
+    "text_gt": 314
+   },
+   {
+    "concurrency": 8,
+    "images_per_min": 24.14,
+    "ttft_s_median": 6.364,
+    "ttft_s_worst": 13.693,
+    "prefill_s_median": 0.794,
+    "decode_tok_s_per_stream_median": 13.29,
+    "aggregate_tok_s": 66.42,
+    "mtp_acceptance": 0.8983,
+    "text_exact": 304,
+    "text_gt": 314
+   },
+   {
+    "concurrency": 16,
+    "images_per_min": 22.48,
+    "ttft_s_median": 25.349,
+    "ttft_s_worst": 31.101,
+    "prefill_s_median": 0.854,
+    "decode_tok_s_per_stream_median": 11.65,
+    "aggregate_tok_s": 62.05,
+    "mtp_acceptance": 0.8814,
+    "text_exact": 304,
+    "text_gt": 314
+   }
+  ],
+  "warm": [
+   {
+    "concurrency": 1,
+    "images_per_min": 45.14,
+    "ttft_s_median": 0.109,
+    "ttft_s_worst": 0.316,
+    "prefill_s_median": 0.05,
+    "decode_tok_s_per_stream_median": 137.19,
+    "aggregate_tok_s": 124.05,
+    "mtp_acceptance": 0.7649,
+    "text_exact": 304,
+    "text_gt": 314
+   },
+   {
+    "concurrency": 4,
+    "images_per_min": 67.48,
+    "ttft_s_median": 0.243,
+    "ttft_s_worst": 0.517,
+    "prefill_s_median": 0.107,
+    "decode_tok_s_per_stream_median": 54.22,
+    "aggregate_tok_s": 185.44,
+    "mtp_acceptance": 0.8211,
+    "text_exact": 304,
+    "text_gt": 314
+   },
+   {
+    "concurrency": 8,
+    "images_per_min": 68.93,
+    "ttft_s_median": 0.416,
+    "ttft_s_worst": 1.028,
+    "prefill_s_median": 0.101,
+    "decode_tok_s_per_stream_median": 25.89,
+    "aggregate_tok_s": 189.4,
+    "mtp_acceptance": 0.893,
+    "text_exact": 304,
+    "text_gt": 314
+   },
+   {
+    "concurrency": 16,
+    "images_per_min": 69.8,
+    "ttft_s_median": 1.319,
+    "ttft_s_worst": 2.064,
+    "prefill_s_median": 0.097,
+    "decode_tok_s_per_stream_median": 19.13,
+    "aggregate_tok_s": 191.79,
+    "mtp_acceptance": 0.8568,
+    "text_exact": 304,
+    "text_gt": 314
+   }
+  ],
+  "single": {
+   "image": {
+    "tok_s": 139.93,
+    "mtp": 0.7777
+   },
+   "code": {
+    "tok_s": 185.05,
+    "mtp": 0.8555
+   },
+   "prose": {
+    "tok_s": 95.46,
+    "mtp": 0.6468
+   }
+  },
+  "accuracy": {
+   "single": {
+    "text": [
+     69,
+     70
+    ],
+    "shapes_a3": [
+     19,
+     20
+    ]
+   },
+   "c16": {
+    "text": [
+     277,
+     280
+    ],
+    "shapes_a3": [
+     74,
+     80
+    ]
+   }
+  }
  }
 }

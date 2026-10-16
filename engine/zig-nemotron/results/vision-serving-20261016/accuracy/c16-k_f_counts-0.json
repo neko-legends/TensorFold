@@ -1,0 +1,33 @@
+{
+ "url": "http://spark1:8100/v1",
+ "model": "NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4",
+ "date": "2026-10-16 01:28",
+ "cache_only": false,
+ "refine": false,
+ "rows": [
+  {
+   "bench": "k_f_counts",
+   "secs": 213.2,
+   "calls": 5,
+   "mode": "auto\u2192tiles",
+   "grid": "2x2",
+   "overlap": 0.15,
+   "coords": "norm1000",
+   "refine": false,
+   "t_n_gt": 0,
+   "t_exact": 0,
+   "t_exact_nows": 0,
+   "t_fuzzy": 0,
+   "t_mean_cer": 0.0,
+   "t_pos_err": null,
+   "t_n_pred": 0,
+   "t_unreadable": 0,
+   "t_halluc": 0,
+   "s_n_gt": 23,
+   "s_n_pred": 34,
+   "s_matched": 12,
+   "s_extra": 22,
+   "s_pos_err": 8.4
+  }
+ ]
+}
