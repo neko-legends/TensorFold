@@ -8,7 +8,9 @@
 #   nemotron-window.sh status  both engines' state
 #   nemotron-window.sh down    stop Nemotron, serve4.sh start, prove forge:8000/health, remove the flag
 #   nemotron-window.sh restart stop Nemotron and start it again (a new BIN or env); DeepSeek is not touched
-# env: CONTEXT (65536), PARALLEL (1), EXTRA (more env for every rank), ARGS (more serve flags), BIN (the server binary)
+# env: CONTEXT (65536), PARALLEL (1), EXTRA (more env for every rank), ARGS (more serve flags), BIN (the server binary),
+#      SEGMENTS (4: staggered prompt segments), NCCL_CHANNELS (2: NCCL's default spreads a prompt all-reduce over 64
+#      channel blocks of a 48-SM GB10 and starves the other segments)
 set -u
 HOSTS=(forge anvil ember flame)             # ranks 0..3, as DeepSeek's dsv41-tf4-r0..r3
 MASTER=192.168.10.1
@@ -22,8 +24,8 @@ nemo_up() {
     h=${HOSTS[$r]}
     ssh "$h" "mkdir -p $LOGD && cd /home/jun/nemotron-tf && (env TF_TP_WORLD=4 TF_TP_RANK=$r TF_TP_MASTER=$MASTER TF_TP_PORT=29650 \
       TF_COMM_BACKEND=roce TF_TP_ROCE_HCA=roceP2p1s0f1 NCCL_IB_HCA=roceP2p1s0f1 GLM53_TF_ROCE_FAST=1 TF_TP_ROCE_FALLBACK=nccl \
-      TF_NCCL_LIB=/home/jun/nemotron-tf/lib/libnccl.so.2 NCCL_SOCKET_IFNAME=enP2p1s0f1np1 ${EXTRA:-} \
-      setsid nohup $BIN serve $M --host 0.0.0.0 --port 8100 --no-update-check --context ${CONTEXT:-65536} --parallel ${PARALLEL:-1} ${ARGS:-} \
+      TF_NCCL_LIB=/home/jun/nemotron-tf/lib/libnccl.so.2 NCCL_SOCKET_IFNAME=enP2p1s0f1np1 NCCL_MAX_NCHANNELS=${NCCL_CHANNELS:-2} ${EXTRA:-} \
+      setsid nohup $BIN serve $M --host 0.0.0.0 --port 8100 --no-update-check --context ${CONTEXT:-65536} --parallel ${PARALLEL:-1} --segments ${SEGMENTS:-4} ${ARGS:-} \
       > $LOGD/window-r$r.log 2>&1 < /dev/null &)" && log "nemotron rank $r started on $h"
   done
   for i in $(seq 1 120); do
