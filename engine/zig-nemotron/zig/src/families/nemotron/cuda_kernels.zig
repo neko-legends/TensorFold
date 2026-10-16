@@ -372,7 +372,7 @@ pub const Ops = struct {
         a.add(lo);
         a.add(hi);
         a.add(snaps);
-        try o.go(if (snaps.r[0] < 0) o.k.scan_rows else o.k.scan_snaps, .{ heads, dh / 32, 1 }, 128, 0, &a);
+        try o.go(if (snaps.r[0] < 0) o.k.scan_rows else o.k.scan_snaps, .{ heads, dh / 16, 1 }, 64, 0, &a); // scan_rows.cu: 16 value rows a block, 4 threads a row
     }
 
     /// `height` rows of `width` bytes, `spitch` apart at `src`, to `dpitch` apart at `dst`, in one call.

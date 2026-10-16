@@ -7,7 +7,7 @@ namespace tf_scan_rows {
 
 constexpr int DS = 128;      // states a row
 constexpr int TPR = 4;       // threads a value row
-constexpr int ROWS = 32;     // value rows a block
+constexpr int ROWS = 16;     // value rows a block (16: twice the blocks of 32, which left a GB10 a third idle; same bits)
 constexpr int STEPS = 16;    // chunk rows staged at a time
 constexpr int SNAPS = 16;    // states a launch writes out at rows inside it (cuda_marks.zig `max`)
 

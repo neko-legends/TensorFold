@@ -203,7 +203,9 @@ pub const Glue = struct {
         b.add(scaling);
         ints(&b, &.{ e, shape.sk, top_k, slots });
         b.add(@as(c_int, @intFromBool(norm)));
-        if (rows_router) return g.go(g.f.topk_wide, .{ rows, 1, 1 }, @intCast((e + 31) / 32 * 32), 0, &b);
+        // a window's rows: a block a row ranks every expert at once; a prompt chunk's: a warp a row picks them in turn
+        // (the same picks, weights and sums: both take the highest score, the lower index on a tie, in pick order)
+        if (rows_router and rows <= 16) return g.go(g.f.topk_wide, .{ rows, 1, 1 }, @intCast((e + 31) / 32 * 32), 0, &b);
         try g.go(g.f.topk, .{ rows, 1, 1 }, 32, 0, &b);
     }
 

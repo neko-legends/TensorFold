@@ -60,7 +60,7 @@ pub const Loaded = struct {
     vision: ?VisionHook = null, // a multimodal checkpoint's image path (TF_NEMOTRON_VISION=0 turns it off)
     learns: ?*engine.Engine = null, // --slide: the engine its learner trains, whose sites it attached at load
     learn_bytes: usize = 0, // --slide: what its trainer allocates at the first lesson, kept out of the streams' room
-    tp: bool = false, // tensor parallelism's rank 0: no prompt cache (a restored state would exist on this rank alone)
+    tp: bool = false, // tensor parallelism's rank 0 (every rank keeps the prompt cache's states: cuda_mirror.zig)
 };
 
 /// The first shard, index or config.json in `dir` that a write in place would reach through a link, or null.
@@ -131,15 +131,15 @@ pub fn open(gpa: std.mem.Allocator, io: std.Io, ctx: *const cuda.Context, dir: [
 }
 
 /// Tensor parallelism: rank 0 serves through the mirror (cuda_mirror.zig); every other rank follows its calls here
-/// until rank 0 stops, then exits (it never serves). Each rank embeds images itself; lone drivers and the prompt cache
-/// stay off.
+/// until rank 0 stops, then exits (it never serves). Each rank embeds images itself and keeps its own copy of every
+/// state rank 0's prompt cache keeps; lone drivers stay off.
 fn tensorParallel(gpa: std.mem.Allocator, own: *Owned, o: Options, drafting: bool) !Loaded {
     const e = own.e;
     const link = &e.tp.session.?.plan;
     if (e.tp.rank != 0) {
         std.log.info("nemotron tp: rank {d} follows rank 0's calls", .{e.tp.rank});
         const images: ?mirror.Images = if (own.vision != null) .{ .ctx = own, .embed = visionEmbed } else null;
-        const result = mirror.follow(gpa, own.lanes.backend(), link, images);
+        const result = mirror.follow(gpa, own.lanes.backend(), link, images, &own.target);
         release(own);
         result catch |err| {
             std.log.err("nemotron tp: rank following failed: {t}", .{err});
@@ -151,6 +151,7 @@ fn tensorParallel(gpa: std.mem.Allocator, own: *Owned, o: Options, drafting: boo
     m.* = mirror.Mirror.init(gpa, own.lanes.backend(), link);
     if (own.vision != null) m.images = .{ .ctx = own, .embed = visionEmbed };
     own.mirror = m;
+    own.target.mirror = m; // the cache's keeps and drops reach the other ranks
     _ = o;
     return .{
         .backend = m.backend(),

@@ -75,8 +75,9 @@ const Hooks = struct {
     }
 };
 
-/// The prompt from a reset state, `parts` chunks a call (`cancel` asked between calls); leaves the head and prompt buffers as serial does.
-pub fn prefill(e: *Engine, s: *Segments, prompt: []const u32, head: ?*Head, parts: usize, cancel: ?Cancel) !void {
+/// Prompt rows [from, to) from the state standing at `from`, `parts` chunks a call (`cancel` asked between calls);
+/// leaves the head and prompt buffers as serial does.
+pub fn prefill(e: *Engine, s: *Segments, prompt: []const u32, from: usize, to: usize, head: ?*Head, parts: usize, cancel: ?Cancel) !void {
     if (parts < 2 or parts > s.n) return error.Segments;
     // tensor parallelism: segments of a serial pass's rows, so every collective moves the bytes a serial chunk's does
     // (NCCL's ring sums in an order its message size sets: the same rows give the same bits)
@@ -87,13 +88,14 @@ pub fn prefill(e: *Engine, s: *Segments, prompt: []const u32, head: ?*Head, part
         s.sibs[k - 1].follow(&e.b);
         bufs[k] = &s.sibs[k - 1];
     }
-    var at: usize = 0;
+    if (e.pos != from or to > prompt.len) return error.BadReuse;
+    var at: usize = from;
     var last: usize = 0;
     var last_rows: usize = 0;
-    while (at < prompt.len) {
+    while (at < to) {
         if (Cancel.now(cancel)) return error.Cancelled;
         try e.beforeChunk(cancel);
-        const c = segs.chunked(prompt.len - at, R, parts);
+        const c = segs.chunked(to - at, R, parts);
         var seg: [MAX]Seg = undefined;
         try e.copied.synchronize();
         const host = e.promptHost(c.rows);
@@ -122,7 +124,7 @@ pub fn prefill(e: *Engine, s: *Segments, prompt: []const u32, head: ?*Head, part
         e.pos += c.rows;
         at += c.rows;
     }
-    e.last_chunk = prompt.len - last_rows;
+    e.last_chunk = to - last_rows;
     if (last == 0) return;
     const o = e.ops();
     try o.copy(e.b.p_hidden, bufs[last].p_hidden, last_rows * e.c.hidden * 2);

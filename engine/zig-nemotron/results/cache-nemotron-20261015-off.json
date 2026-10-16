@@ -1,0 +1,35 @@
+{
+ "url": "http://forge:8100",
+ "nonce": "fixednonce1",
+ "doc_chars": 120000,
+ "date": "2026-10-15T18:27:55-0700",
+ "rows": [
+  {
+   "turn": 0,
+   "prompt_tokens": 30105,
+   "cached_tokens": 0,
+   "wall_s": 6.782,
+   "ttft_s": 5.967519613,
+   "prefill_s": 5.951857025,
+   "text": "- `docs/n-link-speed-up.md` describes the MCDMA N-link settings for speed-up mode, including rank/peer configuration, Thunderbolt RDMA devices, ports, and GIDs for tensor and expert parallelism across multiple Macs.\n- `docs/recipes/adding-a-zig-family.md` covers tensor and expert parallel over MCDMA with exchanges inside the command buffer, experts"
+  },
+  {
+   "turn": 1,
+   "prompt_tokens": 30218,
+   "cached_tokens": 0,
+   "wall_s": 6.68,
+   "ttft_s": 5.9649341,
+   "prefill_s": 5.962712123,
+   "text": "`fabric-check --gids DEVICE` probes each Thunderbolt RDMA device to establish that it exposes ACTIVE ports and usable GIDs before qualification. It verifies the N-link fabric setup so that the corresponding cable ends and meeting interfaces can be correctly paired across ranks."
+  },
+  {
+   "turn": 2,
+   "prompt_tokens": 30298,
+   "cached_tokens": 0,
+   "wall_s": 6.354,
+   "ttft_s": 5.975456006,
+   "prefill_s": 5.973628144,
+   "text": "We identified files covering tensor parallelism, then named and described the `fabric-check --gids DEVICE` function from `docs/n-link-speed-up.md`."
+  }
+ ]
+}

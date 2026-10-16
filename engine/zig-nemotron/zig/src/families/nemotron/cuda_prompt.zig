@@ -40,8 +40,9 @@ pub fn prefillFrom(e: *Engine, prompt: []const u32, from: usize, dump: ?*Dump, h
         if (head) |h| try h.reset();
     } else if (e.pos != from) return error.BadReuse;
     const waited = e.heat_gate.waited_s;
-    if (from == 0 and keep == null and e.segments > 1 and dump == null and e.prompt_rows == null and prompt.len > state.prefill_rows and e.decide == lesson_route.none and !Cancel.background(cancel)) {
-        try segs.prefill(e, try e.segmentSet(), prompt, head, e.segments, cancel);
+    const staggered = e.segments > 1 and dump == null and e.prompt_rows == null and e.decide == lesson_route.none and !Cancel.background(cancel);
+    if (staggered and prompt.len - from > state.prefill_rows) {
+        try segmented(e, prompt, from, head, cancel, keep);
     } else try e.serialChunks(prompt, from, dump, head, cancel, keep);
     if (e.heat_gate.waited_s > waited) heat.note(e.heat_gate.waited_s - waited);
     const host = e.pinned.slice(u32)[pin_sampled..][0..1];
@@ -49,6 +50,20 @@ pub fn prefillFrom(e: *Engine, prompt: []const u32, from: usize, dump: ?*Dump, h
     try e.stream.synchronize();
     if (e.trace) e.traceLessons();
     return host[0];
+}
+
+/// Staggered segments from `from`, cut at each keep mark, where the pass stands when it keeps the state there.
+fn segmented(e: *Engine, prompt: []const u32, from: usize, head: ?*Head, cancel: ?Cancel, keep: ?Keep) !void {
+    const set = try e.segmentSet();
+    var at = from;
+    if (keep) |k| for (k.at) |m| {
+        if (m <= at or m > prompt.len) continue;
+        try segs.prefill(e, set, prompt, at, m, head, e.segments, cancel);
+        at = m;
+        k.call(k.ctx, m);
+        try reuse.finish(.{ .e = e, .head = head }); // the spares the keep took, set aside again
+    };
+    if (at < prompt.len) try segs.prefill(e, set, prompt, at, prompt.len, head, e.segments, cancel);
 }
 
 /// The prompt's next token at `position` drawn again under a grammar's bits (structured output's first token).

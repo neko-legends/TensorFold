@@ -24,7 +24,10 @@ pub const Copy = struct {
 pub const Target = struct {
     e: *Engine,
     head: ?*Head,
+    mirror: ?*Mirror = null, // tensor parallelism's rank 0: every rank keeps the same states (cuda_mirror.zig)
 };
+
+const Mirror = @import("cuda_mirror.zig").Mirror;
 
 /// `len` bytes at `live` in the bound sequence's planes; `mamba`: the SSM or conv state, which an armed chunk writes.
 const Part = struct { live: u64, len: usize, mamba: bool = false };
@@ -116,12 +119,17 @@ pub fn save(ptr: *anyopaque, owner: ?*anyopaque, at: u32) anyerror!*anyopaque {
     const e = t.e;
     // a prompt mark: no window's rows wait to replay, so raw, xc and dt hold nothing a later pass reads
     if (e.prev_keep != 0) return error.NotAtMark;
-    if (e.armed.open) |span| if (at > span[0] and at < span[1]) return arm(t, at);
+    if (e.armed.open) |span| if (at > span[0] and at < span[1]) {
+        const armed = try arm(t, at);
+        if (t.mirror) |m| m.kept(at, armed);
+        return armed;
+    };
     if (e.pos != at) return error.NotAtMark;
     if (t.head) |h| if (h.pos != at) return error.NotAtMark;
     const copy = try alloc(t, at, true);
     errdefer drop(ptr, copy);
     if (try move(t, at, copy, true, true) != stateBytes(e.c, at, t.head != null)) return error.SnapshotSize;
+    if (t.mirror) |m| m.kept(at, copy);
     return copy;
 }
 
@@ -195,6 +203,7 @@ pub fn restore(ptr: *anyopaque, owner: ?*anyopaque, saved: *anyopaque) anyerror!
 pub fn drop(ptr: *anyopaque, saved: *anyopaque) void {
     const t: *Target = @ptrCast(@alignCast(ptr));
     const copy: *Copy = @ptrCast(@alignCast(saved));
+    if (t.mirror) |m| m.dropped(saved); // the other ranks drop theirs
     t.e.armed.forget(saved); // a copy evicted before its chunk ran: the chunk must not write it
     if (!t.e.spares.give(copy.mamba)) copy.mamba.free();
     copy.kv.free();

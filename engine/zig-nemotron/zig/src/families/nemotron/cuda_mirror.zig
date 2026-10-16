@@ -4,7 +4,12 @@
 //! and collectives in the same order on every rank, and their draws agree (the sums are bit-identical on every rank).
 //!
 //! Host-only calls (read, first, first_row, held) are not sent. A prompt pass is not cancelled midway under TP (the
-//! other ranks cannot see the check), and the prompt cache is off (a restored state would exist on rank 0 alone).
+//! other ranks cannot see the check).
+//!
+//! The prompt cache: every rank keeps its own copy of each state rank 0's cache keeps, under a key rank 0 gives it. A
+//! prefill call carries the key of the state it starts from and the first key of the marks it keeps at; every rank
+//! saves at each mark (rank 0 through its cache, the others into their table), and the keys rank 0's cache did not
+//! keep, or dropped since, go to the others as a drop call ahead of the next call.
 const std = @import("std");
 const lanes = @import("lanes");
 const tp = @import("tp");
@@ -13,9 +18,10 @@ const be = lanes.backend;
 const Stream = lanes.Stream;
 const PlanLink = tp.planlink.PlanLink;
 
-const Op = enum(i64) { prefill = 1, verify, keep, draft, first_masked, release, image, stop };
+const Op = enum(i64) { prefill = 1, verify, keep, draft, first_masked, release, image, drop, stop };
 
 const vstore = @import("vision_store.zig");
+const reuse = @import("cuda_reuse.zig");
 
 /// The family's image path on this rank (cuda_native.zig's VisionHook).
 pub const Images = struct { ctx: *anyopaque, embed: *const fn (ctx: *anyopaque, img: *const vstore.HeldImage) anyerror!void };
@@ -31,6 +37,15 @@ pub const Mirror = struct {
     buf: std.ArrayList(i64) = .empty,
     vt: be.Backend.VTable = undefined,
     images: ?Images = null, // rank 0's own image path, which `embedImage` runs after sending the image on
+    // the prompt cache's keys (under `book`: the cache keeps and drops from inside a prefill call and from its own)
+    book: std.atomic.Mutex = .unlocked,
+    keys: std.AutoHashMapUnmanaged(*anyopaque, i64) = .empty, // rank 0's copies, by the key every rank knows them by
+    next_key: i64 = 1,
+    marks: []const u32 = &.{}, // the prefill call running: its marks, their first key, which of them were kept
+    first_key: i64 = 0,
+    saved: std.ArrayList(bool) = .empty,
+    drops: std.ArrayList(i64) = .empty, // keys the other ranks drop with the next call
+    drop_frame: std.ArrayList(i64) = .empty,
 
     /// Calls arrive from the round loop (one thread at a time in practice); a spin keeps any other in line.
     fn lock(m: *Mirror) void {
@@ -50,6 +65,31 @@ pub const Mirror = struct {
         m.mutex.unlock();
         m.ids.deinit(m.gpa);
         m.buf.deinit(m.gpa);
+        m.keys.deinit(m.gpa);
+        m.saved.deinit(m.gpa);
+        m.drops.deinit(m.gpa);
+        m.drop_frame.deinit(m.gpa);
+    }
+
+    fn lockBook(m: *Mirror) void {
+        while (!m.book.tryLock()) std.Thread.yield() catch {};
+    }
+
+    /// cuda_reuse.save on rank 0: the copy at mark `at` of the running prefill call takes that mark's key.
+    pub fn kept(m: *Mirror, at: u32, copy: *anyopaque) void {
+        m.lockBook();
+        defer m.book.unlock();
+        const k = std.mem.indexOfScalar(u32, m.marks, at) orelse return; // no mark: no rank but this one has it
+        m.keys.put(m.gpa, copy, m.first_key + @as(i64, @intCast(k))) catch return;
+        m.saved.items[k] = true;
+    }
+
+    /// cuda_reuse.drop on rank 0: the others drop theirs with the next call.
+    pub fn dropped(m: *Mirror, copy: *anyopaque) void {
+        m.lockBook();
+        defer m.book.unlock();
+        const kv = m.keys.fetchRemove(copy) orelse return;
+        m.drops.append(m.gpa, kv.value) catch std.log.err("tp mirror: kept state {d} stays on the other ranks", .{kv.value});
     }
 
     /// The wrapping backend; its table lives in the mirror (some entries follow the family's).
@@ -96,7 +136,37 @@ pub const Mirror = struct {
     }
 
     fn send(m: *Mirror) !void {
+        try m.flushDrops();
         try m.link.send(m.buf.items);
+    }
+
+    /// The keys dropped since the last call, as one drop call (under the mirror's lock).
+    fn flushDrops(m: *Mirror) !void {
+        m.lockBook();
+        defer m.book.unlock();
+        if (m.drops.items.len == 0) return;
+        m.drop_frame.clearRetainingCapacity();
+        try m.drop_frame.append(m.gpa, @intFromEnum(Op.drop));
+        try m.drop_frame.append(m.gpa, @intCast(m.drops.items.len));
+        try m.drop_frame.appendSlice(m.gpa, m.drops.items);
+        try m.link.send(m.drop_frame.items);
+        m.drops.clearRetainingCapacity();
+    }
+
+    /// The key of the state a prefill starts from, -1 for none: a copy no other rank has, or one its restore would
+    /// refuse (cuda_lanes.restoreKept's checks), is not restored on any rank.
+    fn restoreKey(m: *Mirror, s: *Stream) i64 {
+        const saved = s.reuse.saved orelse return -1;
+        const copy: *const reuse.Copy = @ptrCast(@alignCast(saved));
+        m.lockBook();
+        const key = m.keys.get(saved);
+        m.book.unlock();
+        if (key == null or !copy.whole or copy.pos != s.reuse.at or s.reuse.at >= s.prompt().len) {
+            s.reuse.saved = null;
+            s.reuse.at = 0;
+            return -1;
+        }
+        return key.?;
     }
 
     fn idOf(m: *Mirror, s: *const Stream) !i64 {
@@ -122,18 +192,37 @@ pub const Mirror = struct {
         try m.put(if (s.prompt_logprobs) |k| @as(i64, k) else -1);
         try m.put(s.untaught);
         try m.putSlice(s.prompt());
+        // the prompt cache: the state it starts from, the marks it keeps at and their first key
+        const restore = m.restoreKey(s);
+        try m.put(restore);
+        try m.put(if (restore >= 0) s.reuse.at else 0);
+        {
+            m.lockBook();
+            defer m.book.unlock();
+            m.marks = s.reuse.marks;
+            m.first_key = m.next_key;
+            m.next_key += @intCast(s.reuse.marks.len);
+            m.saved.clearRetainingCapacity();
+            try m.saved.appendNTimes(m.gpa, false, s.reuse.marks.len);
+        }
+        try m.put(m.first_key);
+        try m.putSlice(s.reuse.marks);
         try m.send();
-        // the prompt pass runs to its end on every rank (no rank but this one sees a cancel), from row 0
+        // the prompt pass runs to its end on every rank (no rank but this one sees a cancel)
         const cancel = s.cancel_check;
         const yields = s.yield_check;
-        const reuse = s.reuse;
         s.cancel_check = null;
         s.yield_check = null;
-        s.reuse = .{};
         defer {
             s.cancel_check = cancel;
             s.yield_check = yields;
-            s.reuse = reuse;
+            m.lockBook();
+            // the marks this rank's cache did not keep: the others drop theirs
+            for (m.saved.items, 0..) |kept_, k| if (!kept_) m.drops.append(m.gpa, m.first_key + @as(i64, @intCast(k))) catch {};
+            m.marks = &.{};
+            m.saved.clearRetainingCapacity();
+            m.book.unlock();
+            m.flushDrops() catch |e| std.log.err("tp mirror: drops not sent ({t})", .{e});
         }
         try m.inner.prefill(s);
     }
@@ -320,8 +409,38 @@ const Reader = struct {
     }
 };
 
-/// A rank above 0: makes rank 0's calls on `inner` until rank 0 stops (or its link closes).
-pub fn follow(gpa: std.mem.Allocator, inner: be.Backend, link: *PlanLink, images: ?Images) !void {
+/// A follower's kept states (the prompt cache's, rank 0's keys) and where it copies them from.
+const Kept = struct {
+    gpa: std.mem.Allocator,
+    target: *reuse.Target,
+    copies: std.AutoHashMapUnmanaged(i64, *anyopaque) = .empty,
+    // the prefill call running: its marks and their first key
+    marks: []const u32 = &.{},
+    first: i64 = 0,
+
+    fn deinit(k: *Kept) void {
+        var it = k.copies.valueIterator();
+        while (it.next()) |c| reuse.drop(k.target, c.*);
+        k.copies.deinit(k.gpa);
+    }
+
+    /// The prefill's pass stands at a mark (or arms one inside its next chunk): this rank's copy, under its key.
+    fn at(ptr: *anyopaque, _: *Stream, row: u32) void {
+        const k: *Kept = @ptrCast(@alignCast(ptr));
+        const i = std.mem.indexOfScalar(u32, k.marks, row) orelse return;
+        const copy = reuse.save(k.target, null, row) catch |e| {
+            std.log.warn("tp follower: no copy at row {d} ({t}); a later prefill from it stops this rank", .{ row, e });
+            return;
+        };
+        k.copies.put(k.gpa, k.first + @as(i64, @intCast(i)), copy) catch reuse.drop(k.target, copy);
+    }
+};
+
+/// A rank above 0: makes rank 0's calls on `inner` until rank 0 stops (or its link closes). `target`: this rank's
+/// engine, whose states the prompt cache keeps (null: rank 0 sends no keys).
+pub fn follow(gpa: std.mem.Allocator, inner: be.Backend, link: *PlanLink, images: ?Images, target: ?*reuse.Target) !void {
+    var kept: ?Kept = if (target) |t| .{ .gpa = gpa, .target = t } else null;
+    defer if (kept) |*k| k.deinit();
     var streams: std.AutoHashMapUnmanaged(i64, *Stream) = .empty;
     defer {
         var it = streams.valueIterator();
@@ -354,7 +473,9 @@ pub fn follow(gpa: std.mem.Allocator, inner: be.Backend, link: *PlanLink, images
             return;
         }
         calls += 1;
-        apply(gpa, inner, images, op, &r, &streams, &scratch) catch |e| {
+        apply(gpa, inner, images, op, &r, &streams, &scratch, if (kept) |*k| k else null) catch |e| {
+            // a state rank 0 starts from that this rank lacks: its prefill would run apart from rank 0's
+            if (e == error.MissingKept) return e;
             // rank 0 met the same failure at the same point (the calls are deterministic); keep following
             std.log.warn("tp follower: {t} call {d} failed: {t}", .{ op, calls, e });
         };
@@ -371,16 +492,20 @@ const Scratch = struct {
     rows: [8]std.ArrayList(lanes.LogprobRow) = @splat(.empty),
     rows2: [8]std.ArrayList(u32) = @splat(.empty),
     prompt: std.ArrayList(u32) = .empty,
+    marks: std.ArrayList(u32) = .empty,
+    drops: std.ArrayList(i64) = .empty,
 
     fn deinit(s: *Scratch, gpa: std.mem.Allocator) void {
         inline for (.{ &s.a, &s.pos, &s.masks, &s.sampled, &s.drafts, &s.rows, &s.rows2 }) |set| for (set) |*l| l.deinit(gpa);
         s.prompt.deinit(gpa);
+        s.marks.deinit(gpa);
+        s.drops.deinit(gpa);
     }
 };
 
 const max_windows = 8;
 
-fn apply(gpa: std.mem.Allocator, inner: be.Backend, images: ?Images, op: Op, r: *Reader, streams: *std.AutoHashMapUnmanaged(i64, *Stream), x: *Scratch) !void {
+fn apply(gpa: std.mem.Allocator, inner: be.Backend, images: ?Images, op: Op, r: *Reader, streams: *std.AutoHashMapUnmanaged(i64, *Stream), x: *Scratch, kept: ?*Kept) !void {
     switch (op) {
         .image => {
             const own = images orelse return error.NoVision;
@@ -414,6 +539,17 @@ fn apply(gpa: std.mem.Allocator, inner: be.Backend, images: ?Images, op: Op, r: 
             const prompt_logprobs = try r.int(i64);
             const untaught = try r.int(bool);
             const prompt = try r.slice(u32, gpa, &x.prompt);
+            const restore = try r.int(i64);
+            const restore_at = try r.int(u32);
+            const first_key = try r.int(i64);
+            const marks = try r.slice(u32, gpa, &x.marks);
+            var saved: ?*anyopaque = null;
+            if (restore >= 0) {
+                const k = kept orelse return error.MissingKept;
+                saved = k.copies.get(restore) orelse return error.MissingKept;
+                const copy: *const reuse.Copy = @ptrCast(@alignCast(saved.?));
+                if (!copy.whole or copy.pos != restore_at) return error.MissingKept;
+            }
             const spec: lanes.stream.Spec = .{
                 .id = "tp-follower",
                 .prompt = prompt,
@@ -437,7 +573,19 @@ fn apply(gpa: std.mem.Allocator, inner: be.Backend, images: ?Images, op: Op, r: 
                 };
                 gop.value_ptr.* = s;
             }
-            try inner.prefill(gop.value_ptr.*);
+            const s = gop.value_ptr.*;
+            if (kept) |k| {
+                k.marks = marks;
+                k.first = first_key;
+                s.reuse = .{ .saved = saved, .at = if (saved != null) restore_at else 0, .marks = marks, .hook = .{ .ptr = k, .at = Kept.at } };
+            }
+            defer s.reuse = .{};
+            try inner.prefill(s);
+        },
+        .drop => {
+            const keys = try r.slice(i64, gpa, &x.drops);
+            const k = kept orelse return;
+            for (keys) |key| if (k.copies.fetchRemove(key)) |kv| reuse.drop(k.target, kv.value);
         },
         .verify => {
             const n = try r.int(usize);
