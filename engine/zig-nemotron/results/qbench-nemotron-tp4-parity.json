@@ -1,0 +1,253 @@
+{
+ "bench": "qbench",
+ "version": 1,
+ "tag": "nemotron-tp4-parity-20261015",
+ "base_url": "http://forge:8100/v1",
+ "model": "NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4",
+ "thinking": false,
+ "started": "2026-10-15T15:33:18-0700",
+ "areas": {
+  "speed": {
+   "c1": {
+    "code": {
+     "timing": "server",
+     "ttft_s": 0.104,
+     "prefill_tok_s": 466.2,
+     "completion_tokens": 250,
+     "wall_s": 1.66,
+     "decode_s": 1.521,
+     "decode_tok_s": 164.35,
+     "finish": "stop"
+    },
+    "prose": {
+     "timing": "server",
+     "ttft_s": 0.095,
+     "prefill_tok_s": 445.4,
+     "completion_tokens": 233,
+     "wall_s": 2.8,
+     "decode_s": 2.689,
+     "decode_tok_s": 86.64,
+     "finish": "stop"
+    }
+   },
+   "c4": {
+    "streams": 4,
+    "completion_tokens": 966,
+    "wall_s": 4.89,
+    "aggregate_tok_s": 197.46,
+    "per_stream_tok_s": [
+     92.54,
+     48.96,
+     98.92,
+     54.64
+    ],
+    "ttft_s": [
+     0.255,
+     0.099,
+     0.429,
+     0.584
+    ]
+   },
+   "error": null,
+   "seconds": 9.3
+  },
+  "json": {
+   "n": 6,
+   "correct": 6,
+   "accuracy": 1.0,
+   "items": [
+    {
+     "name": "person",
+     "ok": true,
+     "errors": [],
+     "finish": "stop",
+     "markup_leak": false,
+     "content": "{\n  \"name\": \"Alice Johnson\",\n  \"age\": 28,\n  \"active\": true\n}"
+    },
+    {
+     "name": "order",
+     "ok": true,
+     "errors": [],
+     "finish": "stop",
+     "markup_leak": false,
+     "content": "{\n  \"id\": \"ORD-1001\",\n  \"items\": [\n    {\n      \"sku\": \"SKU-001\",\n      \"qty\": 2\n    },\n    {\n      \"sku\": \"SKU-002\",\n      \"qty\": 1\n    }\n  ],\n  \"total\": 45.99\n"
+    },
+    {
+     "name": "status",
+     "ok": true,
+     "errors": [],
+     "finish": "stop",
+     "markup_leak": false,
+     "content": "{\n  \"state\": \"ok\",\n  \"code\": 0\n}"
+    },
+    {
+     "name": "city",
+     "ok": true,
+     "errors": [],
+     "finish": "stop",
+     "markup_leak": false,
+     "content": "{\n  \"name\": \"Kyoto\",\n  \"population\": 1460000,\n  \"tags\": [\"Japan\", \"culture\", \"temples\", \"history\"],\n  \"coords\": {\n    \"lat\": 35.0116,\n    \"lon\": 135.7681\n  }\n}"
+    },
+    {
+     "name": "flags",
+     "ok": true,
+     "errors": [],
+     "finish": "stop",
+     "markup_leak": false,
+     "content": "{\n  \"enableDarkMode\": true,\n  \"showBetaFeatures\": false,\n  \"useNewNavigation\": true\n}"
+    },
+    {
+     "name": "list",
+     "ok": true,
+     "errors": [],
+     "finish": "stop",
+     "markup_leak": false,
+     "content": "[\"red\", \"green\", \"blue\"]"
+    }
+   ],
+   "error": null,
+   "seconds": 2.4
+  },
+  "tools": {
+   "n": 10,
+   "correct": 10,
+   "accuracy": 1.0,
+   "single": {
+    "n": 8,
+    "correct": 8,
+    "items": [
+     {
+      "id": "tool-01",
+      "ok": true,
+      "why": "",
+      "name": "get_weather",
+      "calls": 1,
+      "markup_leak": false,
+      "finish": "tool_calls"
+     },
+     {
+      "id": "tool-02",
+      "ok": true,
+      "why": "",
+      "name": "create_task",
+      "calls": 1,
+      "markup_leak": false,
+      "finish": "tool_calls"
+     },
+     {
+      "id": "tool-03",
+      "ok": true,
+      "why": "",
+      "name": "run_sql",
+      "calls": 1,
+      "markup_leak": false,
+      "finish": "tool_calls"
+     },
+     {
+      "id": "tool-04",
+      "ok": true,
+      "why": "",
+      "name": "convert_currency",
+      "calls": 1,
+      "markup_leak": false,
+      "finish": "tool_calls"
+     },
+     {
+      "id": "tool-05",
+      "ok": true,
+      "why": "expected no tool call",
+      "name": null,
+      "calls": 0,
+      "markup_leak": false,
+      "finish": "stop"
+     },
+     {
+      "id": "tool-06",
+      "ok": true,
+      "why": "",
+      "name": "create_task",
+      "calls": 1,
+      "markup_leak": false,
+      "finish": "tool_calls"
+     },
+     {
+      "id": "tool-07",
+      "ok": true,
+      "why": "expected no tool call",
+      "name": null,
+      "calls": 0,
+      "markup_leak": false,
+      "finish": "stop"
+     },
+     {
+      "id": "tool-08",
+      "ok": true,
+      "why": "",
+      "name": "get_weather",
+      "calls": 1,
+      "markup_leak": false,
+      "finish": "tool_calls"
+     }
+    ]
+   },
+   "chains": {
+    "n": 2,
+    "correct": 2,
+    "items": [
+     {
+      "id": "chain-01",
+      "ok": true,
+      "why": "",
+      "calls": [
+       {
+        "name": "get_weather",
+        "args": {
+         "city": "Sapporo",
+         "units": "c"
+        }
+       },
+       {
+        "name": "create_task",
+        "args": {
+         "title": "sleet watch",
+         "priority": 4,
+         "tags": [
+          "weather",
+          "sleet"
+         ]
+        }
+       }
+      ]
+     },
+     {
+      "id": "chain-02",
+      "ok": true,
+      "why": "",
+      "calls": [
+       {
+        "name": "run_sql",
+        "args": {
+         "query": "SELECT id, created_at FROM messages ORDER BY created_at DESC LIMIT 5",
+         "limit": 5
+        }
+       },
+       {
+        "name": "convert_currency",
+        "args": {
+         "amount": 500,
+         "from": "EUR",
+         "to": "JPY"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "error": null,
+   "seconds": 8.2
+  }
+ },
+ "finished": "2026-10-15T15:33:38-0700",
+ "requests": 24,
+ "transport_errors": 0
+}
