@@ -36,6 +36,7 @@ pub fn rowAt(history: []const u32, pick: u32, count: u8) Row {
 const Lane = struct {
     history: std.ArrayList(u32) = .empty, // the stream's cache: prompt and fed tokens
     held: std.ArrayList(u32) = .empty, // drafts for the next round
+    sized: ?u32 = null, // what a sized request held, until tree() reads it
     base: usize = 0, // the history length before the last verify
     rows: std.ArrayList(u32) = .empty, // the last verify's row tokens
     filled: usize = 0, // prompt chunks a stepped prefill has run
@@ -61,6 +62,9 @@ pub const Fake = struct {
     fail_round: ?u64 = null, // this round's verify fails with error.GpuFailed, as a round the GPU fails does
     last_rows: usize = 0, // the last verify's rows, for test clocks
     last_sampled: bool = false, // and whether one of its streams drew keyed samples
+    sizing: bool = false, // a sized request holds fewer drafts than its depth (1 + its position % 3) and tree() says so
+    sized_asks: usize = 0, // sized requests seen, and the deepest one's depth
+    sized_most: u32 = 0,
 
     pub fn deinit(x: *Fake) void {
         var it = x.lanes.valueIterator();
@@ -76,7 +80,7 @@ pub const Fake = struct {
     }
 
     pub fn backend(x: *Fake) be.Backend {
-        return .{ .ptr = x, .vtable = &.{ .prefill = prefill, .first = first, .first_masked = firstMasked, .queue = queue, .read = read, .verify = verify, .keep = keep, .draft = draft, .features = features, .release = release, .first_row = firstRow, .alternatives = alternatives, .held = heldDrafts } };
+        return .{ .ptr = x, .vtable = &.{ .prefill = prefill, .first = first, .first_masked = firstMasked, .queue = queue, .read = read, .verify = verify, .keep = keep, .draft = draft, .features = features, .release = release, .first_row = firstRow, .alternatives = alternatives, .held = heldDrafts, .tree = sizedHeld } };
     }
 
     /// The same target filling its prompt a chunk a call (`prefill_chunks`), as a backend with `prefill_step`.
@@ -220,6 +224,14 @@ pub const Fake = struct {
         return n;
     }
 
+    fn sizedHeld(ptr: *anyopaque, s: *Stream, gpa: Allocator) anyerror!?@import("stream.zig").Held {
+        _ = gpa;
+        const l = self(ptr).lane(s);
+        const n = l.sized orelse return null;
+        l.sized = null;
+        return .{ .count = n };
+    }
+
     fn heldDrafts(ptr: *anyopaque, s: *Stream, out: []u32) anyerror!void {
         const h = self(ptr).lane(s).held.items;
         if (out.len > h.len) return error.NotHeld;
@@ -256,6 +268,7 @@ pub const Fake = struct {
             l.base = l.history.items.len;
             l.rows.clearRetainingCapacity();
             try l.rows.append(x.gpa, w.pending);
+            if (w.held > l.held.items.len) return error.NotHeld;
             try l.rows.appendSlice(x.gpa, l.held.items[0..w.held]);
             try l.rows.appendSlice(x.gpa, w.tokens);
             @memcpy(o.drafts, l.rows.items[1..]);
@@ -312,6 +325,13 @@ pub const Fake = struct {
                 if ((at *% 2654435761 + j) % 5 == 0) t = (t + 1) % vocab; // a wrong guess now and then
                 try l.held.append(x.gpa, t);
                 try guess.append(x.gpa, t);
+            }
+            if (x.sizing and r.sized) {
+                const n: u32 = @intCast(@min(r.depth, 1 + r.position % 3));
+                l.held.shrinkRetainingCapacity(n);
+                l.sized = n;
+                x.sized_asks += 1;
+                x.sized_most = @max(x.sized_most, r.depth);
             }
         }
     }

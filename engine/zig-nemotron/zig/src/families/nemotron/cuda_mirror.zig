@@ -107,6 +107,7 @@ pub const Mirror = struct {
             .first_row = if (v.first_row != null) firstRowFn else null,
             .first_masked = if (v.first_masked != null) firstMaskedFn else null,
             .held = if (v.held != null) heldFn else null,
+            .tree = if (v.tree != null) treeFn else null,
             .prompt_rows = v.prompt_rows,
         };
         return .{ .ptr = m, .vtable = &m.vt };
@@ -253,6 +254,11 @@ pub const Mirror = struct {
         return of(ptr).inner.firstRow(s);
     }
 
+    /// What the head holds after a sized draft (rank 0's own read: every rank sized it alike).
+    fn treeFn(ptr: *anyopaque, s: *Stream, gpa: std.mem.Allocator) anyerror!?lanes.stream.Held {
+        return of(ptr).inner.vtable.tree.?(of(ptr).inner.ptr, s, gpa);
+    }
+
     fn heldFn(ptr: *anyopaque, s: *Stream, out: []u32) anyerror!void {
         return of(ptr).inner.vtable.held.?(of(ptr).inner.ptr, s, out);
     }
@@ -323,6 +329,7 @@ pub const Mirror = struct {
             try m.put(r.depth);
             try m.put(r.early);
             try m.put(r.ranks);
+            try m.put(r.sized);
         }
         try m.send();
         try m.inner.draft(requests);
@@ -651,6 +658,7 @@ fn apply(gpa: std.mem.Allocator, inner: be.Backend, images: ?Images, op: Op, r: 
                     .depth = try r.int(u32),
                     .early = try r.int(bool),
                     .ranks = try r.int(bool),
+                    .sized = try r.int(bool),
                 };
             }
             try inner.draft(requests[0..n]);

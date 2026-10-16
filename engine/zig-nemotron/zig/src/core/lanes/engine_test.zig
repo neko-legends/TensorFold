@@ -460,3 +460,32 @@ test "a family that keeps copies to shared rounds proposes none for a lone strea
         try std.testing.expectEqual(lone_copies, (try win.copyProposal(&engine, &s)).len >= 2);
     }
 }
+
+test "a lone sized chain: the loop asks for the most drafts, verifies what the head held, commits the one-token decode" {
+    for ([_]?Sampling{ null, .{ .seed = 5, .temperature = 0.7, .top_k = 0, .top_p = 0.95 } }) |sampling| {
+        var out: [2][]u32 = undefined;
+        var asks: usize = 0;
+        for ([_]bool{ true, false }, &out) |drafts, *o| {
+            var cfg = try model();
+            defer cfg.deinit(gpa);
+            cfg.lone_depth = true;
+            var target: fake.Fake = .{ .gpa = gpa, .sizing = true };
+            defer target.deinit();
+            var clock: fake.FixedClock = .{};
+            var engine = Engine.init(gpa, &cfg, target.backend(), clock.clock());
+            defer engine.deinit();
+            var s = try sm.Stream.init(gpa, .{ .id = "s", .prompt = &p1, .max_new = 40, .eos = &.{96}, .sampling = sampling, .drafts = drafts });
+            defer s.deinit(gpa);
+            try engine.addStream(&s);
+            while (engine.activeCount() > 0) try engine.step();
+            o.* = try gpa.dupe(u32, s.emitted());
+            if (drafts) {
+                asks = target.sized_asks;
+                try std.testing.expectEqual(cfg.most_drafts, target.sized_most);
+            }
+        }
+        defer for (out) |o| gpa.free(o);
+        try std.testing.expect(asks > 0);
+        try std.testing.expectEqualSlices(u32, out[1], out[0]);
+    }
+}

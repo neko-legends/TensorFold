@@ -404,8 +404,12 @@ pub const Engine = struct {
     /// Read the kept rows with their following tokens and ask the head for the next round's drafts.
     fn draftLate(e: *Engine, s: *Stream, start: u64, follow: []const u32, path: []const u32, budget: ?i64) !void {
         var w = win.who(s);
-        const d: u32 = @intCast(try e.rule.headDepth(&w, budget, win.probe(e)));
-        try e.askDrafts(&.{.{ .stream = s, .follow = follow, .rows = path, .start = start, .position = s.cache_len + 1, .depth = d }});
+        const probe = win.probe(e);
+        var d: u32 = @intCast(try e.rule.headDepth(&w, budget, probe));
+        // a lone stream under lone_depth: the head drafts while its confidences pay, up to the most a window holds
+        const sized = e.cfg.lone_depth and e.alone and d > 0 and !probe.copy(probe.ptr, &w);
+        if (sized) d = @intCast(@min(@as(i64, e.cfg.most_drafts), @max(1, w.draft_room - 1)));
+        try e.askDrafts(&.{.{ .stream = s, .follow = follow, .rows = path, .start = start, .position = s.cache_len + 1, .depth = d, .sized = sized }});
     }
 
     fn askDrafts(e: *Engine, requests: []const be.DraftRequest) !void {

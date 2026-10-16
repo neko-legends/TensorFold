@@ -22,11 +22,33 @@ const row_words = lanes.logprob.words;
 /// Host-mapped words for every row a shared window holds, then the first token's row.
 const row_slots = engine.max_streams * state.max_rows + 1;
 
+/// Dev: trace each lone round's drafts (TF_NEMOTRON_DRAFT_TRACE=1).
+var trace = false;
+
 /// First tokens a handle names (the prompt's draw is on the host once prefill returns).
 const ring = 1024;
 
 /// A stream's sequence (`own`: the engine's, the graphs' buffers) and its first token's logprob row from prefill.
-const Lane = struct { seq: *state.Seq, own: bool = false, pending_rows: ?usize = null, first: ?LogRow = null, stats: seq_graphs.Stats = .{}, keep: usize = 0 };
+const Lane = struct {
+    seq: *state.Seq,
+    own: bool = false,
+    pending_rows: ?usize = null,
+    first: ?LogRow = null,
+    stats: seq_graphs.Stats = .{},
+    keep: usize = 0,
+    // a sized chain (DraftRequest.sized): the confidence rule, the drafts it held, its last window's rows and levels
+    rule: ?core.draft_depth.DepthRule = null,
+    sized: ?usize = null, // drafts held after the last sized draft, until the round loop reads them (tree())
+    levels: usize = 0, // head levels the last sized draft ran
+    verified: usize = 0, // rows of the last verify (0: none since the last draft)
+    verified_levels: usize = 0, // head levels its drafts took (0: copied or plain)
+};
+
+/// TF_NEMOTRON_LONE_DEPTH=0: a lone stream's chain depth by the round loop's acceptance rates, not the head's confidences.
+fn loneDepth() bool {
+    const v = std.c.getenv("TF_NEMOTRON_LONE_DEPTH") orelse return true;
+    return v[0] != '0';
+}
 
 pub const Cuda = struct {
     gpa: std.mem.Allocator,
@@ -54,6 +76,7 @@ pub const Cuda = struct {
         errdefer pinned.free();
         var rows_out = try cuda.HostBuffer.allocMapped(e.ctx.d, row_slots * row_words * 4);
         errdefer rows_out.free();
+        trace = if (std.c.getenv("TF_NEMOTRON_DRAFT_TRACE")) |v| v[0] == '1' else false;
         var prompt_out = try cuda.HostBuffer.allocMapped(e.ctx.d, prompt_rows.batch_rows * (row_words + 1) * 4);
         errdefer prompt_out.free();
         return .{ .gpa = gpa, .e = e, .head = head, .pinned = pinned, .rows_out = rows_out, .rows_dev = try rows_out.device(), .prompt_out = prompt_out, .prompt_dev = try prompt_out.device() };
@@ -83,6 +106,7 @@ pub const Cuda = struct {
             .first_row = firstRowFn,
             .first_masked = firstMaskedFn,
             .held = heldFn,
+            .tree = treeFn,
             .prompt_rows = true,
         } };
     }
@@ -136,6 +160,7 @@ pub const Cuda = struct {
             .window_costs = self.costs[0..self.cost_count],
             .mtp_step_ms = self.mtp_ms,
             .hidden_rows = drafting, // several streams' windows share a forward (Engine.verifyShared)
+            .lone_depth = drafting and self.measured != null and loneDepth(), // a lone chain stops where its confidences stop paying
             .batch_rows = state.max_rows,
             .max_streams = if (drafting) engine.max_streams else 1,
         };
@@ -145,14 +170,37 @@ pub const Cuda = struct {
     pub fn measure(self: *Cuda, io: std.Io, model_dir: []const u8) !void {
         const h = self.head orelse return;
         self.e.bind(&self.e.own);
-        const c = try costs.measure(self.gpa, io, self.e, h, model_dir);
+        var c = try costs.measure(self.gpa, io, self.e, h, model_dir);
         self.cost_count = 0;
         for (1..c.rows + 1) |w| {
             self.costs[self.cost_count] = .{ .width = @intCast(w), .ms = c.verify[w] };
             self.cost_count += 1;
         }
         self.mtp_ms = c.level;
+        if (self.e.tp.on()) try self.rankZeroCosts(&c);
         self.measured = c;
+        std.log.info("nemotron costs: windows of 1-{d} rows {any} ms; a head level {d:.3} ms", .{ c.rows, c.verify[1 .. c.rows + 1], c.level });
+    }
+
+    /// Rank 0's costs on every rank: a sized chain's rule decides on each rank alike from the same confidences.
+    fn rankZeroCosts(self: *Cuda, c: *core.draft_depth.Costs) !void {
+        const e = self.e;
+        const comm = e.tp.comm orelse return;
+        if (e.tp.nocomm) return;
+        const n = c.verify.len + 1;
+        var mine: [core.draft_depth.max_rows + 2]f64 = undefined;
+        @memcpy(mine[0..c.verify.len], &c.verify);
+        mine[c.verify.len] = c.level;
+        const bytes = n * 8;
+        var buf = try cuda.DeviceBuffer.alloc(e.ctx.d, bytes * (1 + e.tp.world));
+        defer buf.free();
+        try e.ops().upload(buf.ptr, std.mem.sliceAsBytes(mine[0..n]));
+        try comm.allGather(buf.ptr, buf.ptr + bytes, bytes, .u8, e.stream.handle);
+        try e.ops().download(std.mem.sliceAsBytes(mine[0..n]), buf.ptr + bytes); // rank 0's, first in the gather
+        try e.stream.synchronize();
+        @memcpy(&c.verify, mine[0..c.verify.len]);
+        c.level = mine[c.verify.len];
+        self.mtp_ms = c.level;
     }
 
     /// A lone driver's hand-over: the head absorbs the last `kept` rows; the stream stands as a lane round leaves it.
@@ -337,8 +385,22 @@ pub const Cuda = struct {
         try e.stream.synchronize();
         @memcpy(out[0].sampled, try e.tokens());
         @memcpy(out[0].drafts, if (w.held > 0) held else w.tokens);
+        if (trace) traceRound(self, w, out[0]);
         if (out[0].rows.len > 0) self.readRows(out[0], 0, w.stream.logprobs.?);
         l.pending_rows = rows;
+        l.verified = rows;
+        l.verified_levels = if (w.held > 0) l.levels else 0;
+    }
+
+    /// TF_NEMOTRON_DRAFT_TRACE=1 (dev): each lone round's drafts, their confidences and how many landed, on stderr.
+    fn traceRound(self: *Cuda, w: be.Window, o: be.Verified) void {
+        var accepted: usize = 0;
+        while (accepted < o.drafts.len and o.drafts[accepted] == o.sampled[accepted]) accepted += 1;
+        var line: [1024]u8 = undefined;
+        var wr: std.Io.Writer = .fixed(&line);
+        wr.print("DTRACE {s} {d} {d}", .{ if (w.held > 0) "H" else if (w.tokens.len > 0) "C" else "P", o.drafts.len, accepted }) catch {};
+        if (w.held > 0) if (self.head) |h| for (h.heldConfidences(w.held)) |c| wr.print(" {d:.4}", .{c}) catch {};
+        std.debug.print("{s}\n", .{wr.buffered()});
     }
 
     /// A window's rows from the words its kernel wrote at slot `row0` (after the stream synchronized).
@@ -414,8 +476,13 @@ pub const Cuda = struct {
                 first[0] = self.value(r.first orelse return error.NoFirstToken);
                 break :blk first[0..];
             };
+            if (l.rule) |*rule| if (l.verified > 0) rule.done(follow.len, l.verified, l.verified_levels); // the last round
+            l.verified = 0;
             if (drafting < 2 or r.depth == 0 or batched == parts.len or rows + follow.len > state.max_rows) {
-                try h.chain(follow, r.depth);
+                if (r.sized and r.depth > 0 and self.measured != null) try self.sizedChain(l, h, follow, r.depth) else {
+                    try h.chain(follow, r.depth);
+                    l.levels = r.depth;
+                }
                 l.keep = h.keep;
                 continue;
             }
@@ -423,11 +490,43 @@ pub const Cuda = struct {
             try self.e.ops().upload(self.e.b.sampled, std.mem.sliceAsBytes(follow));
             parts[batched] = .{ .k_cache = h.k_cache, .v_cache = h.v_cache, .probs = h.probs, .ids = self.e.b.ids, .hidden = self.e.b.hidden, .sampled = self.e.b.sampled, .rule = if (self.e.sampling != null) self.e.b.rule else null, .pos = h.pos, .keep = follow.len, .depth = r.depth };
             l.keep = follow.len; // as h.chain records h.keep: a reclaim begins this head again at these rows
+            l.levels = r.depth;
             h.pos += follow.len;
             batched += 1;
             rows += follow.len;
         }
         if (batched > 0) try h.chains(parts[0..batched]);
+    }
+
+    /// A chain the head stops itself (cuda_drafts' depth): level j's draft is held while its running confidence pays for
+    /// its row, and level j + 1 runs while a sure draft there would pay for its row and level, up to `most` drafts.
+    /// Every rank reads the same confidences and prices by rank 0's costs, so every rank runs the same levels.
+    fn sizedChain(self: *Cuda, l: *Lane, h: *Head, follow: []const u32, most: usize) !void {
+        if (l.rule == null) l.rule = core.draft_depth.DepthRule.init(self.measured.?, mtp.max_chain, null, 2.0);
+        const rule = &l.rule.?;
+        try self.e.ops().upload(self.e.b.sampled, std.mem.sliceAsBytes(follow));
+        try h.begin(follow.len);
+        var run: f64 = 1.0;
+        var n: usize = 0;
+        var j: usize = 1;
+        while (true) : (j += 1) {
+            try h.launch(j);
+            run *= try h.confidence(j);
+            if (!rule.keep(j, run)) break;
+            n = j;
+            if (j >= @min(most, mtp.max_chain) or !rule.more(j, run)) break;
+        }
+        l.sized = n;
+        l.levels = j;
+    }
+
+    /// The drafts a sized chain held (null: the round loop's depth stands).
+    fn treeFn(ptr: *anyopaque, s: *lanes.Stream, gpa: std.mem.Allocator) anyerror!?lanes.stream.Held {
+        _ = gpa;
+        const l = of(ptr).lanes.getPtr(s) orelse return null;
+        const n = l.sized orelse return null;
+        l.sized = null;
+        return .{ .count = @intCast(n) };
     }
 
     fn releaseFn(ptr: *anyopaque, s: *lanes.Stream) void {
