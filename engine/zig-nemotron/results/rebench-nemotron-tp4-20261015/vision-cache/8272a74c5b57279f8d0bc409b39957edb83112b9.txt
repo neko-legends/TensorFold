@@ -1,0 +1,69 @@
+{
+  "texts": [
+    {
+      "text": "tundra",
+      "bbox": [
+        0,
+        435,
+        77,
+        464
+      ],
+      "cut": false
+    },
+    {
+      "text": "willow-690 ember",
+      "bbox": [
+        740,
+            140,
+            850,
+            157
+      ],
+      "cut": false
+    },
+    {
+      "text": "falcon-648 falcon",
+      "bbox": [
+        690,
+            496,
+            872,
+            520
+      ],
+      "cut": false
+    },
+    {
+      "text": "meadow-494 quartz",
+      "bbox": [
+        338,
+            851,
+            458,
+            868
+      ],
+      "cut": false
+    },
+    {
+      "text": "su",
+      "bbox": [
+        978,
+            544,
+            1000,
+            562
+      ],
+      "cut": true
+    }
+  ],
+  "objects": [
+    {
+      "label": "orange rectangle",
+      "color": "orange",
+      "bbox": [
+        972,
+            164,
+            1264,
+            470
+      ],
+      "details": "cut off at right edge",
+      "cut": true
+    }
+  ],
+  "notes": "This tile shows the bottom-right portion of a color palette chart with four labeled color swatches, one of which is partially cut off at the right edge."
+}

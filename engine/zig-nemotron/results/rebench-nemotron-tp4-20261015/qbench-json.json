@@ -1,0 +1,71 @@
+{
+ "bench": "qbench",
+ "version": 1,
+ "tag": "rebench-nemotron-tp4-json",
+ "base_url": "http://forge:8100/v1",
+ "model": "NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4",
+ "thinking": false,
+ "started": "2026-10-15T19:28:57-0700",
+ "areas": {
+  "json": {
+   "n": 6,
+   "correct": 6,
+   "accuracy": 1.0,
+   "items": [
+    {
+     "name": "person",
+     "ok": true,
+     "errors": [],
+     "finish": "stop",
+     "markup_leak": false,
+     "content": "{\n  \"name\": \"Alice Johnson\",\n  \"age\": 28,\n  \"active\": true\n}"
+    },
+    {
+     "name": "order",
+     "ok": true,
+     "errors": [],
+     "finish": "stop",
+     "markup_leak": false,
+     "content": "{\n  \"id\": \"ORD-1001\",\n  \"items\": [\n    {\n      \"sku\": \"SKU-001\",\n      \"qty\": 2\n    },\n    {\n      \"sku\": \"SKU-002\",\n      \"qty\": 1\n    }\n  ],\n  \"total\": 45.99\n"
+    },
+    {
+     "name": "status",
+     "ok": true,
+     "errors": [],
+     "finish": "stop",
+     "markup_leak": false,
+     "content": "{\n  \"state\": \"ok\",\n  \"code\": 0\n}"
+    },
+    {
+     "name": "city",
+     "ok": true,
+     "errors": [],
+     "finish": "stop",
+     "markup_leak": false,
+     "content": "{\n  \"name\": \"Tokyo\",\n  \"population\": 13960000,\n  \"tags\": [\n    \"capital\",\n    \"metropolis\",\n    \"technology\",\n    \"culture\"\n  ],\n  \"coords\": {\n    \"lat\": 35.676"
+    },
+    {
+     "name": "flags",
+     "ok": true,
+     "errors": [],
+     "finish": "stop",
+     "markup_leak": false,
+     "content": "{\n  \"enableDarkMode\": true,\n  \"showBetaFeatures\": false,\n  \"useNewNavigation\": true\n}"
+    },
+    {
+     "name": "list",
+     "ok": true,
+     "errors": [],
+     "finish": "stop",
+     "markup_leak": false,
+     "content": "[\"red\", \"green\", \"blue\"]"
+    }
+   ],
+   "error": null,
+   "seconds": 2.3
+  }
+ },
+ "finished": "2026-10-15T19:28:59-0700",
+ "requests": 6,
+ "transport_errors": 0
+}

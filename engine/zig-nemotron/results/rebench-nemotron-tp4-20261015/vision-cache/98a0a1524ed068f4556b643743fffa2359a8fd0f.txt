@@ -1,0 +1,5 @@
+am	Q1
+ops	325
+aracters	825
+icles	376
+rain	692

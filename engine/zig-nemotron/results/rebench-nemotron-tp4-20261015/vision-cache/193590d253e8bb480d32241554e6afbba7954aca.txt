@@ -1,0 +1,42 @@
+{
+  "summary": "A flat, abstract composition of colorful geometric shapes on a white background. The image contains circles, squares, and triangles in red, teal, blue, orange, yellow, green, and purple, scattered across the canvas with no text or figures.",
+  "style": "medium, flat vector illustration, solid fills, no gradients or shadows, even lighting, frontal perspective, playful and minimalist mood.",
+  "background": "plain white background.",
+  "palette": ["#ffffff", "#d22f27", "#00a3a0", "#1e56c4", "#ff7f00", "#ffd100", "#00a651", "#7b1fa2"],
+  "layout": [
+    {"region": "top-left", "bbox": [80, 90, 370, 210], "content": "red circle, teal circle, small red circle, small teal circle"},
+    {"region": "top-center", "bbox": [340, 60, 530, 220], "content": "large red circle, small orange square"},
+    {"region": "top-right", "bbox": [680, 140, 950, 350], "content": "large blue square, small purple triangle"},
+    {"region": "middle-left", "bbox": [110, 360, 320, 510], "content": "large blue square"},
+    {"region": "middle-center", "bbox": [310, 360, 490, 510], "content": "large blue square, small red circle, large orange square"},
+    {"region": "middle-right", "bbox": [740, 430, 930, 620], "content": "small blue square, small green triangle"},
+    {"region": "bottom-left", "bbox": [50, 720, 290, 870], "content": "large purple triangle, two yellow circles"},
+    {"region": "bottom-center", "bbox": [340, 690, 510, 950], "content": "small green triangle, large green triangle"},
+    {"region": "bottom-right", "bbox": [550, 840, 820, 950], "content": "red circle, orange square, small red circle"}
+  ],
+  "objects": [
+    {"label": "circle", "color": "red", "bbox": [80, 110, 160, 210], "details": "medium red circle, top-left area"},
+    {"label": "circle", "color": "teal", "bbox": [170, 80, 270, 200], "details": "medium teal circle, top-left area"},
+    {"label": "circle", "color": "red", "bbox": [410, 60, 530, 200], "details": "large red circle, top-center area"},
+    {"label": "square", "color": "orange", "bbox": [340, 210, 410, 290], "details": "small orange square, top-center area"},
+    {"label": "square", "color": "blue", "bbox": [680, 140, 790, 270], "details": "large blue square, top-right area"},
+    {"label": "triangle", "color": "purple", "bbox": [890, 270, 950, 340], "details": "small purple triangle, top-right area"},
+    {"label": "square", "color": "blue", "bbox": [110, 360, 220, 510], "details": "large blue square, middle-left area"},
+    {"label": "square", "color": "blue", "bbox": [310, 360, 420, 510], "details": "large blue square, middle-center area"},
+    {"label": "circle", "color": "red", "bbox": [250, 520, 320, 610], "details": "small red circle, middle-left area"},
+    {"label": "square", "color": "orange", "bbox": [390, 530, 490, 670], "details": "large orange square, middle-center area"},
+    {"label": "square", "color": "blue", "bbox": [740, 430, 810, 510], "details": "small blue square, middle-right area"},
+    {"label": "triangle", "color": "green", "bbox": [870, 530, 930, 610], "details": "small green triangle, middle-right area"},
+    {"label": "circle", "color": "yellow", "bbox": [180, 600, 260, 700], "details": "medium yellow circle, bottom-left area"},
+    {"label": "triangle", "color": "purple", "bbox": [50, 720, 160, 860], "details": "large purple triangle, bottom-left area"},
+    {"label": "circle", "color": "yellow", "bbox": [210, 770, 290, 870], "details": "medium yellow circle, bottom-left area"},
+    {"label": "triangle", "color": "green", "bbox": [340, 690, 420, 790], "details": "small green triangle, bottom-center area"},
+    {"label": "triangle", "color": "green", "bbox": [410, 810, 510, 950], "details": "large green triangle, bottom-center area"},
+    {"label": "circle", "color": "red", "bbox": [550, 840, 640, 950], "details": "medium red circle, bottom-right area"},
+    {"label": "square", "color": "orange", "bbox": [660, 840, 740, 950], "details": "medium orange square, bottom-right area"},
+    {"label": "circle", "color": "red", "bbox": [750, 830, 820, 910], "details": "small red circle, bottom-right area"}
+  ],
+  "texts": [],
+  "counts": {"circle": 8, "square": 7, "triangle": 5},
+  "smallest_text_px": 0
+}

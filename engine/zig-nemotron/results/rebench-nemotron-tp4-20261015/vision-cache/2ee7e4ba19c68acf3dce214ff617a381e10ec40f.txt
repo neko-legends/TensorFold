@@ -1,0 +1,1 @@
+{"texts": [], "objects": [], "notes": "This tile is almost entirely blank beige background with only a small teal strip at the top edge."}

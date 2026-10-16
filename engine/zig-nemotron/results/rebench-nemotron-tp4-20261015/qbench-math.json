@@ -1,0 +1,263 @@
+{
+ "bench": "qbench",
+ "version": 1,
+ "tag": "rebench-nemotron-tp4-math",
+ "base_url": "http://forge:8100/v1",
+ "model": "NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4",
+ "thinking": false,
+ "started": "2026-10-15T19:28:24-0700",
+ "areas": {
+  "math": {
+   "n": 30,
+   "correct": 29,
+   "accuracy": 0.9667,
+   "items": [
+    {
+     "id": "gsm8k-test-0",
+     "ok": true,
+     "got": "18",
+     "want": "18",
+     "finish": "stop",
+     "reasoning_tokens": 82
+    },
+    {
+     "id": "gsm8k-test-1",
+     "ok": true,
+     "got": "3",
+     "want": "3",
+     "finish": "stop",
+     "reasoning_tokens": 36
+    },
+    {
+     "id": "gsm8k-test-2",
+     "ok": true,
+     "got": "70000",
+     "want": "70000",
+     "finish": "stop",
+     "reasoning_tokens": 151
+    },
+    {
+     "id": "gsm8k-test-3",
+     "ok": true,
+     "got": "540",
+     "want": "540",
+     "finish": "stop",
+     "reasoning_tokens": 67
+    },
+    {
+     "id": "gsm8k-test-4",
+     "ok": true,
+     "got": "20",
+     "want": "20",
+     "finish": "stop",
+     "reasoning_tokens": 97
+    },
+    {
+     "id": "gsm8k-test-5",
+     "ok": true,
+     "got": "64",
+     "want": "64",
+     "finish": "stop",
+     "reasoning_tokens": 81
+    },
+    {
+     "id": "gsm8k-test-6",
+     "ok": true,
+     "got": "260",
+     "want": "260",
+     "finish": "stop",
+     "reasoning_tokens": 86
+    },
+    {
+     "id": "gsm8k-test-7",
+     "ok": true,
+     "got": "160",
+     "want": "160",
+     "finish": "stop",
+     "reasoning_tokens": 117
+    },
+    {
+     "id": "gsm8k-test-8",
+     "ok": true,
+     "got": "45",
+     "want": "45",
+     "finish": "stop",
+     "reasoning_tokens": 142
+    },
+    {
+     "id": "gsm8k-test-9",
+     "ok": true,
+     "got": "460",
+     "want": "460",
+     "finish": "stop",
+     "reasoning_tokens": 101
+    },
+    {
+     "id": "gsm8k-test-10",
+     "ok": true,
+     "got": "366",
+     "want": "366",
+     "finish": "stop",
+     "reasoning_tokens": 89
+    },
+    {
+     "id": "gsm8k-test-11",
+     "ok": true,
+     "got": "694",
+     "want": "694",
+     "finish": "stop",
+     "reasoning_tokens": 84
+    },
+    {
+     "id": "gsm8k-test-12",
+     "ok": false,
+     "got": "12",
+     "want": "13",
+     "finish": "stop",
+     "reasoning_tokens": 149
+    },
+    {
+     "id": "gsm8k-test-13",
+     "ok": true,
+     "got": "18",
+     "want": "18",
+     "finish": "stop",
+     "reasoning_tokens": 268
+    },
+    {
+     "id": "gsm8k-test-14",
+     "ok": true,
+     "got": "60",
+     "want": "60",
+     "finish": "stop",
+     "reasoning_tokens": 105
+    },
+    {
+     "id": "gsm8k-test-15",
+     "ok": true,
+     "got": "125",
+     "want": "125",
+     "finish": "stop",
+     "reasoning_tokens": 65
+    },
+    {
+     "id": "gsm8k-test-16",
+     "ok": true,
+     "got": "230",
+     "want": "230",
+     "finish": "stop",
+     "reasoning_tokens": 55
+    },
+    {
+     "id": "gsm8k-test-17",
+     "ok": true,
+     "got": "57500",
+     "want": "57500",
+     "finish": "stop",
+     "reasoning_tokens": 108
+    },
+    {
+     "id": "gsm8k-test-18",
+     "ok": true,
+     "got": "7",
+     "want": "7",
+     "finish": "stop",
+     "reasoning_tokens": 86
+    },
+    {
+     "id": "gsm8k-test-19",
+     "ok": true,
+     "got": "6",
+     "want": "6",
+     "finish": "stop",
+     "reasoning_tokens": 117
+    },
+    {
+     "id": "gsm8k-test-20",
+     "ok": true,
+     "got": "15",
+     "want": "15",
+     "finish": "stop",
+     "reasoning_tokens": 182
+    },
+    {
+     "id": "gsm8k-test-21",
+     "ok": true,
+     "got": "14",
+     "want": "14",
+     "finish": "stop",
+     "reasoning_tokens": 64
+    },
+    {
+     "id": "gsm8k-test-22",
+     "ok": true,
+     "got": "7",
+     "want": "7",
+     "finish": "stop",
+     "reasoning_tokens": 90
+    },
+    {
+     "id": "gsm8k-test-23",
+     "ok": true,
+     "got": "8",
+     "want": "8",
+     "finish": "stop",
+     "reasoning_tokens": 57
+    },
+    {
+     "id": "gsm8k-test-24",
+     "ok": true,
+     "got": "26",
+     "want": "26",
+     "finish": "stop",
+     "reasoning_tokens": 78
+    },
+    {
+     "id": "gsm8k-test-25",
+     "ok": true,
+     "got": "2",
+     "want": "2",
+     "finish": "stop",
+     "reasoning_tokens": 102
+    },
+    {
+     "id": "gsm8k-test-26",
+     "ok": true,
+     "got": "243",
+     "want": "243",
+     "finish": "stop",
+     "reasoning_tokens": 106
+    },
+    {
+     "id": "gsm8k-test-27",
+     "ok": true,
+     "got": "16",
+     "want": "16",
+     "finish": "stop",
+     "reasoning_tokens": 90
+    },
+    {
+     "id": "gsm8k-test-28",
+     "ok": true,
+     "got": "25",
+     "want": "25",
+     "finish": "stop",
+     "reasoning_tokens": 66
+    },
+    {
+     "id": "gsm8k-test-29",
+     "ok": true,
+     "got": "104",
+     "want": "104",
+     "finish": "stop",
+     "reasoning_tokens": 85
+    }
+   ],
+   "error": null,
+   "seconds": 17.0
+  }
+ },
+ "finished": "2026-10-15T19:28:41-0700",
+ "requests": 30,
+ "transport_errors": 0
+}

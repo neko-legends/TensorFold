@@ -1,0 +1,30 @@
+{
+ "bench": "qbench",
+ "version": 1,
+ "tag": "rebench-nemotron-tp4-summary",
+ "base_url": "http://forge:8100/v1",
+ "model": "NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4",
+ "thinking": false,
+ "started": "2026-10-15T19:30:37-0700",
+ "areas": {
+  "summary": {
+   "facts_total": 20,
+   "facts_kept": 20,
+   "facts_kept_rate": 1.0,
+   "missing": [],
+   "stale_returned": [],
+   "stale_rate": 0.0,
+   "extra_fact_kept": false,
+   "invented_numbers": [],
+   "invented_rate": 0.0,
+   "transcript_tokens": 8718,
+   "finish": "stop",
+   "summary_words": 60,
+   "error": null,
+   "seconds": 4.3
+  }
+ },
+ "finished": "2026-10-15T19:30:41-0700",
+ "requests": 1,
+ "transport_errors": 0
+}

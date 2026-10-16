@@ -1,0 +1,26 @@
+{
+  "texts": [
+    {
+      "text": "meadow-35 har",
+      "bbox": [906, 26, 1000, 43],
+      "cut": true
+    }
+  ],
+  "objects": [
+    {
+      "label": "orange circle",
+      "color": "orange",
+      "bbox": [228, 64, 560, 398],
+      "details": "large filled circle in upper center",
+      "cut": false
+    },
+    {
+      "label": "blue square",
+      "color": "blue",
+      "bbox": [250, 812, 430, 1000],
+      "details": "filled square at bottom, cut off by bottom edge",
+      "cut": true
+    }
+  ],
+  "notes": "This tile shows an orange circle in the upper portion and a blue square at the bottom edge, with a small text fragment in the top right corner."
+}

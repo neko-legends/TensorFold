@@ -1,0 +1,179 @@
+{
+  "texts": [
+    {
+      "text": "Quarterly asset output (units)",
+      "bbox": [64, 67, 640, 132],
+      "cut": false
+    },
+    {
+      "text": "Team",
+      "bbox": [62, 216, 134, 256],
+      "cut": false
+    },
+    {
+      "text": "Q1",
+      "bbox": [222, 216, 258, 256],
+      "cut": false
+    },
+    {
+      "text": "Q2",
+      "bbox": [369, 216, 405, 256],
+      "cut": false
+    },
+    {
+      "text": "Q3",
+      "bbox": [519, 216, 555, 256],
+      "cut": false
+    },
+    {
+      "text": "Q4",
+      "bbox": [672, 216, 708, 256],
+      "cut": false
+    },
+    {
+      "text": "Q4 by",
+      "bbox": [930, 216, 1000, 256],
+      "cut": true
+    },
+    {
+      "text": "Props",
+      "bbox": [62, 313, 130, 353],
+      "cut": false
+    },
+    {
+      "text": "325",
+      "bbox": [222, 313, 262, 353],
+      "cut": false
+    },
+    {
+      "text": "383",
+      "bbox": [369, 313, 409, 353],
+      "cut": false
+    },
+    {
+      "text": "930",
+      "bbox": [519, 313, 559, 353],
+      "cut": false
+    },
+    {
+      "text": "965",
+      "bbox": [672, 313, 712, 353],
+      "cut": false
+    },
+    {
+      "text": "Characters",
+      "bbox": [62, 400, 188, 440],
+      "cut": false
+    },
+    {
+      "text": "825",
+      "bbox": [222, 400, 262, 440],
+      "cut": false
+    },
+    {
+      "text": "891",
+      "bbox": [369, 400, 409, 440],
+      "cut": false
+    },
+    {
+      "text": "50",
+      "bbox": [522, 400, 552, 440],
+      "cut": false
+    },
+    {
+      "text": "930",
+      "bbox": [672, 400, 712, 440],
+      "cut": false
+    },
+    {
+      "text": "Vehicles",
+      "bbox": [62, 487, 164, 527],
+      "cut": false
+    },
+    {
+      "text": "376",
+      "bbox": [222, 487, 262, 527],
+      "cut": false
+    },
+    {
+      "text": "225",
+      "bbox": [369, 487, 409, 527],
+      "cut": false
+    },
+    {
+      "text": "708",
+      "bbox": [519, 487, 559, 527],
+      "cut": false
+    },
+    {
+      "text": "265",
+      "bbox": [672, 487, 712, 527],
+      "cut": false
+    },
+    {
+      "text": "Terrain",
+      "bbox": [62, 574, 148, 614],
+      "cut": false
+    },
+    {
+      "text": "692",
+      "bbox": [222, 574, 262, 614],
+      "cut": false
+    },
+    {
+      "text": "115",
+      "bbox": [369, 574, 409, 614],
+      "cut": false
+    },
+    {
+      "text": "372",
+      "bbox": [519, 574, 559, 614],
+      "cut": false
+    },
+    {
+      "text": "808",
+      "bbox": [672, 574, 712, 614],
+      "cut": false
+    },
+    {
+      "text": "FX",
+      "bbox": [62, 661, 98, 701],
+      "cut": false
+    },
+    {
+      "text": "583",
+      "bbox": [222, 661, 262, 701],
+      "cut": false
+    },
+    {
+      "text": "915",
+      "bbox": [369, 661, 409, 701],
+      "cut": false
+    },
+    {
+      "text": "905",
+      "bbox": [519, 661, 559, 701],
+      "cut": false
+    },
+    {
+      "text": "426",
+      "bbox": [672, 661, 712, 701],
+      "cut": false
+    },
+    {
+      "text": "9",
+      "bbox": [978, 454, 995, 494],
+      "cut": true
+    }
+  ],
+  "objects": [
+    {
+      "label": "red bar",
+      "color": "red",
+      "bbox": [968, 494, 1000, 1000],
+      "details": "partially visible at right edge",
+      "cut": true
+    }
+  ],
+  "notes": "This tile shows the top-left portion of a data table titled 'Quarterly asset output (units)' with rows for Teams and columns Q1-Q4, plus a partial red bar chart at the right edge."
+}

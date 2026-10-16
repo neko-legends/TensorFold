@@ -1,0 +1,3 @@
+7 WARN
+55 OK
+9 FAIL

@@ -1,0 +1,5 @@
+12 OK
+98 OK
+7 WARN
+55 OK
+9 FATI

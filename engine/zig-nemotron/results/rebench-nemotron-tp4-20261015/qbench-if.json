@@ -1,0 +1,163 @@
+{
+ "bench": "qbench",
+ "version": 1,
+ "tag": "rebench-nemotron-tp4-if",
+ "base_url": "http://forge:8100/v1",
+ "model": "NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4",
+ "thinking": false,
+ "started": "2026-10-15T19:28:48-0700",
+ "areas": {
+  "if": {
+   "n": 20,
+   "correct": 19,
+   "accuracy": 0.95,
+   "items": [
+    {
+     "id": "if-01",
+     "kind": "lines",
+     "ok": true,
+     "finish": "stop",
+     "reply": "- Red\n- Green\n- Blue"
+    },
+    {
+     "id": "if-02",
+     "kind": "exact_ci",
+     "ok": true,
+     "finish": "stop",
+     "reply": "pinecone"
+    },
+    {
+     "id": "if-03",
+     "kind": "max_words",
+     "ok": true,
+     "finish": "stop",
+     "reply": "The kettle whistles as the water boils."
+    },
+    {
+     "id": "if-04",
+     "kind": "json_keys",
+     "ok": true,
+     "finish": "stop",
+     "reply": "{\"a\": \"x\", \"b\": 2}"
+    },
+    {
+     "id": "if-05",
+     "kind": "int_only",
+     "ok": true,
+     "finish": "stop",
+     "reply": "6"
+    },
+    {
+     "id": "if-06",
+     "kind": "lines",
+     "ok": true,
+     "finish": "stop",
+     "reply": "Soft drops kiss the leaves,\nPuddles form on dusty ground,\nSky weeps, earth drinks deep."
+    },
+    {
+     "id": "if-07",
+     "kind": "sentences",
+     "ok": true,
+     "finish": "stop",
+     "reply": "Gravity is a fundamental force of attraction that exists between any two objects with mass. The strength of this pull in"
+    },
+    {
+     "id": "if-08",
+     "kind": "absent_char",
+     "ok": false,
+     "finish": "stop",
+     "reply": "A small craft floats on water. It has a flat bottom and a tall mast. Wind fills cloth sails. It can hold a small group o"
+    },
+    {
+     "id": "if-09",
+     "kind": "exact",
+     "ok": true,
+     "finish": "stop",
+     "reply": "THE QUICK BROWN FOX"
+    },
+    {
+     "id": "if-10",
+     "kind": "lines_prefix_end",
+     "ok": true,
+     "finish": "stop",
+     "reply": "* Tea is the second most consumed beverage in the world after water.\n* There are six main types of tea: white, green, ye"
+    },
+    {
+     "id": "if-11",
+     "kind": "exact",
+     "ok": true,
+     "finish": "stop",
+     "reply": "1,2,3,4,5"
+    },
+    {
+     "id": "if-12",
+     "kind": "one_of",
+     "ok": true,
+     "finish": "stop",
+     "reply": "No"
+    },
+    {
+     "id": "if-13",
+     "kind": "comma_n",
+     "ok": true,
+     "finish": "stop",
+     "reply": "earth, mars"
+    },
+    {
+     "id": "if-14",
+     "kind": "exact_ci",
+     "ok": true,
+     "finish": "stop",
+     "reply": "echo echo echo echo"
+    },
+    {
+     "id": "if-15",
+     "kind": "max_words",
+     "ok": true,
+     "finish": "stop",
+     "reply": "Water evaporates from oceans and lakes, forms clouds, falls as precipitation, and flows back to the sea through rivers a"
+    },
+    {
+     "id": "if-16",
+     "kind": "lines_matching",
+     "ok": true,
+     "finish": "stop",
+     "reply": "| Column 1 | Column 2 |\n|----------|----------|\n| Data 1   | Data 2   |"
+    },
+    {
+     "id": "if-17",
+     "kind": "exact",
+     "ok": true,
+     "finish": "stop",
+     "reply": "name,age,city"
+    },
+    {
+     "id": "if-18",
+     "kind": "substring",
+     "ok": true,
+     "finish": "stop",
+     "reply": "The artist mixed a small amount of cobalt into the paint to achieve a deep, rich hue."
+    },
+    {
+     "id": "if-19",
+     "kind": "words_n_lower",
+     "ok": true,
+     "finish": "stop",
+     "reply": "cold white flakes fall gently"
+    },
+    {
+     "id": "if-20",
+     "kind": "startswith",
+     "ok": true,
+     "finish": "stop",
+     "reply": "A: Lima"
+    }
+   ],
+   "error": null,
+   "seconds": 4.1
+  }
+ },
+ "finished": "2026-10-15T19:28:52-0700",
+ "requests": 20,
+ "transport_errors": 0
+}

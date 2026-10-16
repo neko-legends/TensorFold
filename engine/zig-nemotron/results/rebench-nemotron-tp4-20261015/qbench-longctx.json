@@ -1,0 +1,53 @@
+{
+ "bench": "qbench",
+ "version": 1,
+ "tag": "rebench-nemotron-tp4-longctx",
+ "base_url": "http://forge:8100/v1",
+ "model": "NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4",
+ "thinking": false,
+ "started": "2026-10-15T19:29:07-0700",
+ "areas": {
+  "longctx": {
+   "n": 3,
+   "correct": 3,
+   "accuracy": 1.0,
+   "items": [
+    {
+     "size_target": 32768,
+     "size_actual": 25067,
+     "depth": 0.3333333333333333,
+     "ok": true,
+     "reply": "698772",
+     "finish": "stop",
+     "prompt_tokens": 25111,
+     "ttft_s": 4.982628178
+    },
+    {
+     "size_target": 131072,
+     "size_actual": 100269,
+     "depth": 0.3333333333333333,
+     "ok": true,
+     "reply": "364956",
+     "finish": "stop",
+     "prompt_tokens": 100313,
+     "ttft_s": 21.110930524
+    },
+    {
+     "size_target": 299000,
+     "size_actual": 228734,
+     "depth": 0.3333333333333333,
+     "ok": true,
+     "reply": "968519",
+     "finish": "stop",
+     "prompt_tokens": 228778,
+     "ttft_s": 55.727512963
+    }
+   ],
+   "error": null,
+   "seconds": 85.1
+  }
+ },
+ "finished": "2026-10-15T19:30:32-0700",
+ "requests": 3,
+ "transport_errors": 0
+}

@@ -1,0 +1,77 @@
+{
+  "texts": [
+    {
+      "text": "Props",
+      "bbox": [120, 792, 168, 830],
+      "cut": false
+    },
+    {
+      "text": "Characters",
+      "bbox": [290, 792, 394, 830],
+      "cut": false
+    },
+    {
+      "text": "Vehicles",
+      "bbox": [466, 792, 544, 830],
+      "cut": false
+    },
+    {
+      "text": "265",
+      "bbox": [484, 414, 526, 452],
+      "cut": false
+    },
+    {
+      "text": "Terrain",
+      "bbox": [642, 792, 714, 830],
+      "cut": false
+    },
+    {
+      "text": "FX",
+      "bbox": [818, 792, 846, 830],
+      "cut": false
+    },
+    {
+      "text": "426",
+      "bbox": [834, 228, 876, 266],
+      "cut": false
+    }
+  ],
+  "objects": [
+    {
+      "label": "bar",
+      "color": "red",
+      "bbox": [120, 0, 228, 782],
+      "details": "tallest bar, no value label visible",
+      "cut": false
+    },
+    {
+      "label": "bar",
+      "color": "blue",
+      "bbox": [290, 0, 398, 782],
+      "details": "tallest bar, no value label visible",
+      "cut": false
+    },
+    {
+      "label": "bar",
+      "color": "green",
+      "bbox": [466, 462, 574, 782],
+      "details": "value 265",
+      "cut": false
+    },
+    {
+      "label": "bar",
+      "color": "yellow",
+      "bbox": [642, 0, 750, 782],
+      "details": "tallest bar, no value label visible",
+      "cut": false
+    },
+    {
+      "label": "bar",
+      "color": "orange",
+      "bbox": [818, 276, 926, 782],
+      "details": "value 426",
+      "cut": false
+    }
+  ],
+  "notes": "This tile shows a bar chart with five categories: Props, Characters, Vehicles, Terrain, and FX. Only Vehicles (265) and FX (426) have visible numeric labels; the other bars are cut off at the top and lack labels."
+}

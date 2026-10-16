@@ -1,0 +1,155 @@
+{
+  "summary": "This image is a digital poster or ticket for the 'SUMMIT PRISM EXPO'. It features a large title at the top, event details in red, a long list of item names and values on the left, and a teal square with 'ZONE B' on the right. The background is a solid off-white color.",
+  "style": "The image is a flat, graphic design with a minimalist aesthetic. It uses a limited color palette of dark blue, red, teal, and off-white. The text is rendered in a clean, sans-serif font. The perspective is a direct, head-on view of a 2D layout.",
+  "background": "The background is a solid, uniform off-white or cream color, providing high contrast for the text and the teal square.",
+  "palette": ["#1a2b4c", "#d32f2f", "#00897b", "#f5f0e6", "#ffffff"],
+  "layout": [
+    {
+      "region": "header",
+      "bbox": [68, 38, 540, 110],
+      "content": "Main title 'SUMMIT PRISM EXPO' in large dark blue font, with event details 'Hall 7 · Doors 09:30 · Entry $24.50' in red below it."
+    },
+    {
+      "region": "content list",
+      "bbox": [68, 130, 330, 555],
+      "content": "A long list of text lines containing item names, numbers, dates, and prices, such as 'Quartz alpha pixel orbit #9935' and 'Orbit summit nectar $7.97'."
+    },
+    {
+      "region": "zone badge",
+      "bbox": [725, 138, 935, 320],
+      "content": "A solid teal square containing the white text 'ZONE B' centered within it."
+    },
+    {
+      "region": "footer",
+      "bbox": [690, 960, 785, 975],
+      "content": "Small reference text 'ref 7741-QX / v3.88' at the bottom right."
+    }
+  ],
+  "objects": [
+    {
+      "label": "teal square",
+      "color": "teal",
+      "bbox": [725, 138, 935, 320],
+      "details": "A solid square shape with rounded corners, containing the text 'ZONE B'."
+    }
+  ],
+  "texts": [
+    {
+      "text": "SUMMIT PRISM EXPO",
+      "bbox": [68, 38, 540, 75]
+    },
+    {
+      "text": "Hall 7 · Doors 09:30 · Entry $24.50",
+      "bbox": [68, 85, 455, 110]
+    },
+    {
+      "text": "Quartz alpha pixel orbit #9935",
+      "bbox": [68, 130, 330, 150]
+    },
+    {
+      "text": "Alpha velvet 23/11/2027",
+      "bbox": [68, 155, 265, 175]
+    },
+    {
+      "text": "Orbit summit nectar $7.97",
+      "bbox": [68, 175, 275, 195]
+    },
+    {
+      "text": "Meadow lantern falcon 1,684",
+      "bbox": [68, 205, 275, 225]
+    },
+    {
+      "text": "Summit cobalt quartz ember 1,301",
+      "bbox": [68, 225, 330, 245]
+    },
+    {
+      "text": "Orbit cedar $888.12",
+      "bbox": [68, 245, 225, 265]
+    },
+    {
+      "text": "Granite granite 67.02",
+      "bbox": [68, 275, 215, 295]
+    },
+    {
+      "text": "Orbit copper summit ember 4,432",
+      "bbox": [68, 295, 290, 315]
+    },
+    {
+      "text": "Harbor falcon #6155",
+      "bbox": [68, 315, 215, 335]
+    },
+    {
+      "text": "Summit meadow pixel #5304",
+      "bbox": [68, 335, 245, 355]
+    },
+    {
+      "text": "Ember granite orbit meadow 49.35",
+      "bbox": [68, 355, 265, 375]
+    },
+    {
+      "text": "Willow zephyr velvet ember 6,262",
+      "bbox": [68, 375, 275, 395]
+    },
+    {
+      "text": "Cobalt pixel falcon quartz 17/3/2027",
+      "bbox": [68, 395, 265, 415]
+    },
+    {
+      "text": "Cedar tundra 9,987",
+      "bbox": [68, 415, 195, 435]
+    },
+    {
+      "text": "Falcon prism alpha quartz 2/4/2027",
+      "bbox": [68, 435, 265, 455]
+    },
+    {
+      "text": "Velvet prism #3060",
+      "bbox": [68, 455, 185, 475]
+    },
+    {
+      "text": "Copper pixel tundra zephyr #4295",
+      "bbox": [68, 475, 245, 495]
+    },
+    {
+      "text": "Granite summit tundra summit 24.79",
+      "bbox": [68, 495, 245, 515]
+    },
+    {
+      "text": "Orbit alpha velvet harbor $33.42",
+      "bbox": [68, 515, 245, 535]
+    },
+    {
+      "text": "Prism lantern cobalt meadow 3,965",
+      "bbox": [68, 535, 245, 555]
+    },
+    {
+      "text": "Willow granite willow willow $56.66",
+      "bbox": [68, 555, 245, 575]
+    },
+    {
+      "text": "Orbit lantern 53.63",
+      "bbox": [68, 575, 175, 595]
+    },
+    {
+      "text": "Summit cobalt 5.06",
+      "bbox": [68, 595, 175, 615]
+    },
+    {
+      "text": "Prism prism lantern $1035",
+      "bbox": [68, 615, 175, 635]
+    },
+    {
+      "text": "ZONE B",
+      "bbox": [750, 210, 855, 235]
+    },
+    {
+      "text": "ref 7741-QX / v3.88",
+      "bbox": [690, 960, 785, 975]
+    }
+  ],
+  "counts": {
+    "text lines": 26,
+    "teal squares": 1
+  },
+  "smallest_text_px": 12
+}

@@ -1,0 +1,1 @@
+{"texts": [{"text": "ref 7741-QX / v3.08", "bbox": [420, 902, 604, 923], "cut": false}], "objects": [], "notes": "This tile shows only a small line of reference text at the bottom center on a blank background."}

@@ -1,0 +1,1 @@
+{"texts": [{"text": "summit-726 pixel", "bbox": [212, 493, 310, 508], "cut": false}, {"text": "quartz-477 meadow", "bbox": [329, 839, 570, 866], "cut": false}], "objects": [], "notes": "This tile shows two lines of text on a white background."}

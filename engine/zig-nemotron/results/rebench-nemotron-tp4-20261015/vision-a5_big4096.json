@@ -1,0 +1,33 @@
+{
+ "url": "http://forge:8100/v1",
+ "model": "NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4",
+ "date": "2026-10-15 19:53",
+ "cache_only": false,
+ "refine": true,
+ "rows": [
+  {
+   "bench": "a5_big4096",
+   "secs": 211.0,
+   "calls": 113,
+   "mode": "auto\u2192tiles",
+   "grid": "4x4",
+   "overlap": 0.15,
+   "coords": "norm1000",
+   "refine": true,
+   "t_n_gt": 48,
+   "t_exact": 48,
+   "t_exact_nows": 48,
+   "t_fuzzy": 48,
+   "t_mean_cer": 0.0,
+   "t_pos_err": 3.4,
+   "t_n_pred": 48,
+   "t_unreadable": 0,
+   "t_halluc": 0,
+   "s_n_gt": 10,
+   "s_n_pred": 9,
+   "s_matched": 9,
+   "s_extra": 0,
+   "s_pos_err": 31.1
+  }
+ ]
+}

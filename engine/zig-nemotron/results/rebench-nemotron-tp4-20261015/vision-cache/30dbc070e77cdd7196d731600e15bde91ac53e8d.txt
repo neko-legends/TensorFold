@@ -1,0 +1,1 @@
+{"texts": [], "objects": [], "notes": "This tile shows the top-left portion of a grid of dark blue squares on a light gray background, with several black checkmark symbols in the light blue area above and to the left."}

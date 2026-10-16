@@ -1,0 +1,1 @@
+{"texts": [{"text": "velvet-809 harbor", "bbox": [162, 149, 351, 172], "cut": false}, {"text": "ember-354 ember", "bbox": [54, 623, 154, 637], "cut": false}], "objects": [], "notes": "This tile shows two text labels on a light background: 'velvet-809 harbor' near the top and 'ember-354 ember' near the bottom left."}

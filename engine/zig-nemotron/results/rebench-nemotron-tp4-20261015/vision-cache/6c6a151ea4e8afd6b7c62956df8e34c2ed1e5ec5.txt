@@ -1,0 +1,34 @@
+{
+  "texts": [
+    {
+      "text": "willow-148 summit",
+      "bbox": [679, 212, 777, 225],
+      "cut": false
+    },
+    {
+      "text": "copper-604 pixel",
+      "bbox": [175, 422, 286, 437],
+      "cut": false
+    },
+    {
+      "text": "quartz-807 willo",
+      "bbox": [812, 664, 1000, 689],
+      "cut": true
+    },
+    {
+      "text": "quartz-404 nectar",
+      "bbox": [708, 941, 866, 961],
+      "cut": false
+    }
+  ],
+  "objects": [
+    {
+      "label": "purple triangle",
+      "color": "purple",
+      "bbox": [250, 562, 468, 779],
+      "details": "filled triangle pointing up",
+      "cut": false
+    }
+  ],
+  "notes": "This tile shows a purple triangle in the lower-left area with four text labels scattered around it, one of which is cut off at the right edge."
+}

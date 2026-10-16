@@ -1,0 +1,15 @@
+{
+  "texts": [],
+  "objects": [
+    {"label": "blue rectangle", "color": "blue", "bbox": [212, 0, 400, 88], "details": "top edge cut off", "cut": true},
+    {"label": "blue rectangle", "color": "blue", "bbox": [575, 0, 763, 88], "details": "top edge cut off", "cut": true},
+    {"label": "red circle", "color": "red", "bbox": [470, 117, 585, 270], "details": ""},
+    {"label": "orange square", "color": "orange", "bbox": [733, 147, 917, 383], "details": ""},
+    {"label": "yellow circle", "color": "yellow", "bbox": [333, 283, 467, 457], "details": ""},
+    {"label": "purple triangle", "color": "purple", "bbox": [108, 500, 283, 733], "details": ""},
+    {"label": "yellow circle", "color": "yellow", "bbox": [392, 560, 525, 743], "details": ""},
+    {"label": "green triangle", "color": "green", "bbox": [650, 427, 783, 603], "details": ""},
+    {"label": "green triangle", "color": "green", "bbox": [767, 653, 942, 890], "details": ""}
+  ],
+  "notes": "This tile shows a collection of colored geometric shapes on a white background, including rectangles, circles, squares, and triangles in blue, red, orange, yellow, purple, and green."
+}

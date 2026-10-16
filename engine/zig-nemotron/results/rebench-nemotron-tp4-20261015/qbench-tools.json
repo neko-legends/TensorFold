@@ -1,0 +1,152 @@
+{
+ "bench": "qbench",
+ "version": 1,
+ "tag": "rebench-nemotron-tp4-tools",
+ "base_url": "http://forge:8100/v1",
+ "model": "NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4",
+ "thinking": false,
+ "started": "2026-10-15T19:29:00-0700",
+ "areas": {
+  "tools": {
+   "n": 10,
+   "correct": 10,
+   "accuracy": 1.0,
+   "single": {
+    "n": 8,
+    "correct": 8,
+    "items": [
+     {
+      "id": "tool-01",
+      "ok": true,
+      "why": "",
+      "name": "get_weather",
+      "calls": 1,
+      "markup_leak": false,
+      "finish": "tool_calls"
+     },
+     {
+      "id": "tool-02",
+      "ok": true,
+      "why": "",
+      "name": "create_task",
+      "calls": 1,
+      "markup_leak": false,
+      "finish": "tool_calls"
+     },
+     {
+      "id": "tool-03",
+      "ok": true,
+      "why": "",
+      "name": "run_sql",
+      "calls": 1,
+      "markup_leak": false,
+      "finish": "tool_calls"
+     },
+     {
+      "id": "tool-04",
+      "ok": true,
+      "why": "",
+      "name": "convert_currency",
+      "calls": 1,
+      "markup_leak": false,
+      "finish": "tool_calls"
+     },
+     {
+      "id": "tool-05",
+      "ok": true,
+      "why": "expected no tool call",
+      "name": null,
+      "calls": 0,
+      "markup_leak": false,
+      "finish": "stop"
+     },
+     {
+      "id": "tool-06",
+      "ok": true,
+      "why": "",
+      "name": "create_task",
+      "calls": 1,
+      "markup_leak": false,
+      "finish": "tool_calls"
+     },
+     {
+      "id": "tool-07",
+      "ok": true,
+      "why": "expected no tool call",
+      "name": null,
+      "calls": 0,
+      "markup_leak": false,
+      "finish": "stop"
+     },
+     {
+      "id": "tool-08",
+      "ok": true,
+      "why": "",
+      "name": "get_weather",
+      "calls": 1,
+      "markup_leak": false,
+      "finish": "tool_calls"
+     }
+    ]
+   },
+   "chains": {
+    "n": 2,
+    "correct": 2,
+    "items": [
+     {
+      "id": "chain-01",
+      "ok": true,
+      "why": "",
+      "calls": [
+       {
+        "name": "get_weather",
+        "args": {
+         "city": "Sapporo",
+         "units": "c"
+        }
+       },
+       {
+        "name": "create_task",
+        "args": {
+         "title": "sleet watch",
+         "priority": 4,
+         "tags": [
+          "weather",
+          "sleet"
+         ]
+        }
+       }
+      ]
+     },
+     {
+      "id": "chain-02",
+      "ok": true,
+      "why": "",
+      "calls": [
+       {
+        "name": "run_sql",
+        "args": {
+         "query": "SELECT id, created_at FROM messages ORDER BY created_at DESC LIMIT 5",
+         "limit": 5
+        }
+       },
+       {
+        "name": "convert_currency",
+        "args": {
+         "amount": 500,
+         "from": "EUR",
+         "to": "JPY"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "error": null,
+   "seconds": 5.4
+  }
+ },
+ "finished": "2026-10-15T19:29:06-0700",
+ "requests": 12,
+ "transport_errors": 0
+}

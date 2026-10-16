@@ -1,0 +1,1 @@
+{"texts": [{"text": "Pro", "bbox": [972, 798, 1000, 830], "cut": true}], "objects": [{"label": "red vertical bar", "color": "red", "bbox": [966, 0, 1000, 786], "details": "thin red strip along right edge", "cut": true}], "notes": "This tile is mostly blank white with a red vertical strip on the right edge and the partial text \"Pro\" at the bottom right."}
