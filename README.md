@@ -56,6 +56,24 @@ non-pipelined path's — short-prompt replies are bit-identical either way (101/
 
 ![Every engine on four Sparks: TensorFold Python, Zig, vLLM, SGLang](docs/img/engines-dsv41-comparison-20261011.png)
 
+### Long context, cold (2026-10-14, live Zig engine)
+
+One request at a time, thinking off, temperature 0, a prompt built fresh per run (nothing for the prefix cache to
+reuse). Both requests below completed with no error and no engine restart:
+
+| prompt | result | cold first token | prompt reading |
+| --- | --- | ---: | ---: |
+| **199,713 tokens** | completed, the question at the end answered | **36.8 s** | ~5,400 tok/s |
+| 332,847 tokens (79 % of the 420,096-token request slot) | completed | 66.6 s | ~5,100 tok/s |
+
+Both requests report `cached_tokens: 0`, so both are genuinely cold reads rather than prefix-cache hits, and the
+engine's own line for the first agrees (`prompt=199713 cached=0`). The 200K run read a 12,000-line inventory and
+answered the counting question at its end; that count is also readable from the document's tail, so this shows the
+request completes and answers at that length rather than that every token was attended to. Probe:
+[spark-bench `scripts/prefill_context_probe.py`](https://github.com/neko-legends/spark-bench/blob/main/scripts/prefill_context_probe.py).
+
+![Cold 200K-token prompt on the live four-Spark Zig engine: 199,713 tokens, first token 36.8 s](docs/img/context-200k-20261014.webp)
+
 ### At a glance (previous engine: Python, live 2026-10-07 → 2026-10-11)
 
 | | four Sparks (this fork) | two Sparks (Jay's) |
