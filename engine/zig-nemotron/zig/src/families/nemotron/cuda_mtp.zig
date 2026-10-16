@@ -364,6 +364,11 @@ pub const Head = struct {
         return p.*;
     }
 
+    /// The confidences of this round's first `n` levels, as the host last read them (after the stream synchronized).
+    pub fn heldConfidences(h: *Head, n: usize) []const f32 {
+        return h.pinned.slice(f32)[host_probs..][0..@min(n, max_chain)];
+    }
+
     /// The drafts of this round's levels (valid once their levels have run).
     pub fn drafts(h: *Head) []const u32 {
         return h.pinned.slice(u32)[host_drafts..][0..h.levels];

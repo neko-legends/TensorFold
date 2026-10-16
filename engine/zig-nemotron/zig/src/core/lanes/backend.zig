@@ -57,6 +57,7 @@ pub const DraftRequest = struct {
     early: bool = false, // settle the drafts the verify began (speculate_early) instead of drafting late
     lanes: ?*const Shape = null, // a tree of drafts to hold, each lane its parent's rank-r head token (depth unused)
     ranks: bool = false, // also keep each chained level's best tokens (alternatives(), for grafts)
+    sized: bool = false, // `depth` is a cap: the backend stops the chain by its own confidences (tree() reports the count)
 };
 
 pub const Backend = struct {
