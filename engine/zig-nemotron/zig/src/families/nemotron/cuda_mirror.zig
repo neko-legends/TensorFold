@@ -25,8 +25,10 @@ const PlanLink = tp.planlink.PlanLink;
 
 const Op = enum(i64) { prefill = 1, verify, keep, draft, first_masked, release, image, drop, book, load, sync, stop };
 
-/// A book call's entries: (spill, mirror key, disk key) writes a kept copy to disk; (forget, disk key, 0) removes it.
-const Book = enum(i64) { spill = 1, forget };
+/// A book call's entries: (spill, mirror key, disk key) writes a kept copy to disk; (forget, disk key, 0) removes it;
+/// (keep, disk key, 0) names a state rank 0's index holds, and (reap, count, 0) after `count` of them removes the files
+/// none named (rank 0's index opened: the others' orphans go too).
+const Book = enum(i64) { spill = 1, forget, keep, reap };
 
 const vstore = @import("vision_store.zig");
 const reuse = @import("cuda_reuse.zig");
@@ -130,6 +132,19 @@ pub const Mirror = struct {
         m.lockBook();
         defer m.book.unlock();
         m.disk_book.appendSlice(m.gpa, &.{ @intFromEnum(Book.forget), @bitCast(key), 0 }) catch {};
+    }
+
+    /// cuda_reuse.reapPeers on rank 0: the others keep the disk states `keys` names and remove the rest, with the next
+    /// call. All of them or no entry: a partial list would remove states rank 0 still reads.
+    pub fn reap(m: *Mirror, keys: []const u64) void {
+        m.lockBook();
+        defer m.book.unlock();
+        m.disk_book.ensureUnusedCapacity(m.gpa, 3 * (keys.len + 1)) catch {
+            std.log.warn("tp mirror: the other ranks keep any orphan disk states this start", .{});
+            return;
+        };
+        for (keys) |key| m.disk_book.appendSliceAssumeCapacity(&.{ @intFromEnum(Book.keep), @bitCast(key), 0 });
+        m.disk_book.appendSliceAssumeCapacity(&.{ @intFromEnum(Book.reap), @intCast(keys.len), 0 });
     }
 
     /// cuda_reuse.read on rank 0 (`copy` read from disk state `key`): every other rank reads its own under a new key,
@@ -500,11 +515,13 @@ const Kept = struct {
     marks: []const u32 = &.{},
     first: i64 = 0,
     disk: ?[:0]u8 = null, // the disk tier's folder on this rank (TF_NEMOTRON_DISK/<identity>), null when off
+    keep: std.AutoHashMapUnmanaged(u64, void) = .empty, // book keep entries since the last reap
 
     fn deinit(k: *Kept) void {
         var it = k.copies.valueIterator();
         while (it.next()) |c| reuse.drop(k.target, c.*);
         k.copies.deinit(k.gpa);
+        k.keep.deinit(k.gpa);
         if (k.disk) |d| k.gpa.free(d);
     }
 
@@ -525,9 +542,17 @@ const Kept = struct {
 pub fn follow(gpa: std.mem.Allocator, inner: be.Backend, link: *PlanLink, images: ?Images, target: ?*reuse.Target) !void {
     var kept: ?Kept = if (target) |t| .{ .gpa = gpa, .target = t } else null;
     defer if (kept) |*k| k.deinit();
-    if (kept) |*k| k.disk = reuse.diskDir(gpa, k.target) catch |e| blk: {
-        std.log.warn("tp follower: no disk tier on this rank ({t}); a state rank 0 reads from disk is a miss everywhere", .{e});
-        break :blk null;
+    if (kept) |*k| k.disk = disk: {
+        const dir = (reuse.diskDir(gpa, k.target) catch |e| {
+            std.log.warn("tp follower: no disk tier on this rank ({t}); a state rank 0 reads from disk is a miss everywhere", .{e});
+            break :disk null;
+        }) orelse break :disk null;
+        reuse.lockDir(dir) catch |e| { // another server of this identity: its files are its own
+            std.log.warn("tp follower: no disk tier on this rank ({t} at {s}); a state rank 0 reads from disk is a miss everywhere", .{ e, dir });
+            gpa.free(dir);
+            break :disk null;
+        };
+        break :disk dir;
     };
     var streams: std.AutoHashMapUnmanaged(i64, *Stream) = .empty;
     defer {
@@ -718,6 +743,16 @@ fn apply(gpa: std.mem.Allocator, inner: be.Backend, images: ?Images, op: Op, r: 
                         _ = reuse.writeFile(k.target, copy, dir, @bitCast(b)) catch |e| std.log.warn("tp follower: disk state {x} not written ({t}); reading it back will be a miss", .{ @as(u64, @bitCast(b)), e });
                     },
                     @intFromEnum(Book.forget) => reuse.unlinkFile(dir, @bitCast(a)),
+                    @intFromEnum(Book.keep) => k.keep.put(gpa, @bitCast(a), {}) catch {},
+                    @intFromEnum(Book.reap) => {
+                        defer k.keep.clearRetainingCapacity();
+                        if (k.keep.count() != @as(usize, @intCast(a))) { // a key not held: remove nothing
+                            std.log.warn("tp follower: {d} of rank 0's {d} disk states noted; orphans stay this start", .{ k.keep.count(), a });
+                            continue;
+                        }
+                        const gone = reuse.reapDir(dir, &k.keep);
+                        if (gone > 0) std.log.info("tp follower: removed {d} disk state files rank 0's index does not name", .{gone});
+                    },
                     else => return error.BadMirrorFrame,
                 }
             }

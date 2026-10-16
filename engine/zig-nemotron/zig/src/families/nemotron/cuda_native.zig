@@ -20,6 +20,8 @@ pub const snap_read = reuse.read;
 pub const snap_forget = reuse.forget;
 pub const snap_forget_checked = reuse.forgetChecked;
 pub const snap_identity = reuse.identityOf;
+pub const snap_lock = reuse.lockOf; // one server a disk folder
+pub const snap_reap = reuse.reapPeers; // the other ranks' files rank 0's index does not name
 pub const snap_ready = reuse.ready; // the spare Mamba buffers it sets aside come out of the cache's budget
 const core = @import("core");
 

@@ -211,11 +211,13 @@ pub fn identityOf(ptr: *anyopaque) u64 {
     return diskIdentity(@ptrCast(@alignCast(ptr)));
 }
 
-/// Where this rank's state files go under `root`: a folder per layout, rank and world, the same name every start.
+/// Where this rank's state files go under `root`: a folder per checkpoint, layout, rank and world, the same name every
+/// start. The checkpoint's hash keeps another checkpoint of the same shapes (a fine-tune, a revision) from reading
+/// these states; adding it moved every folder, so the states written before it are never read.
 pub fn diskIdentity(t: *const Target) u64 {
     const c = t.e.c;
     const m = state.mambaPlanes(c);
-    const words = [_]u64{ disk_version, state.kvRowBytes(c), m[0], m[1], c.count(.attention), c.layers, c.tp_rank, c.tp_world, @intFromBool(t.head != null) };
+    const words = [_]u64{ disk_version, state.kvRowBytes(c), m[0], m[1], c.count(.attention), c.layers, c.tp_rank, c.tp_world, @intFromBool(t.head != null), t.e.w.checkpoint_hash };
     return std.hash.Wyhash.hash(0x4e454d4f, std.mem.sliceAsBytes(&words));
 }
 
@@ -235,6 +237,63 @@ pub fn diskDir(gpa: std.mem.Allocator, t: *const Target) !?[:0]u8 {
     if (fd < 0) return error.DiskDir;
     _ = std.c.close(fd);
     return dir;
+}
+
+extern "c" fn flock(fd: c_int, operation: c_int) c_int;
+
+/// This process's hold on disk folder `dir` (`dir`/lock, held until it exits); error.DiskBusy while another server
+/// of the same identity holds it, which then keeps no disk tier rather than share the index and files with it.
+pub fn lockDir(dir: []const u8) !void {
+    var pb: [1100]u8 = undefined;
+    const path = try std.fmt.bufPrintSentinel(&pb, "{s}/lock", .{dir}, 0);
+    const fd = std.c.open(path, .{ .ACCMODE = .RDONLY, .CREAT = true, .NOFOLLOW = true, .CLOEXEC = true }, @as(std.c.mode_t, 0o600));
+    if (fd < 0) return error.DiskLock;
+    if (flock(fd, std.c.LOCK.EX | std.c.LOCK.NB) != 0) {
+        _ = std.c.close(fd);
+        return error.DiskBusy;
+    }
+}
+
+/// Rank 0's disk folder (made when missing) under this process's hold (lockDir); nothing to hold with TF_NEMOTRON_DISK off.
+pub fn lockOf(ptr: *anyopaque) anyerror!void {
+    const t: *const Target = @ptrCast(@alignCast(ptr));
+    const gpa = t.e.gpa;
+    const dir = try diskDir(gpa, t) orelse return;
+    defer gpa.free(dir);
+    try lockDir(dir);
+}
+
+/// State files in `dir` no index names (`keep`), and torn `.part` ones, removed: a follower's half of rank 0's
+/// removeUnindexed. Only exact `<key>.bin` and `<key>.bin.part` names go.
+pub fn reapDir(dir: [:0]const u8, keep: *const std.AutoHashMapUnmanaged(u64, void)) usize {
+    const d = std.c.opendir(dir) orelse return 0;
+    defer _ = std.c.closedir(d);
+    var n: usize = 0;
+    while (std.c.readdir(d)) |ent| {
+        if (ent.type != std.c.DT.REG) continue;
+        const name = std.mem.sliceTo(&ent.name, 0);
+        const key = fileKey(name) orelse continue;
+        if (!key.part and keep.contains(key.key)) continue;
+        var pb: [1100]u8 = undefined;
+        const path = std.fmt.bufPrintSentinel(&pb, "{s}/{s}", .{ dir, name }, 0) catch continue;
+        if (std.c.unlink(path) == 0) n += 1;
+    }
+    return n;
+}
+
+/// The key a state file's name holds (diskPath's names), and whether it is a torn `.part`.
+fn fileKey(name: []const u8) ?struct { key: u64, part: bool } {
+    if (name.len < 20 or !std.mem.eql(u8, name[16..20], ".bin")) return null;
+    const part = std.mem.eql(u8, name[20..], ".part");
+    if (name.len != 20 and !part) return null;
+    for (name[0..16]) |ch| if (!std.ascii.isDigit(ch) and !(ch >= 'a' and ch <= 'f')) return null;
+    return .{ .key = std.fmt.parseInt(u64, name[0..16], 16) catch return null, .part = part };
+}
+
+/// Rank 0's disk index opened (`keys`): the other ranks remove the state files it does not name, with the next call.
+pub fn reapPeers(ptr: *anyopaque, keys: []const u64) void {
+    const t: *Target = @ptrCast(@alignCast(ptr));
+    if (t.mirror) |m| m.reap(keys);
 }
 
 fn diskPath(buf: []u8, dir: []const u8, key: u64, part: bool) ![:0]u8 {
@@ -365,6 +424,14 @@ pub fn drop(ptr: *anyopaque, saved: *anyopaque) void {
     if (!t.e.spares.give(copy.mamba)) copy.mamba.free();
     copy.kv.free();
     t.e.gpa.destroy(copy);
+}
+
+test "a follower's reap names only exact state files" {
+    try std.testing.expectEqual(@as(u64, 0x0123456789abcdef), fileKey("0123456789abcdef.bin").?.key);
+    try std.testing.expect(!fileKey("0123456789abcdef.bin").?.part);
+    try std.testing.expect(fileKey("0123456789abcdef.bin.part").?.part);
+    for ([_][]const u8{ "lock", "index", "0123456789abcdef.bin.old", "0123456789ABCDEF.bin", "0123456789abcde.bin", "0123456789abcdefx.bin" }) |n|
+        try std.testing.expect(fileKey(n) == null);
 }
 
 fn testConfig() Config {

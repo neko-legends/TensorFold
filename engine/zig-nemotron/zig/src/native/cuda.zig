@@ -428,9 +428,16 @@ fn diskTier(gpa: Allocator, store: *api.prompt_cache.Store, target: *anyopaque) 
     const cap = try gib_of("TF_NEMOTRON_DISK_GIB", 128);
     const floor = try gib_of("TF_NEMOTRON_DISK_FLOOR_GIB", 64);
     const min = envNumber(getenv("TF_NEMOTRON_DISK_MIN")) catch return error.BadDiskSetting;
+    try nemotron.native.snap_lock(target); // before open, which removes the files its index does not name
     const im = try gpa.create(api.prompt_imprint.Imprint);
     errdefer gpa.destroy(im);
     im.* = try api.prompt_imprint.Imprint.open(gpa, root, nemotron.native.snap_identity(target), cap);
+    reap: { // the other ranks remove theirs too (tensor parallelism)
+        const keys = gpa.alloc(u64, im.metas.items.len) catch break :reap;
+        defer gpa.free(keys);
+        for (im.metas.items, keys) |x, *k| k.* = x.key;
+        nemotron.native.snap_reap(target, keys);
+    }
     store.imprint = im;
     store.spill = .{ .min = @max(1, min orelse 4096), .floor = floor };
     std.log.info("prompt cache: disk tier at {s}: {d} states, {d:.1} GiB on disk (cap {d:.0} GiB, states of {d} tokens or more)", .{ im.dir, im.metas.items.len, toGib(im.total()), toGib(cap), store.spill.min });

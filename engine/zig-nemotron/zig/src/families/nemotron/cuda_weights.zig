@@ -60,6 +60,7 @@ pub const Weights = struct {
     draft_count: usize = 0,
     buffers: std.ArrayList(cuda.DeviceBuffer) = .empty,
     named: std.ArrayList(Named) = .empty,
+    checkpoint_hash: u64 = 0, // config.json and every shard's name, size, header and tail (the disk tier's identity)
 
     pub fn deinit(w: *Weights) void {
         for (w.buffers.items) |*b| b.free();
@@ -462,6 +463,7 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, ops: kern.Ops, dir: []const u8, 
     // a multimodal wrapper keeps the language model under `language_model.`: read it as the plain model it is
     var ck = if (c.wrapped) try core.Checkpoint.openModelStrip(gpa, io, dir, Config.wrapper_prefix, true) else try core.Checkpoint.openModel(gpa, io, dir);
     defer ck.close();
+    w.checkpoint_hash = try checkpointHash(gpa, io, dir, &ck);
     try src.add(&ck);
     w.blocks = try gpa.alloc(Block, c.layers);
     for (c.kinds[0..c.layers], 0..) |kind, i| {
@@ -504,6 +506,29 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, ops: kern.Ops, dir: []const u8, 
     try src.flush();
     try ops.s.synchronize();
     return w;
+}
+
+/// Bytes of a shard's end its checkpoint hash reads: a fine-tune of the same shapes changes them, a copy does not.
+const hash_tail: usize = 64 << 10;
+
+/// The checkpoint's identity: config.json, then each shard's name, size, header and last `hash_tail` bytes. Every rank
+/// maps the same shards, so a checkpoint hashes the same on each; another checkpoint (another fine-tune or revision of
+/// the same shapes too) hashes differently, so its disk states never meet this one's.
+pub fn checkpointHash(gpa: std.mem.Allocator, io: std.Io, dir: []const u8, ck: *const core.Checkpoint) !u64 {
+    const path = try std.fs.path.join(gpa, &.{ dir, "config.json" });
+    defer gpa.free(path);
+    const text = try std.Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(1 << 26));
+    defer gpa.free(text);
+    var h = std.hash.Wyhash.init(0x4e454d4f43); // "NEMOC"
+    h.update(text);
+    for (ck.files.items) |f| {
+        const bytes = f.map.memory;
+        h.update(std.fs.path.basename(f.path));
+        h.update(std.mem.asBytes(&bytes.len));
+        h.update(bytes[0..f.data]);
+        h.update(bytes[bytes.len - @min(bytes.len - f.data, hash_tail) ..]);
+    }
+    return h.final();
 }
 
 fn loadMtp(gpa: std.mem.Allocator, io: std.Io, L: *Loader, main: *core.Checkpoint, dir: []const u8, c: Config) !void {
