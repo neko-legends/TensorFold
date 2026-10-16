@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Nemotron 3.5 Super VL vs DeepSeek V4.1 Flash on four Sparks: the six result charts, light and dark.
+"""Nemotron 3.5 Super VL vs DeepSeek V4.1 Flash on four Sparks: the seven result charts, light and dark.
 
     ./make-charts.sh                 # extract numbers.json from the result files, then render
     python3 make_charts.py extract   # numbers.json only (needs the spark-bench checkout for DeepSeek's qbench)
@@ -156,6 +156,20 @@ def extract() -> dict:
                        for k in ("code", "prose", "story", "explain", "essay")}
     src["drafting"] = rel(dr / "final-before.json") + ", " + rel(live / "draft-live.json")
 
+    # memory per Spark: idle now (read-only free/nvidia-smi on the live server), full cache from 2026-10-15
+    mp = RES / "memory-20261016" / "memory.json"
+    m = load(mp)
+    idle = max(m["idle"]["boxes"], key=lambda b: b["used_gib"])
+    full = min(m["full_load"]["boxes"], key=lambda b: b["available_gib"])
+    out["memory"] = {"total_gib": idle["total_gib"], "sizes": m["sizes"], "date": {"idle": m["date"][:10], "full": m["full_load"]["date"][:10]},
+                     "idle": {k: idle[k] for k in ("box", "used_gib", "available_gib", "server_process_gib")},
+                     "idle_available_range": [min(b["available_gib"] for b in m["idle"]["boxes"]),
+                                              max(b["available_gib"] for b in m["idle"]["boxes"])],
+                     "full": full,
+                     "full_available_range": [min(b["available_gib"] for b in m["full_load"]["boxes"]),
+                                              max(b["available_gib"] for b in m["full_load"]["boxes"])]}
+    src["memory"] = rel(mp) + " (idle: free -b / nvidia-smi on each Spark; full: spare-mem-20261015/final.log)"
+
     NUMBERS.write_text(json.dumps(out, indent=1) + "\n")
     return out
 
@@ -168,6 +182,8 @@ THEMES = {
     "dark": dict(bg="#1a1a19", ink="#ffffff", ink2="#c3c2b7", muted="#8f8e86", grid="#33332f", track="#232322",
                  ne="#3987e5", ds="#d95926", old="#5b5a55"),
 }
+for _t, (_aqua, _yellow) in zip(THEMES.values(), (("#1baf7a", "#eda100"), ("#199e70", "#c98500"))):
+    _t.update(cache=_aqua, seq=_yellow)
 
 
 def mpl():
@@ -481,6 +497,54 @@ def chart_drafting(c: Chart, d: dict):
     c.legend([("Drafts sized by confidence (live)", t["ne"]), ("Drafts sized by running hit rate (before)", t["old"])])
 
 
+def chart_memory(c: Chart, d: dict):
+    """Stacked bars per state on the fullest Spark: weights, prompt cache, sequence state, system; free to the right."""
+    from matplotlib.patches import Rectangle
+    t, m = c.t, d["memory"]
+    z, total = m["sizes"], m["total_gib"]
+    w, cache = z["model_weights_gib_per_rank"], z["prompt_cache_gib_per_rank"]
+    seq = z["slots"] * z["sequence_state_gib_each_at_full_window"]
+    i_used = m["total_gib"] - m["idle"]["available_gib"]
+    f_used = m["total_gib"] - m["full"]["available_gib"]
+    rest_idle = i_used - w
+    rest_full = f_used - w - cache
+    rows = [  # (segments, free)
+        ([("weights", w), ("system", rest_idle)], total - i_used),
+        ([("weights", w), ("cache", cache), ("system", rest_full)], total - f_used),
+        ([("weights", w), ("cache", cache), ("seq", seq), ("system", rest_full)], total - f_used - seq),
+    ]
+    col = {"weights": t["ne"], "cache": t["cache"], "seq": t["seq"], "system": t["old"]}
+    name = {"weights": "model weights", "cache": "prompt cache", "seq": "16 sequences at 307,200 tokens",
+            "system": "OS, runtime, buffers, short sequences"}
+    ax, ys = c.panel(3.55, 10.2, c.h - TOP, 3, 1.05, f"Memory per Spark  (GiB of {total:.0f}, shared by CPU and GPU)",
+                     0.42, 140, [0, 20, 40, 60, 80, 100, 120], str)
+    ax.axvline(total, color=t["ink2"], linewidth=1.2, zorder=1, linestyle=(0, (3, 3)))
+    gap = 2 / 150 / (ax.box[2] - ax.box[0]) * 140      # 2 px surface gap between segments
+    h = c.BAR / ax.row_h
+    for y, (segs, free) in zip(ys, rows):
+        yb = y - 0.13
+        x = 0
+        for k, v in segs:
+            ax.add_patch(Rectangle((x, yb - h / 2), max(v - gap, 0.1), h, facecolor=col[k], edgecolor="none", zorder=3))
+            x += v
+        ax.annotate(f"{free:.1f} GiB free", xy=(total, yb), xytext=(7, 0), textcoords="offset points", va="center",
+                    fontsize=11.5, color=t["ink"], annotation_clip=False)
+        short = {"weights": "weights", "cache": "cache", "seq": "16 full-window sequences", "system": "other"}
+        ax.annotate(" · ".join(f"{short[k]} {v:.1f}" for k, v in segs),
+                    xy=(0, y + 0.24), va="center", fontsize=10.2, color=t["muted"], annotation_clip=False)
+    c.ylabels(ax, [("Idle", f"measured {m['date']['idle']}"),
+                   ("Prompt cache full", f"16 streams served, measured {m['date']['full']}"),
+                   ("Ceiling", "+ every sequence at its full window")], 3.32)
+    ia, fa = m["idle_available_range"], m["full_available_range"]
+    c.notes([f"{NE}, live config: TP-4, 16 slots, a 307,200-token window, a 40 GiB prompt cache on every rank · the "
+             f"fullest of the four Sparks is shown; free across all four: {ia[0]:.1f}–{ia[1]:.1f} GiB idle, "
+             f"{fa[0]:.1f}–{fa[1]:.1f} GiB with the cache full · free = what Linux reports as available · the ceiling row is "
+             f"computed: {z['slots']} sequences × {z['sequence_state_gib_each_at_full_window']} GiB, the engine's own size for a "
+             "full-window sequence, allocated only as a conversation grows"])
+    c.legend([(lbl, col[k]) for k, lbl in (("weights", "Model weights"), ("cache", "Prompt cache"), ("seq", "Sequence state"),
+                                           ("system", "OS, runtime, buffers, short sequences"))])
+
+
 CHARTS = [
     ("nemotron-vs-deepseek-quality", 11.2, 9.0, "Quality: DeepSeek V4.1 Flash vs Nemotron 3.5 Super VL",
      "Four DGX Sparks · TensorFold Zig engine, TP=4 · DeepSeek 2.9-bit EXL3, Nemotron 120B-A12B NVFP4", chart_quality),
@@ -497,6 +561,9 @@ CHARTS = [
     ("nemotron-drafting", 11, 7.1, "Nemotron 3.5 Super VL: drafts sized by confidence",
      "Four DGX Sparks · the model's own MTP head drafts ahead and stops when unsure · live since 2026-10-16",
      chart_drafting),
+    ("nemotron-memory", 12, 6.6, "Nemotron 3.5 Super VL: where the memory goes",
+     "Four DGX Sparks, one rank each · 16 conversations at once, 307,200-token window, 40 GiB prompt cache + disk tier",
+     chart_memory),
 ]
 
 

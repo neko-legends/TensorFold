@@ -1,0 +1,82 @@
+{
+ "what": "Memory per Spark for Nemotron 3.5 Super VL on the live server (TP-4, --parallel 16, --context 307200, --prompt-cache-gib 40). Read-only: free -b and nvidia-smi --query-compute-apps on each box; GiB = 2^30 bytes. The GB10's memory is shared by CPU and GPU, so free's 'available' is the headroom.",
+ "date": "2026-10-16T00:55:03-07:00",
+ "idle": {
+  "note": "live server, light traffic; the prompt cache holds a few small states (rank 0 log line below)",
+  "boxes": [
+   {
+    "box": "spark1",
+    "rank": 0,
+    "total_gib": 121.69,
+    "used_gib": 36.69,
+    "available_gib": 85.0,
+    "server_process_gib": 28.6,
+    "binary_sha256_16": "aea6d36d5426f51e"
+   },
+   {
+    "box": "spark2",
+    "rank": 1,
+    "total_gib": 121.69,
+    "used_gib": 35.58,
+    "available_gib": 86.11,
+    "server_process_gib": 28.43,
+    "binary_sha256_16": "aea6d36d5426f51e"
+   },
+   {
+    "box": "spark3",
+    "rank": 2,
+    "total_gib": 121.69,
+    "used_gib": 34.87,
+    "available_gib": 86.82,
+    "server_process_gib": 28.43,
+    "binary_sha256_16": "aea6d36d5426f51e"
+   },
+   {
+    "box": "spark4",
+    "rank": 3,
+    "total_gib": 121.69,
+    "used_gib": 35.96,
+    "available_gib": 85.73,
+    "server_process_gib": 28.43,
+    "binary_sha256_16": "aea6d36d5426f51e"
+   }
+  ],
+  "rank0_startup_line": "device 0 (NVIDIA GB10, memory shared with the host): model 25.70 GiB; 16 streams at once, 1.37 GiB each at a 307200-token window, of 74.9 GiB left after a 12.2 GiB reserve; prompts in passes of up to 4096 rows, 4 staggered segments a call, a 40.0 GiB prompt cache; own glue kernels",
+  "rank0_cache_line": "info: prompt cache: 1723 tokens, resumed at 1627, kept 1; 30 states, 1780 MiB and 0 MiB spare of 40792 MiB (hits 54, misses 4, evicted 0, refused 0, failed 0); disk: 3 states, 908 MiB (spilled 0, read 2)"
+ },
+ "full_load": {
+  "date": "2026-10-15T22:17:43-07:00",
+  "source": "spare-mem-20261015/final.log (mem.sh after a full 40 GiB prompt cache and 16 concurrent streams)",
+  "note": "prompt cache full: 455 states, 40724 of 40792 MiB; every one of the 16 slots served a request (320-token replies)",
+  "boxes": [
+   {
+    "box": "spark1",
+    "available_gib": 46.7,
+    "used_gib": 75.0
+   },
+   {
+    "box": "spark2",
+    "available_gib": 47.8,
+    "used_gib": 73.9
+   },
+   {
+    "box": "spark3",
+    "available_gib": 48.6,
+    "used_gib": 73.1
+   },
+   {
+    "box": "spark4",
+    "available_gib": 47.5,
+    "used_gib": 74.2
+   }
+  ]
+ },
+ "sizes": {
+  "model_weights_gib_per_rank": 25.7,
+  "prompt_cache_gib_per_rank": 39.84,
+  "sequence_state_gib_each_at_full_window": 1.37,
+  "slots": 16,
+  "window_tokens": 307200,
+  "source": "rank 0's startup line (sizes the engine plans with) and its prompt-cache log line"
+ }
+}
