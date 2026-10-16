@@ -1,10 +1,235 @@
-# DeepSeek-V4.1-Flash on TensorFold, 4x NVIDIA DGX Spark
+# TensorFold on 4× DGX Spark: DeepSeek V4.1 Flash and Nemotron 3.5 Super VL
+
+Two large models served across **four** NVIDIA DGX Sparks with [TensorFold](https://github.com/ashhart/TensorFold)'s
+Zig engine: tensor-parallel (TP-4) over a switched CX7 RoCE fabric, one OpenAI-compatible endpoint, image input,
+speculative decoding from each model's own draft head.
+
+| | **Nemotron 3.5 Super VL 120B-A12B** (live) | DeepSeek V4.1 Flash |
+| --- | --- | --- |
+| weights | NVIDIA's NVFP4 checkpoint, 70 GB | 2.9 bpw EXL3 pack |
+| engine | TensorFold 1.0.11 (Zig, CUDA) + this repo's TP-4 port, [`engine/zig-nemotron`](engine/zig-nemotron) | Jay Leaton's DeepSeek CUDA port of the Zig engine + this repo's TP-4 work, [`engine/zig`](engine/zig) |
+| one stream, code / prose | **185 / 95 tok/s** (MTP drafting) | 155 / 72 tok/s (DSpark drafting) |
+| at once | **16 conversations**, 307,200-token window each | 4 request slots of up to 420K tokens |
+| serving since | 2026-10-15 (drafting live 2026-10-16) | 2026-10-11 → 2026-10-15 |
+
+Nemotron is the engine these four Sparks serve today; DeepSeek's numbers come from its own runs on the same cluster
+before the switch, and its recipe below still works. Built on **Ash Hart's [TensorFold](https://github.com/ashhart/TensorFold)**
+(the engine, the server, the kernels) and **Jay Leaton's [DeepSeek V4.1 Flash port](https://github.com/jayleaton/deepseek-v41-tensorfold-spark)**;
+this repository adds the four-Spark parts and the measurements.
+
+> Measured on one cluster (four GB10s, one switch). Every number links to its raw files. Read the known limits of each
+> model ([Nemotron](#nemotron-known-limits), [DeepSeek](#what-is-not-solved)) before relying on it.
+
+- [Head to head](#head-to-head)
+- [Nemotron 3.5 Super VL](#nemotron-35-super-vl-120b-a12b-nvfp4): [serving capacity](#serving-capacity) ·
+  [memory](#memory-per-spark) · [images under load](#images-under-load) · [how to run](#how-to-run-nemotron) ·
+  [what we changed](#what-we-changed-for-nemotron)
+- [DeepSeek V4.1 Flash](#deepseek-v41-flash): results, quick start, the engine and its tests
+- [Shared engine notes](#shared-engine-notes): TP-4 over RoCE, the prompt cache under TP and its disk tier, staggered
+  prompt segments
+- [Documentation](#documentation) · [Licensing](#licensing) · [Credits](#credits)
+
+## Head to head
+
+Same four Sparks, same harnesses (spark-bench's frozen `qbench` suite and the same vision reads), thinking off,
+greedy. Chart sources and the script that draws them: [`engine/zig-nemotron/results/charts-20261016/`](engine/zig-nemotron/results/charts-20261016/)
+(`numbers.json` names every input file).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="engine/zig-nemotron/results/charts-20261016/nemotron-vs-deepseek-quality-dark.svg">
+  <img alt="Quality: MMLU 85.0% Nemotron vs 88.5% DeepSeek, math 96.7% vs 100%, coding 80% both, instruction following 95% vs 90%, JSON, tools, long context and summaries 100% both" src="engine/zig-nemotron/results/charts-20261016/nemotron-vs-deepseek-quality-light.svg">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="engine/zig-nemotron/results/charts-20261016/nemotron-vs-deepseek-speed-dark.svg">
+  <img alt="Writing speed, one stream: code 185 tok/s Nemotron vs 155 DeepSeek, prose 95 vs 72; four streams 207 vs 172 tok/s aggregate; first token 43 ms vs 167 ms on the code prompt" src="engine/zig-nemotron/results/charts-20261016/nemotron-vs-deepseek-speed-light.svg">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="engine/zig-nemotron/results/charts-20261016/nemotron-vs-deepseek-prefill-dark.svg">
+  <img alt="Cold prompt reading: Nemotron 32K tokens 6.5 s, 131K 29.0 s, 200K 48.3 s (from 11.4, 49.6 and 79.9 s before staggered segments); DeepSeek 200K 36.8 s" src="engine/zig-nemotron/results/charts-20261016/nemotron-vs-deepseek-prefill-light.svg">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="engine/zig-nemotron/results/charts-20261016/nemotron-vs-deepseek-vision-dark.svg">
+  <img alt="Vision on code-rendered images: text read exactly 166/166 for both; shapes 26/30 both; objects counted 22/23 DeepSeek vs 1/23 Nemotron; text position error 9.9 px Nemotron vs 16.3 px DeepSeek" src="engine/zig-nemotron/results/charts-20261016/nemotron-vs-deepseek-vision-light.svg">
+</picture>
+
+| | Nemotron 3.5 Super VL | DeepSeek V4.1 Flash |
+| --- | ---: | ---: |
+| MMLU (200) | 85.0% | **88.5%** |
+| math (30) | 96.7% | **100%** |
+| coding (5) | 80% | 80% |
+| instruction following (20) | **95%** | 90% |
+| JSON schema / tool calls / long context to 299K / summaries | 100% / 100% / 100% / 100% | 100% / 100% / 100% / 100% |
+| one stream, code / prose (tok/s) | **185 / 95** | 155 / 72 |
+| four streams, aggregate (tok/s) | **207** | 172 |
+| first token, short prompt | **43 ms** | 167 ms |
+| cold 200K-token prompt | 48.3 s | **36.8 s** |
+| vision: text read exactly | 100% (166/166) | 100% (166/166) |
+| vision: shapes matched / objects counted | 87% / 4% | 87% / **96%** |
+
+Where each wins: Nemotron writes faster (the MTP head drafts code well), answers sooner, holds 16 long conversations
+at once and places text more precisely; DeepSeek is ahead on MMLU and math, reads a cold long prompt faster and
+counts objects in an image far better (Nemotron 1/23 on the counting scene). The vision shapes figure is with the
+live setting `NCCL_MAX_NCHANNELS=2`: Nemotron's shapes scene read 17/20 with that cap and 19/20 without it (the cap
+makes long prompts read faster by not starving the staggered segments; it changes the arithmetic at rounding level,
+which moved this one scene; today's reads at the same setting gave 17/20 with the zoomed re-read and 19/20 without).
+
+## Nemotron 3.5 Super VL 120B-A12B (NVFP4)
+
+[`nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4`](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4):
+88 blocks (40 Mamba-2, 40 latent mixture-of-experts with 512 experts top-22, 8 attention), 12B active parameters, an
+MTP draft head and a C-RADIO vision encoder, served from NVIDIA's NVFP4 checkpoint as stored. The live build is
+`c3ede919` on this repository's history.
+
+### Serving capacity
+
+On the live server, four Sparks, one endpoint:
+
+- **16 conversations at once**, each with a **307,200-token** window.
+- **~214-230 tok/s** total writing speed with all 16 streams busy (prose 217, code 230, mixed 214).
+- First token with 16 streams arriving together: **0.8 s median, 1.9 s worst**.
+- One stream: **185 tok/s** on code, **95** on prose; first token in 43 ms.
+- A **40 GiB prompt cache in memory on every rank** plus a **disk tier**: 200 agents coming back to a 10K-token
+  history wait 0.09 s median (200/200 hits); after a server restart, the disk tier brings 8 30K-token conversations
+  back in 0.33 s instead of 6.0 s.
+- Images: ~70 a minute for images the server has seen, ~23 a minute for new ones (below).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="engine/zig-nemotron/results/charts-20261016/nemotron-serving-dark.svg">
+  <img alt="16 conversations at once: first-token wait 0.8-0.9 s median with 16 slots vs 5.0-9.4 s with the earlier 4 slots; coming back to a long conversation 0.09 s with the 40 GiB cache vs 2.1 s, and 0.33 s after a restart with the disk tier vs 6.0 s" src="engine/zig-nemotron/results/charts-20261016/nemotron-serving-light.svg">
+</picture>
+
+Raw files: [`spare-mem-20261015/`](engine/zig-nemotron/results/spare-mem-20261015/) (16-stream load and warm-cache
+runs), [`live-speed-20261016/`](engine/zig-nemotron/results/live-speed-20261016/) (one-stream speed on the live build).
+
+### Memory per Spark
+
+Each GB10 has 121.7 GiB shared by CPU and GPU. Per rank:
+
+| | GiB |
+| --- | ---: |
+| model weights (a quarter of the model, plus the replicated parts) | 25.7 |
+| prompt cache (`--prompt-cache-gib 40`) | 39.8 |
+| one sequence's state at the full 307,200-token window | 1.37 (16 slots: 21.9) |
+| free, idle (all four Sparks) | 85.0-86.8 |
+| free, prompt cache full and all 16 slots used | 46.7-48.6 |
+| free if every slot also held a full-window conversation (computed) | ~24.8 |
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="engine/zig-nemotron/results/charts-20261016/nemotron-memory-dark.svg">
+  <img alt="Memory per Spark, 122 GiB: idle 25.7 GiB weights + 11.0 other, 85.0 GiB free; prompt cache full 25.7 + 39.8 + 9.4, 46.7 GiB free; ceiling with 16 full-window sequences (21.9 GiB) 24.8 GiB free" src="engine/zig-nemotron/results/charts-20261016/nemotron-memory-light.svg">
+</picture>
+
+Measured read-only on the live server (`free -b`, `nvidia-smi`) on 2026-10-16, and with the cache full on
+2026-10-15: [`memory-20261016/memory.json`](engine/zig-nemotron/results/memory-20261016/memory.json).
+
+### Images under load
+
+1 to 16 image requests at once on the live server, 8 code-rendered bench images, one transcribe-and-describe prompt:
+
+| at once | new images: per minute / first token (median, worst) | seen images: per minute / first token |
+| ---: | ---: | ---: |
+| 1 | 18.5 / 1.9 s, 2.7 s | 45 / 0.1 s, 0.3 s |
+| 4 | 22.9 / 3.8 s, 7.8 s | 67 / 0.2 s, 0.5 s |
+| 8 | 24.1 / 6.4 s, 13.7 s | 69 / 0.4 s, 1.0 s |
+| 16 | 22.5 / 25.3 s, 31.1 s | 70 / 1.3 s, 2.1 s |
+
+- **New images are taken one at a time**: ~2.6 s each (reading the picture in, encoding it and reading the prompt),
+  so throughput stays at ~23 a minute and the wait grows with the queue. Images the server has already read (a
+  follow-up question) are answered almost at once.
+- **Accuracy does not change under load**: the transcriptions found 304 of 314 strings at every level; 16 structured
+  tiled reads at once read 277/280 text strings (98.9%) against 69/70 (98.6%) on one stream.
+- **Image replies decode faster than prose**: 140 tok/s on one stream (78% of MTP drafts accepted) vs 95 for prose
+  (65%) and 185 for code (86%).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="engine/zig-nemotron/results/charts-20261016/nemotron-vision-serving-dark.svg">
+  <img alt="Images under load: new images 18-24 a minute at 1-16 at once with first-token median rising from 1.9 to 25.3 s; images the server has seen 45-70 a minute with 0.1-1.3 s; one stream writes 140 tok/s on image prompts, 95 on prose, 185 on code" src="engine/zig-nemotron/results/charts-20261016/nemotron-vision-serving-light.svg">
+</picture>
+
+Method and every request: [`vision-serving-20261016/`](engine/zig-nemotron/results/vision-serving-20261016/README.md).
+
+### Drafting
+
+The MTP head drafts ahead and stops when its confidence drops, instead of drafting a fixed depth from the running
+hit rate. Code went from 165 to 183 tok/s with token-for-token the same reply; prose is unchanged at ~95.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="engine/zig-nemotron/results/charts-20261016/nemotron-drafting-dark.svg">
+  <img alt="Drafts sized by confidence vs by running hit rate: code 165 to 183 tok/s (same text), explain 117 to 127, prose 95 to 94, story 99 to 98, essay 112 to 111" src="engine/zig-nemotron/results/charts-20261016/nemotron-drafting-light.svg">
+</picture>
+
+### How to run Nemotron
+
+Requirements: four DGX Sparks on one switch with a RoCE link (one CX7 port per Spark on one subnet), passwordless
+ssh from rank 0 to the others, the checkpoint at the same path on all four (70 GB each), Zig 0.17.0 and CUDA on one
+Spark to build.
+
+```bash
+git clone https://github.com/neko-legends/tensorfold-4x-sparks.git
+cd tensorfold-4x-sparks/engine/zig-nemotron
+
+# 1. build on a Spark (CUDA kernels in the binary), copy zig-out/native/bin/tensorfold-native to all four
+zig build native -Dnvcc=/usr/local/cuda/bin/nvcc -Dtarget=aarch64-linux-gnu
+
+# 2. weights, same path on every Spark
+hf download nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 --local-dir <MODEL>
+
+# 3. one rank per Spark, r = 0..3 (rank 0 serves HTTP; the others follow it)
+env TF_TP_WORLD=4 TF_TP_RANK=<r> TF_TP_MASTER=<rank 0 link address> TF_TP_PORT=29650 \
+    TF_COMM_BACKEND=roce TF_TP_ROCE_HCA=<RoCE device> NCCL_IB_HCA=<RoCE device> GLM53_TF_ROCE_FAST=1 \
+    TF_TP_ROCE_FALLBACK=nccl TF_NCCL_LIB=<libnccl.so.2> NCCL_SOCKET_IFNAME=<link interface> NCCL_MAX_NCHANNELS=2 \
+    TF_NEMOTRON_DISK=<prompt-cache disk folder> \
+  tensorfold-native serve <MODEL> --host 0.0.0.0 --port 8100 --no-update-check \
+    --context 307200 --parallel 16 --segments 4 --prompt-cache-gib 40
+```
+
+Then `curl <rank 0>:8100/v1/chat/completions` with any OpenAI client (`chat_template_kwargs: {"enable_thinking":
+false}` turns thinking off for a request). The operator scripts we use, including start, clean stop (rank 0 first, so
+the disk tier is written) and status: [`tools/nemotron/swap/`](engine/zig-nemotron/tools/nemotron/swap/)
+(`nemotron-window.sh`; the Sparks' names and link address come from `sparks.sh`). Serving notes (exactness and the
+cache state, installing a new binary, the env switches, the disk tier's identity): [`WINDOW.md`](engine/zig-nemotron/tools/nemotron/swap/WINDOW.md).
+
+### What we changed for Nemotron
+
+Upstream TensorFold 1.0.11 serves Nemotron 3.5 Lightning (30B) on one GPU. To serve the 120B Super VL across four
+Sparks we added
+([port log](engine/zig-nemotron/NEMOTRON-PORT-LOG.md)):
+
+- **Super VL support**: the checkpoint's config wrapper and names, the latent mixture-of-experts (router on the hidden
+  width, NVFP4 experts at the 1,024-wide latent, shared expert), the 512-expert top-22 router, FP8 attention
+  projections, the MTP head through the same path; checked block by block against the checkpoint's own Hugging Face
+  code (cosine ≥ 0.9994 on every block type).
+- **TP-4**: Mamba heads and groups, attention heads and the expert width (672, padded to 704) split four ways, with
+  gathers and all-reduces between them; vocabulary-split head and draft head. Per-block agreement with one rank ≥ 0.9999.
+- **Serving under TP**: rank 0 runs the server and the others replay its calls over the plan link, images included;
+  16 slots sharing each round.
+- **Prompt cache under TP, and a disk tier** (below), **staggered prompt segments** (below).
+- **Drafting sized by confidence** for a lone stream (the chart above).
+- **Images**: the image front end checked against the checkpoint's processor (same grids, same prompt length,
+  pixels ≥ 99.96% bf16-exact).
+
+### Nemotron: known limits
+
+- New images are prepared one at a time (~23 a minute at any concurrency); a burst of new images queues.
+- Object counting in images is weak (1/23 on the counting scene, DeepSeek 22/23).
+- A cold 200K-token prompt takes 48 s (DeepSeek 37 s).
+- With the prompt cache on, greedy text depends on the cache's state at rounding level (deterministic for the same
+  request sequence); A/B tests pin the cache state.
+- One cluster, measured over two days.
+
+## DeepSeek V4.1 Flash
+
+*DeepSeek served these four Sparks from 2026-10-04 to 2026-10-15, when Nemotron replaced it. This section is written
+as of that period: "live" below means live then. The recipe and the engine still run as described.*
 
 Serve DeepSeek-V4.1-Flash (the 2.9 bpw EXL3 pack) across **four** NVIDIA DGX Sparks, tensor-parallel (TP=4) over a
 switched CX7 RoCE fabric, behind an OpenAI-compatible API: exact DSpark speculative decoding, Engram rows from local
 NVMe, 4 request slots of up to 420K tokens, image input, NVMe sessions, structured output and DSML tool calls.
 
-This is the four-Spark fork of **[jayleaton/deepseek-v41-tensorfold-spark](https://github.com/jayleaton/deepseek-v41-tensorfold-spark)**.
+This part of the repository began as the four-Spark fork of **[jayleaton/deepseek-v41-tensorfold-spark](https://github.com/jayleaton/deepseek-v41-tensorfold-spark)**.
 The engine, the DeepSeek-V4.1-Flash family and nearly everything in this repository are Jay Leaton's work on
 [TensorFold](https://github.com/ashhart/TensorFold); this fork adds what four Sparks need (`patches/0003`), a
 four-node launcher, and the measurements. Its Python engine ran Jay's G19 build from 2026-10-07; since 2026-10-11
@@ -22,13 +247,13 @@ in [ZIG-TP4-PLAN](docs/ZIG-TP4-PLAN.md), the pipeline's design and proofs are in
 [ZIG-PREFILL-PIPE](docs/ZIG-PREFILL-PIPE.md)). The Python engine it replaced stays on this page as the previous
 engine, its numbers kept as history.
 
-## Results (four Sparks)
+### Results (four Sparks)
 
 Weights: [`dealignai/DeepSeek-V4.1-Flash-UNCENSORED-EXL3-2.9bpw`](https://huggingface.co/dealignai/DeepSeek-V4.1-Flash-UNCENSORED-EXL3-2.9bpw).
 Configuration: [`config/prod.env.example`](config/prod.env.example) + [`config/tp4.env.example`](config/tp4.env.example)
 (expert pruning on, `TF_DSV41_EXPERT_TOPP=0.85`), thinking off, temperature 0, 512-token replies, isolated runs.
 
-### At a glance (live: the Zig engine, 2026-10-11)
+#### At a glance (live: the Zig engine, 2026-10-11)
 
 The serving build since 2026-10-11: the CUDA Zig engine at TP=4 over RoCE with pipelined prompt reading, on the
 same EXL3 2.9 bpw pack. Measured with `bench/zig_vs_python.py` (window 8, salt `zvp-20261011w8`; best of 3
@@ -56,7 +281,7 @@ non-pipelined path's — short-prompt replies are bit-identical either way (101/
 
 ![Every engine on four Sparks: TensorFold Python, Zig, vLLM, SGLang](docs/img/engines-dsv41-comparison-20261011.png)
 
-### Long context, cold (2026-10-14, live Zig engine)
+#### Long context, cold (2026-10-14, live Zig engine)
 
 One request at a time, thinking off, temperature 0, a prompt built fresh per run (nothing for the prefix cache to
 reuse). Both requests below completed with no error and no engine restart:
@@ -74,7 +299,7 @@ request completes and answers at that length rather than that every token was at
 
 ![Cold 200K-token prompt on the live four-Spark Zig engine: 199,713 tokens, first token 36.8 s](docs/img/context-200k-20261014.webp)
 
-### At a glance (previous engine: Python, live 2026-10-07 → 2026-10-11)
+#### At a glance (previous engine: Python, live 2026-10-07 → 2026-10-11)
 
 | | four Sparks (this fork) | two Sparks (Jay's) |
 | --- | ---: | ---: |
@@ -89,7 +314,7 @@ split, `TF_DSV41_EXPERT_ROTATE=1`) and the 4-bit draft head (`TF_DSV41_DRAFT_HEA
 (drafted == serial). Two-Spark figures are Jay's published `m2bench` C1 numbers for his build. No `m2bench` or
 1k-160k depth-sweep run exists for the Zig engine yet, so these rows end with the Python engine.
 
-### G19 on four Sparks (2026-10-07, previous engine)
+#### G19 on four Sparks (2026-10-07, previous engine)
 
 Jay's G19 engine (engine `7bd2d67`) with this fork's `0003`, live since 2026-10-07, against the G13 build it replaced,
 one boot each in the same window:
@@ -111,7 +336,7 @@ Both columns of this table ran on the NCCL fallback, not RoCE (see the note unde
 why they sit below the decode sweep. The harness also differs (1-stream, 512-token replies, 2 trials). Both columns
 were measured the same way, so the comparison between them holds.
 
-### Decode (2026-10-07, G19 on RoCE, previous engine)
+#### Decode (2026-10-07, G19 on RoCE, previous engine)
 
 | prompt | 1k | 20k | 40k | 80k | 160k | geometric mean |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -132,7 +357,7 @@ behind on 2026-10-05, and our server ran on NCCL for two days without an error. 
 Rank 0's log should say `all-gathers of up to ... over RoCE` and `plan link: rdma`. If it doesn't, look for the file,
 fix the cause and move the file aside.
 
-### Reading a new prompt (2026-10-05, previous engine)
+#### Reading a new prompt (2026-10-05, previous engine)
 
 | cold time to first token | 20k prompt | 160k prompt |
 | --- | ---: | ---: |
@@ -146,7 +371,7 @@ row: 1,953 tokens/s at 128K), because every rank recomputes the parts of a layer
 split and waits at 43 exchanges a chunk. How the pipeline works: [docs/PREFILL_SPEED.md](docs/PREFILL_SPEED.md).
 Warm repeats reuse the prefix: 0.26-0.64 s at every depth.
 
-### Checks
+#### Checks
 
 - On the running server: arithmetic, forced tool call (`tool_choice=required`), tool continuation, strict JSON
   schema at T = 0 / 0.7 / 1.0, reasoning, and `scripts/canary.py` (chat, thinking, tool, json, tokenize): all pass.
@@ -160,7 +385,7 @@ Raw files: [`results/four-sparks-20261004/`](results/four-sparks-20261004/README
 [`results/four-spark-fixes-20261005/`](results/four-spark-fixes-20261005/README.md). The same cluster's earlier deployments
 (SGLang on the FP8 checkpoint, vLLM) and a dated history of every change: [spark-bench](https://github.com/neko-legends/spark-bench).
 
-## What four Sparks change
+### What four Sparks change
 
 | part | two Sparks (a rank) | four Sparks (a rank) |
 | --- | --- | --- |
@@ -173,7 +398,7 @@ Raw files: [`results/four-sparks-20261004/`](results/four-sparks-20261004/README
 Every split stays on whole 128-wide Hadamard blocks (EXL3 rotations act per block), so the widths that do not divide
 by four are uneven; every exchange sends the same size from every rank. Details: [docs/FOUR_SPARKS.md](docs/FOUR_SPARKS.md).
 
-## Quick start
+### Quick start
 
 Requirements: four DGX Sparks on one switch, one IPv4 subnet per CX7 port function, Docker with the NVIDIA runtime on
 each, passwordless ssh from the head (rank 0) to the three workers over the link; on each node's local NVMe ~200 GB
@@ -181,8 +406,8 @@ for the weights, ~47 GB for its Engram shards, ~50 GB for the prepared rank fold
 Nothing else on the GPUs.
 
 ```bash
-git clone --recurse-submodules https://github.com/neko-legends/deepseek-v41-tensorfold-spark.git
-cd deepseek-v41-tensorfold-spark
+git clone --recurse-submodules https://github.com/neko-legends/tensorfold-4x-sparks.git
+cd tensorfold-4x-sparks
 cp config/prod.env.example config/prod.env        # the engine knobs
 cp config/tp4.env.example config/tp4.env          # every <placeholder>: workers, link addresses, paths
 
@@ -214,7 +439,7 @@ Optional: `scripts/keeper4.sh` from cron restarts the four ranks after a reboot 
 Setup notes and lessons from the first boots: [docs/FOUR_SPARKS.md](docs/FOUR_SPARKS.md). Knobs and memory gates:
 [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
-## API
+### API
 
 OpenAI-compatible on `HOST:PORT` (`127.0.0.1:8000` by default: put your own proxy and authentication in front):
 `/v1/chat/completions` (streaming, tool calls, `response_format`), `/v1/completions` (text or token ids),
@@ -226,7 +451,7 @@ fleet dashboards read), `/v1/model_info` (`max_num_seqs`: the request slots). Th
 other mode gets a 400 that names the field, as do `logit_bias` / `prompt_logprobs` / `echo`). The
 full table: [docs/TWO_SPARKS.md#api](docs/TWO_SPARKS.md#api) (unchanged at four Sparks).
 
-## The engine
+### The engine
 
 `vendor/TensorFold` is upstream TensorFold v0.6.0, unmodified; the Dockerfile applies `patches/` in order:
 
@@ -243,7 +468,7 @@ Until 2026-10-07 the fork ran on G13 with these as patches 0003-0006 (branch `fo
 a smaller `0003` (four ranks and the review's fixes only, two-Spark output unchanged): that version is the `four-sparks`
 branch, verified byte-identical at TP=2 against his main.
 
-### Fixed 2026-10-05 (then patch 0005, now in 0003)
+#### Fixed 2026-10-05 (then patch 0005, now in 0003)
 
 Jay reviewed the TP=4 port ([PR #6](https://github.com/jayleaton/deepseek-v41-tensorfold-spark/pull/6)) and found
 bugs that only uneven slices or more than two ranks expose. All fixed, with tests in `tests/test_dsv41_four_sparks.py`
@@ -283,10 +508,10 @@ The fixes:
   once answered a first `top_k` 32,000 request without the warm-up.
 - The gate scorer and DSpark delta shards (both off in production) now handle any rank count and uneven splits.
 
-## How it was tested (2026-10-05)
+### How it was tested (2026-10-05)
 
 *This section describes the 2026-10-05 G13 build (patches 0001-0006, branch `four-sparks-g13`). The G19 build's checks are
-in [G19 on four Sparks](#g19-on-four-sparks-2026-10-07). Its patches rebuild the same way. Its CPU suites pass except the
+in [G19 on four Sparks](#g19-on-four-sparks-2026-10-07-previous-engine). Its patches rebuild the same way. Its CPU suites pass except the
 three tests that also fail on Jay's main (they need his unpublished draft vocabulary or a network this sandbox lacks)
 and two that the fork's extra prompt-reading code trips (below, What is not solved).*
 
@@ -345,7 +570,7 @@ Three candidate builds failed the wide-request check before the shipped one pass
 build was also tested on the same wide request: it crashed ranks 2 and 3. All of it, run by run:
 [`results/four-spark-fixes-20261005/`](results/four-spark-fixes-20261005/README.md).
 
-## What is not solved
+### What is not solved
 
 - Two CPU tests fail on the G19 build's full `0003` (not on PR #6's smaller one): `test_dsv41_calib_knobs`
   (the prompt-reading switches are not yet in the calibration key or its exempt list) and `test_dsv41_pdl`'s
@@ -357,10 +582,39 @@ build was also tested on the same wide request: it crashed ranks 2 and 3. All of
 - Short prompts gain less from the pipeline (it fills in four steps): cold 20k is 5.4-6.0 s.
 - One cluster, one boot a configuration; expert pruning is lossy (delete its three lines for the unpruned model).
 
+## Shared engine notes
+
+**TP-4 over RoCE.** Both models run one rank per Spark, the four ranks exchanging activations over the CX7 link with
+TensorFold's RoCE collectives (`TF_COMM_BACKEND=roce`; NCCL is the fallback, `TF_TP_ROCE_FALLBACK=nccl`). Rank 0
+serves HTTP and plans every step; the other ranks follow it over a plan link. Check the transport after every start:
+a rank that falls back to NCCL serves correctly but slower (DeepSeek's note under
+[Decode](#decode-2026-10-07-g19-on-roce-previous-engine)).
+
+**The prompt cache under TP, and its disk tier (Nemotron).** Every rank keeps its own share of each cached prompt
+state; rank 0 decides what to keep and drop and the others mirror it, so the copies stay keyed the same on all four.
+Prompts are cut at keep marks and resume points so a returning conversation restarts from the longest cached prefix.
+States evicted from memory, and every state at a clean stop, go to a disk tier: one folder per rank, named by an
+identity that hashes the checkpoint (config and every shard's name, size, header and tail), the layout, the rank and
+the world, so another model or another split never reads them. One server holds a folder at a time (a lock file);
+rank 0 removes files its index does not name at start and the other ranks follow. Caps: `TF_NEMOTRON_DISK_GIB` (128),
+`TF_NEMOTRON_DISK_FLOOR_GIB` (free space kept, 64), `TF_NEMOTRON_DISK_MIN` (smallest state written, 4,096 tokens). Stop
+rank 0 first so the tier is written. Under TP, greedy text depends on the cache state at rounding level (deterministic
+per state), so speed and exactness A/B tests pin it ([WINDOW.md](engine/zig-nemotron/tools/nemotron/swap/WINDOW.md)).
+DeepSeek's equivalent is its NVMe session tier ([OPERATIONS](docs/OPERATIONS.md)).
+
+**Staggered prompt segments.** A long prompt is read in 4,096-row chunks; with `--segments 4` up to four chunks run
+in one call as staggered segments, their collectives on one high-priority communication stream and posted in parts
+so one segment computes while another exchanges. NCCL's default spreads a prompt all-reduce over 64 channel blocks of
+the GB10's 48 SMs and starves the other segments, so the live config caps it at two (`NCCL_MAX_NCHANNELS=2`; the
+vision footnote under [Head to head](#head-to-head) is the trade). With the segments, the cap and two prefill kernel
+changes, a cold 200K-token prompt went from 79.9 s to 48.3 s (32K: 11.4 → 6.5 s). DeepSeek reads long prompts with
+its own pipeline: one rank per layer group, described in [ZIG-PREFILL-PIPE](docs/ZIG-PREFILL-PIPE.md).
+
 ## Documentation
 
 | | |
 | --- | --- |
+| [engine/zig-nemotron](engine/zig-nemotron/README.md) | TensorFold 1.0.11 with the Nemotron TP-4 port; [port log](engine/zig-nemotron/NEMOTRON-PORT-LOG.md), [serving notes](engine/zig-nemotron/tools/nemotron/swap/WINDOW.md), [results](engine/zig-nemotron/results/) |
 | [FOUR_SPARKS](docs/FOUR_SPARKS.md) | the TP=4 port: what changes, setup, first-boot lessons, results |
 | [PREFILL_SPEED](docs/PREFILL_SPEED.md) | the prompt pipeline, split selections, overlapped exchanges, what did not work |
 | [ZIG-SERVE](docs/ZIG-SERVE.md) / [ZIG-RESULTS](docs/ZIG-RESULTS.md) | Jay's Zig engine: build, TP=2 launch, exact settings, q28-v2 comparisons; the TP=4 results of the live Zig engine (windows 7-8) |
@@ -383,15 +637,20 @@ family: MIT, Copyright (c) 2026 Jay Leaton). Third-party code and the model weig
 [docs/TWO_SPARKS.md#licensing](docs/TWO_SPARKS.md#licensing). The uncensored weights have refusals removed; you are
 responsible for how you use them.
 
+The Nemotron engine ([`engine/zig-nemotron`](engine/zig-nemotron)) is TensorFold 1.0.11, Apache-2.0 ([its NOTICE](engine/zig-nemotron/NOTICE),
+[third-party notices](engine/zig-nemotron/THIRD_PARTY_NOTICES.md)); the Nemotron weights are NVIDIA's, under their own license.
+
 ## Credits
 
+- **[Ash Hart (ashhart) / TensorFold](https://github.com/ashhart/TensorFold)**: the engine both models run on, the Zig
+  server, the CUDA and EXL3 kernels, the drafting, and the Nemotron family this repository extends to four Sparks.
 - **[Jay Leaton (jayleaton)](https://github.com/jayleaton)**: the DeepSeek-V4.1-Flash engine for TensorFold and the
   two-Spark recipe this fork extends, and the review that found the bugs 0005 fixes. Follow him on
   [X](https://x.com/jayleaton) / support him on [Buy Me a Coffee](https://buymeacoffee.com/jayleaton).
-- [Ash Hart (ashhart) / TensorFold](https://github.com/ashhart/TensorFold): the engine, the EXL3 kernels, the drafting
-  and the server.
 - [DeepSeek](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash): the model, its encoding, and the CED / CSA2 /
   mHC / DSpark / Engram designs.
 - [dealignai](https://huggingface.co/dealignai/DeepSeek-V4.1-Flash-UNCENSORED-EXL3-2.9bpw) (the uncensored pack),
   [Mia-AiLab](https://huggingface.co/Mia-AiLab) (the 2.9 bpw EXL3 pack), [turboderp / ExLlamaV3](https://github.com/turboderp-org/exllamav3)
   (EXL3), and everyone credited in [docs/TWO_SPARKS.md#credits](docs/TWO_SPARKS.md#credits).
+- [NVIDIA](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4): Nemotron 3.5 Super VL and its
+  NVFP4 checkpoint.
