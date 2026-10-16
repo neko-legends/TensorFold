@@ -2,7 +2,7 @@
 range, arrays maxItems 3, open objects maxProperties 3 with names of at most 16 chars), so a truncated (gibberish) model must still finish inside
 max_tokens if the server enforces the grammar: every reply then parses and validates against qbench's ORIGINAL schema."""
 import copy, json, os, sys
-sys.path.insert(0, os.path.join(os.environ.get("SPARK_BENCH", "/home/jun/git/spark-bench"), "bench"))
+sys.path.insert(0, os.path.join(os.environ.get("SPARK_BENCH", os.path.expanduser("~/git/spark-bench")), "bench"))
 import qbench
 def bound(s):
     s = copy.deepcopy(s)

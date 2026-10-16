@@ -1,13 +1,13 @@
 #!/bin/bash
-# Swap a dev Nemotron server in and the live one back, exactly (run on forge INSIDE the sparks.lock).
+# Swap a dev Nemotron server in and the live one back, exactly (run on spark1 INSIDE the sparks.lock).
 #   drswap.sh save              record every rank's live env (TF_/NCCL_/GLM*/CUDA_) + cmdline into ~/nemotron-tf/drafting/live/
 #   drswap.sh dev BIN [ARGS] [ENV]  save (unless a dev run is up), stop, start BIN with the saved env and the canonical
 #                               serve flags (context 307200, parallel 4, segments 4) + ARGS/ENV
 #   drswap.sh restore           stop, start every rank from the saved live state as it was, prove :8100 200 (retries)
 set -u
-HOSTS=(forge anvil ember flame); S=/home/jun/nemotron-tf/drafting/live; LOGD=/home/jun/nemotron-tf/runs
-M=/home/jun/models/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4
-PAT='^/home/jun/nemotron-tf/[^ ]*tensorfold-native[^ ]* serve'
+HOSTS=(spark1 spark2 spark3 spark4); S=$HOME/nemotron-tf/drafting/live; LOGD=$HOME/nemotron-tf/runs
+M=$HOME/models/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4
+PAT='^$HOME/nemotron-tf/[^ ]*tensorfold-native[^ ]* serve'
 log() { echo "$(date -Is) $*"; }
 stop() {
   for h in "${HOSTS[@]}"; do ssh "$h" "pkill -TERM -f '$PAT'; for i in \$(seq 1 30); do pgrep -f '$PAT' >/dev/null || break; sleep 1; done; pkill -KILL -f '$PAT'; true" & done; wait
@@ -17,10 +17,10 @@ start() { # $1 BIN ('' = saved cmdline), $2 extra args, $3 extra env, $4 log pre
   for r in 0 1 2 3; do h=${HOSTS[$r]}
     envs=$(cat $S/r$r.env | tr '\n' ' '); cmd=$(cat $S/r$r.cmd)
     [ -n "$1" ] && cmd="$1 serve $M --host 0.0.0.0 --port 8100 --no-update-check --context 307200 --parallel 4 --segments 4"
-    ssh "$h" "cd /home/jun/nemotron-tf && (env $envs $3 setsid nohup $cmd $2 > $LOGD/$4-r$r.log 2>&1 < /dev/null &)"
+    ssh "$h" "cd $HOME/nemotron-tf && (env $envs $3 setsid nohup $cmd $2 > $LOGD/$4-r$r.log 2>&1 < /dev/null &)"
   done; log "started: ${cmd%% serve*} ... ${cmd#*--no-update-check} $2 [$3]"
   for i in $(seq 1 120); do
-    [ "$(curl -s -m 5 -o /dev/null -w '%{http_code}' http://localhost:8100/v1/models)" = 200 ] && { log "serving: forge:8100 200"; return 0; }
+    [ "$(curl -s -m 5 -o /dev/null -w '%{http_code}' http://localhost:8100/v1/models)" = 200 ] && { log "serving: spark1:8100 200"; return 0; }
     [ $i -gt 6 ] && ! pgrep -f "$PAT" >/dev/null && { log "rank 0 exited"; tail -3 $LOGD/$4-r0.log; return 1; }
     sleep 5
   done; log "not up in 10 min"; return 1; }

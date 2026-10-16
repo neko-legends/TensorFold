@@ -1,22 +1,22 @@
 == 2026-10-16T00:27:12-07:00 stop (as nemo_down: rank 0 first, TERM, 120 s)
 stopped in 4 s
-forge /home/jun/nemotron-tf/prompt-disk/657fd129b671c1ba/ lock not-a-state.txt used 
-forge /home/jun/nemotron-tf/prompt-disk/7d90d81df9beba2c/ 7eeeeb336c213338.bin bd89412a99004888.bin index used 
-anvil /home/jun/nemotron-tf/prompt-disk/1dc3ab816e8e045e/ 7eeeeb336c213338.bin bd89412a99004888.bin 
-anvil /home/jun/nemotron-tf/prompt-disk/befa2ada25e54d53/ lock not-a-state.txt 
-ember /home/jun/nemotron-tf/prompt-disk/62ed3faa1a988e4e/ 7eeeeb336c213338.bin bd89412a99004888.bin 
-ember /home/jun/nemotron-tf/prompt-disk/f3195ca43f6a20f9/ lock 
-flame /home/jun/nemotron-tf/prompt-disk/290430ecc6d4f45d/ lock 
-flame /home/jun/nemotron-tf/prompt-disk/551e14016008bd01/ 7eeeeb336c213338.bin bd89412a99004888.bin 
+spark1 ~/nemotron-tf/prompt-disk/657fd129b671c1ba/ lock not-a-state.txt used 
+spark1 ~/nemotron-tf/prompt-disk/7d90d81df9beba2c/ 7eeeeb336c213338.bin bd89412a99004888.bin index used 
+spark2 ~/nemotron-tf/prompt-disk/1dc3ab816e8e045e/ 7eeeeb336c213338.bin bd89412a99004888.bin 
+spark2 ~/nemotron-tf/prompt-disk/befa2ada25e54d53/ lock not-a-state.txt 
+spark3 ~/nemotron-tf/prompt-disk/62ed3faa1a988e4e/ 7eeeeb336c213338.bin bd89412a99004888.bin 
+spark3 ~/nemotron-tf/prompt-disk/f3195ca43f6a20f9/ lock 
+spark4 ~/nemotron-tf/prompt-disk/290430ecc6d4f45d/ lock 
+spark4 ~/nemotron-tf/prompt-disk/551e14016008bd01/ 7eeeeb336c213338.bin bd89412a99004888.bin 
 == 2026-10-16T00:27:19-07:00 start (live config)
 2026-10-16T00:27:19-07:00 nemotron stopped
-2026-10-16T00:27:22-07:00 nemotron rank 0 started on forge
-2026-10-16T00:27:22-07:00 nemotron rank 1 started on anvil
-2026-10-16T00:27:22-07:00 nemotron rank 2 started on ember
-2026-10-16T00:27:23-07:00 nemotron rank 3 started on flame
-2026-10-16T00:27:48-07:00 nemotron serving at forge:8100
-forge  flock -n /home/jun/nemotron-tf/prompt-disk/657fd129b671c1ba/lock exit=0 (1: held) _ after-start
-anvil  flock -n /home/jun/nemotron-tf/prompt-disk/befa2ada25e54d53/lock exit=0 (1: held) _ after-start
+2026-10-16T00:27:22-07:00 nemotron rank 0 started on spark1
+2026-10-16T00:27:22-07:00 nemotron rank 1 started on spark2
+2026-10-16T00:27:22-07:00 nemotron rank 2 started on spark3
+2026-10-16T00:27:23-07:00 nemotron rank 3 started on spark4
+2026-10-16T00:27:48-07:00 nemotron serving at spark1:8100
+spark1  flock -n ~/nemotron-tf/prompt-disk/657fd129b671c1ba/lock exit=0 (1: held) _ after-start
+spark2  flock -n ~/nemotron-tf/prompt-disk/befa2ada25e54d53/lock exit=0 (1: held) _ after-start
 sky: 27 prompt tokens, 0.6 s, sha 80dadd21fc54
 code: 36 prompt tokens, 0.8 s, sha d01114a7c588
 water: 29 prompt tokens, 0.8 s, sha fb624d1812ca
@@ -28,7 +28,7 @@ doc90k: 81074 prompt tokens, 17.9 s, sha 0e0e48c4d5a3
   doc20k: identical (452 chars)
   doc90k: identical (354 chars)
 r4-greedy-vs-r3-exit=0
-forge  flock -n /home/jun/nemotron-tf/prompt-disk/657fd129b671c1ba/lock exit=0 (1: held) _ after-greedy
-anvil  flock -n /home/jun/nemotron-tf/prompt-disk/befa2ada25e54d53/lock exit=0 (1: held) _ after-greedy
-forge:8100 200
+spark1  flock -n ~/nemotron-tf/prompt-disk/657fd129b671c1ba/lock exit=0 (1: held) _ after-greedy
+spark2  flock -n ~/nemotron-tf/prompt-disk/befa2ada25e54d53/lock exit=0 (1: held) _ after-greedy
+spark1:8100 200
 BGDONE

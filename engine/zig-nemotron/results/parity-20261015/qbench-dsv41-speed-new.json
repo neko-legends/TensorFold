@@ -2,7 +2,7 @@
  "bench": "qbench",
  "version": 1,
  "tag": "dsv41-speed-new",
- "base_url": "http://forge:8000/v1",
+ "base_url": "http://spark1:8000/v1",
  "model": "deepseek-v4.1-flash",
  "thinking": false,
  "started": "2026-10-15T15:24:10-0700",

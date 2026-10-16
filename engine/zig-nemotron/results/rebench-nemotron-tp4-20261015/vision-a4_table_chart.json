@@ -1,5 +1,5 @@
 {
- "url": "http://forge:8100/v1",
+ "url": "http://spark1:8100/v1",
  "model": "NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4",
  "date": "2026-10-15 19:48",
  "cache_only": false,

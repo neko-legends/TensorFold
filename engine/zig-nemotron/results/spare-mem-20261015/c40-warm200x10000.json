@@ -1,6 +1,6 @@
 {
  "date": "2026-10-15T21:58:33-0700",
- "url": "http://forge:8100",
+ "url": "http://spark1:8100",
  "agents": 200,
  "prefix": 10000,
  "turns": 2,

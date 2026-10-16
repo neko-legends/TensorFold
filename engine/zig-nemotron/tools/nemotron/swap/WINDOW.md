@@ -2,11 +2,11 @@
 
 Everything below was dry-run on the truncated model (TF_NEMOTRON_LAYERS) beside the live engine; the full model's
 per-rank load was checked alone with TF_NEMOTRON_TP_SHARD (ranks 0 and 3: 8.5 s warm, no unused tensors).
-Binaries: `~/nemotron-tf/bin/{tensorfold,tensorfold-native}` on all four Sparks (built from this branch on flame);
-NCCL: `~/nemotron-tf/lib/libnccl.so.2` (copied out of the DeepSeek image). Rank order = DeepSeek's (forge 0 .. flame 3).
+Binaries: `~/nemotron-tf/bin/{tensorfold,tensorfold-native}` on all four Sparks (built from this branch on spark4);
+NCCL: `~/nemotron-tf/lib/libnccl.so.2` (copied out of the DeepSeek image). Rank order = DeepSeek's (spark1 0 .. spark4 3).
 
 1. `tools/nemotron/swap/nemotron-window.sh up` — maintenance flag, `docker stop dsv41-tf4-r0..r3` (exact names),
-   Nemotron serving on `http://forge:8100/v1` (context 65536, --parallel 1; `PARALLEL=4` for qbench's 4 workers).
+   Nemotron serving on `http://spark1:8100/v1` (context 65536, --parallel 1; `PARALLEL=4` for qbench's 4 workers).
    Re-run `nemotron-window.sh keep` every <= 30 min (the keeper's stand-down lasts 60 min after a touch).
 2. Smoke: three chat prompts (coherent English, thinking on and off), one image (`a4_table_chart.png`), one 20K-token
    prompt. Note the `accepted=a/b` MTP ratio in rank 0's log (`~/nemotron-tf/runs/window-r0.log`).
@@ -19,8 +19,8 @@ NCCL: `~/nemotron-tf/lib/libnccl.so.2` (copied out of the DeepSeek image). Rank 
      0,1,7,40,41,47,86,87` on CPU (the checkpoint's own HF blocks).
    - M1 parity: `tensorfold run MODEL --tokens ... --max-tokens 64 --no-drafts --report tp1.json` on ONE Spark (TP-1,
      70 GB, fits once DeepSeek is stopped) vs the same at TP-4: same first tokens, per-block cos >= 0.9999.
-5. `nemotron-window.sh down` — Nemotron off, `serve4.sh start`, forge:8000/health 200, flag removed.
-6. After the window (DeepSeek live): `window-vision.py http://forge:8000/v1 deepseek-v4.1-flash results/vision-dsv41.json`
+5. `nemotron-window.sh down` — Nemotron off, `serve4.sh start`, spark1:8000/health 200, flag removed.
+6. After the window (DeepSeek live): `window-vision.py http://spark1:8000/v1 deepseek-v4.1-flash results/vision-dsv41.json`
    for the matching vision cells (qbench's DeepSeek numbers already exist: spark-bench/results/qbench-dsv41-zig-20261015.json).
 
 Expected speed (from 24/48-layer TP-4 runs and the full single-rank share): 1-row window ~16 ms (~60 tok/s plain),

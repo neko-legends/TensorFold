@@ -306,10 +306,10 @@ uneven head slices in the graphs, and DSpark at 32 candidates a rank.
 ## Runbook: build (no GPU), then the window
 
 The build steps use CPU and disk only, inside containers named `zigtp4-*`. Run them from a checkout of `zig-tp4` on
-the head (`forge`). Below, `$SHA` is `git rev-parse --short HEAD` and `$WORKERS` lists the three workers.
+the head (`spark1`). Below, `$SHA` is `git rev-parse --short HEAD` and `$WORKERS` lists the three workers.
 
 ```bash
-# 1. image (on forge, nice): docker/zig/Dockerfile builds the fatbins with nvcc 13.0.1 and the aarch64 binaries
+# 1. image (on spark1, nice): docker/zig/Dockerfile builds the fatbins with nvcc 13.0.1 and the aarch64 binaries
 mkdir -p build/zig/src build/zig/fatbins && git archive HEAD engine/zig | tar -x --strip-components=2 -C build/zig/src
 touch build/zig/fatbins/.keep
 nice -n 10 docker build -f docker/zig/Dockerfile --build-arg ZIG_COMMIT="$(git rev-parse HEAD)" \
@@ -334,8 +334,8 @@ docker run --rm --name zigtp4-assets -v "$PWD:/repo:ro" -v "$MODEL:/pack:ro" -v 
 The window. Depths runs it. The Python engine's own scripts stop and restart the live ranks.
 
 ```bash
-# on forge
-sudo systemctl stop spark-forge-watchdog.timer       # it would relaunch the Python engine
+# on spark1
+sudo systemctl stop spark-watchdog.timer       # it would relaunch the Python engine
 K=${XDG_STATE_HOME:-$HOME/.local/state}/dsv41-tf4    # keeper4.sh's STATE_DIR (unless its cron line sets another)
 touch "$K/maintenance"                                # keeper4.sh (if in cron) stands down for an hour; re-touch hourly
 bash scripts/serve4.sh stop                           # the live dsv41-tf4-r0..r3 (exact names, the live tooling)
@@ -346,7 +346,7 @@ CONFIG=config/tp4-zig.env WORKERS="$WORKERS" scripts/zig-tp4-roce-check.sh
 # Zig ranks: followers first, then rank 0 (each on its own node, from this checkout, config/tp4-zig.env filled in)
 # FIRST WINDOW: that copied config has TF_COMM_BACKEND=nccl (set in the FILE: sourcing overrides the environment)
 CONFIG=config/tp4-zig.env scripts/run-zig.sh 3 &    # on rank 3's node; likewise 2 and 1 on theirs
-CONFIG=config/tp4-zig.env scripts/run-zig.sh 0 &    # on forge
+CONFIG=config/tp4-zig.env scripts/run-zig.sh 0 &    # on spark1
 # health: the first boot writes prepared files and measures calibration (minutes a rank)
 until curl -fsS localhost:8000/v1/models; do sleep 10; done
 curl -fsS localhost:8000/v1/chat/completions -H 'Content-Type: application/json' \
@@ -375,5 +375,5 @@ docker stop -t 80 zigtp4-r0                           # drains, then stops every
 for w in $WORKERS; do ssh $w 'docker stop -t 30 zigtp4-r1 zigtp4-r2 zigtp4-r3 2>/dev/null; true'; done   # only our names
 bash scripts/serve4.sh start                          # the live Python TP=4 (dsv41-tensorfold:tp4rot), as before
 curl -fsS localhost:8000/health && rm -f "$K/maintenance"
-sudo systemctl start spark-forge-watchdog.timer
+sudo systemctl start spark-watchdog.timer
 ```

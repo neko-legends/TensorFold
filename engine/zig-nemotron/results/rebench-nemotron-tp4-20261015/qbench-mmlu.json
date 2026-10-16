@@ -2,7 +2,7 @@
  "bench": "qbench",
  "version": 1,
  "tag": "rebench-nemotron-tp4-mmlu",
- "base_url": "http://forge:8100/v1",
+ "base_url": "http://spark1:8100/v1",
  "model": "NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4",
  "thinking": false,
  "started": "2026-10-15T19:27:45-0700",

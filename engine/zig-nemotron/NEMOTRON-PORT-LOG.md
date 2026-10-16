@@ -3,7 +3,7 @@
 Base: upstream TensorFold v1.0.11 vendored here (VENDORED.md). Target: `NemotronH_Omni_Reasoning_V3` = 88 blocks
 (40 Mamba-2 + 40 latent-MoE + 8 attention), 512 routed experts top-22, hidden 4096, MTP head, C-RADIO vision.
 
-## Done (M1 numerics, verified on flame 2026-10-15, no swap window needed)
+## Done (M1 numerics, verified on spark4 2026-10-15, no swap window needed)
 - Config: wrapper `nemotron_h_omni` (llm_config; quantization from the wrapper; `modelopt_mixed`; `{"__float__": "Infinity"}`;
   8.6 MB config.json; eos from generation_config.json); `latent` (moe_latent_size), `checkCudaShapes` (Lightning or Super VL),
   max_layers 96. `TF_NEMOTRON_LAYERS=N` truncates the backbone for numerics tests.
@@ -22,7 +22,7 @@ Base: upstream TensorFold v1.0.11 vendored here (VENDORED.md). Target: `Nemotron
   DeepSeek tree): Megatron split (Mamba heads + groups, attention q heads with the one KV head they read, latent MoE
   expert width split 672 -> padded 704, fc1 gather / latent all-reduce / fc2 + shared expert one all-reduce, lm_head and
   the draft head by vocabulary rows -> gather). `Config.shard` gives the rank's widths. RoCE backend
-  (`TF_COMM_BACKEND=roce`, `TF_TP_ROCE_HCA=roceP2p1s0f1`; flame's 192.168.2.x port is unreachable from the others).
+  (`TF_COMM_BACKEND=roce`, `TF_TP_ROCE_HCA=roceP2p1s0f1`; spark4's 10.10.2.x port is unreachable from the others).
   Gate (8 layers): per-block residual cos vs TP-1 >= 0.99997 (TP-2), >= 0.99992 (TP-4), logits 0.99997; `widths`
   and `shared-widths` (4 streams) pass at TP-4.
 - Serving under TP (`cuda_mirror.zig`): rank 0 runs `tensorfold-native serve`; ranks 1-3 replay its lane-backend calls

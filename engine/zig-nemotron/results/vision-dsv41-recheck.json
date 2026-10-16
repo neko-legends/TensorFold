@@ -1,5 +1,5 @@
 {
- "url": "http://forge:8000/v1",
+ "url": "http://spark1:8000/v1",
  "model": "deepseek-v4.1-flash",
  "date": "2026-10-15 16:09",
  "cache_only": false,

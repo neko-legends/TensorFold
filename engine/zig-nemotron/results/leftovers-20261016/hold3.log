@@ -1,11 +1,11 @@
 == 2026-10-16T00:35:00-07:00 R5a c3ede919 cache 0 P16 (pinned vs R0 b846)
 2026-10-16T00:35:03-07:00 nemotron stopped
-2026-10-16T00:35:06-07:00 nemotron rank 0 started on forge
-2026-10-16T00:35:06-07:00 nemotron rank 1 started on anvil
-2026-10-16T00:35:06-07:00 nemotron rank 2 started on ember
-2026-10-16T00:35:07-07:00 nemotron rank 3 started on flame
-2026-10-16T00:35:32-07:00 nemotron serving at forge:8100
-forge:8100 200
+2026-10-16T00:35:06-07:00 nemotron rank 0 started on spark1
+2026-10-16T00:35:06-07:00 nemotron rank 1 started on spark2
+2026-10-16T00:35:06-07:00 nemotron rank 2 started on spark3
+2026-10-16T00:35:07-07:00 nemotron rank 3 started on spark4
+2026-10-16T00:35:32-07:00 nemotron serving at spark1:8100
+spark1:8100 200
 sky: 27 prompt tokens, 0.5 s, sha 73c6f8b8edbb
 code: 36 prompt tokens, 0.9 s, sha d01114a7c588
 water: 29 prompt tokens, 0.8 s, sha fb624d1812ca
@@ -29,46 +29,46 @@ explain  IDENTICAL ['2504cb1dac3b'] vs ['2504cb1dac3b']  117.1 -> 124.35 tok/s
 essay    IDENTICAL ['588ea3040db7'] vs ['588ea3040db7']  112.92 -> 110.64 tok/s
 r5a-speed-vs-r0-exit=0
 == 2026-10-16T00:36:32-07:00 install c3ede919 as bin/tensorfold-native (copy to a new name, rename)
-forge aea6d36d5426f51e
-anvil aea6d36d5426f51e
-ember aea6d36d5426f51e
-flame aea6d36d5426f51e
+spark1 aea6d36d5426f51e
+spark2 aea6d36d5426f51e
+spark3 aea6d36d5426f51e
+spark4 aea6d36d5426f51e
 == 2026-10-16T00:36:33-07:00 R5 live config
 2026-10-16T00:36:37-07:00 nemotron stopped
-2026-10-16T00:36:39-07:00 nemotron rank 0 started on forge
-2026-10-16T00:36:40-07:00 nemotron rank 1 started on anvil
-2026-10-16T00:36:40-07:00 nemotron rank 2 started on ember
-2026-10-16T00:36:40-07:00 nemotron rank 3 started on flame
-2026-10-16T00:37:06-07:00 nemotron serving at forge:8100
-forge:8100 200
+2026-10-16T00:36:39-07:00 nemotron rank 0 started on spark1
+2026-10-16T00:36:40-07:00 nemotron rank 1 started on spark2
+2026-10-16T00:36:40-07:00 nemotron rank 2 started on spark3
+2026-10-16T00:36:40-07:00 nemotron rank 3 started on spark4
+2026-10-16T00:37:06-07:00 nemotron serving at spark1:8100
+spark1:8100 200
 sky: 27 prompt tokens, 0.6 s, sha 80dadd21fc54
 code: 36 prompt tokens, 0.8 s, sha d01114a7c588
 water: 29 prompt tokens, 0.8 s, sha fb624d1812ca
 doc20k: 14952 prompt tokens, 3.9 s, sha 9b75bb79d3c2
 doc90k: 81074 prompt tokens, 17.9 s, sha 0e0e48c4d5a3
 r5-greedy-exit=0
-forge flock -n /home/jun/nemotron-tf/prompt-disk/657fd129b671c1ba/lock exit=1 (1: held by the server)
-anvil flock -n /home/jun/nemotron-tf/prompt-disk/befa2ada25e54d53/lock exit=1 (1: held by the server)
+spark1 flock -n ~/nemotron-tf/prompt-disk/657fd129b671c1ba/lock exit=1 (1: held by the server)
+spark2 flock -n ~/nemotron-tf/prompt-disk/befa2ada25e54d53/lock exit=1 (1: held by the server)
 == 2026-10-16T00:37:31-07:00 stop R5 (the monitor's keep-alive is connected) and keep the logs
 stopped in 5 s
-info: prompt cache: disk tier at /home/jun/nemotron-tf/prompt-disk/657fd129b671c1ba: 0 states, 0.0 GiB on disk (cap 128 GiB, states of 4096 tokens or more)
+info: prompt cache: disk tier at ~/nemotron-tf/prompt-disk/657fd129b671c1ba: 0 states, 0.0 GiB on disk (cap 128 GiB, states of 4096 tokens or more)
 info: prompt cache: disk tier: 3 kept states written at stop
-forge /home/jun/nemotron-tf/prompt-disk/657fd129b671c1ba/ 26610be5b5d1a98b.bin 7eeeeb336c213338.bin bd89412a99004888.bin index lock not-a-state.txt used 
-forge /home/jun/nemotron-tf/prompt-disk/7d90d81df9beba2c/ 7eeeeb336c213338.bin bd89412a99004888.bin index used 
-anvil /home/jun/nemotron-tf/prompt-disk/1dc3ab816e8e045e/ 7eeeeb336c213338.bin bd89412a99004888.bin 
-anvil /home/jun/nemotron-tf/prompt-disk/befa2ada25e54d53/ 26610be5b5d1a98b.bin 7eeeeb336c213338.bin bd89412a99004888.bin lock not-a-state.txt 
-ember /home/jun/nemotron-tf/prompt-disk/62ed3faa1a988e4e/ 7eeeeb336c213338.bin bd89412a99004888.bin 
-ember /home/jun/nemotron-tf/prompt-disk/f3195ca43f6a20f9/ 26610be5b5d1a98b.bin 7eeeeb336c213338.bin bd89412a99004888.bin lock 
-flame /home/jun/nemotron-tf/prompt-disk/290430ecc6d4f45d/ 26610be5b5d1a98b.bin 7eeeeb336c213338.bin bd89412a99004888.bin lock 
-flame /home/jun/nemotron-tf/prompt-disk/551e14016008bd01/ 7eeeeb336c213338.bin bd89412a99004888.bin 
+spark1 ~/nemotron-tf/prompt-disk/657fd129b671c1ba/ 26610be5b5d1a98b.bin 7eeeeb336c213338.bin bd89412a99004888.bin index lock not-a-state.txt used 
+spark1 ~/nemotron-tf/prompt-disk/7d90d81df9beba2c/ 7eeeeb336c213338.bin bd89412a99004888.bin index used 
+spark2 ~/nemotron-tf/prompt-disk/1dc3ab816e8e045e/ 7eeeeb336c213338.bin bd89412a99004888.bin 
+spark2 ~/nemotron-tf/prompt-disk/befa2ada25e54d53/ 26610be5b5d1a98b.bin 7eeeeb336c213338.bin bd89412a99004888.bin lock not-a-state.txt 
+spark3 ~/nemotron-tf/prompt-disk/62ed3faa1a988e4e/ 7eeeeb336c213338.bin bd89412a99004888.bin 
+spark3 ~/nemotron-tf/prompt-disk/f3195ca43f6a20f9/ 26610be5b5d1a98b.bin 7eeeeb336c213338.bin bd89412a99004888.bin lock 
+spark4 ~/nemotron-tf/prompt-disk/290430ecc6d4f45d/ 26610be5b5d1a98b.bin 7eeeeb336c213338.bin bd89412a99004888.bin lock 
+spark4 ~/nemotron-tf/prompt-disk/551e14016008bd01/ 7eeeeb336c213338.bin bd89412a99004888.bin 
 == 2026-10-16T00:37:39-07:00 R6 live config: read back from disk
 2026-10-16T00:37:40-07:00 nemotron stopped
-2026-10-16T00:37:42-07:00 nemotron rank 0 started on forge
-2026-10-16T00:37:43-07:00 nemotron rank 1 started on anvil
-2026-10-16T00:37:43-07:00 nemotron rank 2 started on ember
-2026-10-16T00:37:43-07:00 nemotron rank 3 started on flame
-2026-10-16T00:38:09-07:00 nemotron serving at forge:8100
-forge:8100 200
+2026-10-16T00:37:42-07:00 nemotron rank 0 started on spark1
+2026-10-16T00:37:43-07:00 nemotron rank 1 started on spark2
+2026-10-16T00:37:43-07:00 nemotron rank 2 started on spark3
+2026-10-16T00:37:43-07:00 nemotron rank 3 started on spark4
+2026-10-16T00:38:09-07:00 nemotron serving at spark1:8100
+spark1:8100 200
 sky: 27 prompt tokens, 0.5 s, sha 80dadd21fc54
 code: 36 prompt tokens, 0.8 s, sha d01114a7c588
 water: 29 prompt tokens, 0.8 s, sha fb624d1812ca
@@ -86,16 +86,16 @@ story      98.64 tok/s  [100.39, 98.24, 98.64]  tokens 320 rounds 111 drafted 28
 explain   128.53 tok/s  [124.46, 128.9, 128.53]  tokens 320 rounds 87 drafted 322 accepted 233 (72%) tok/round 3.678 ms/round 29.46 sha 05f580ef2305
 essay     112.38 tok/s  [112.92, 111.34, 112.38]  tokens 136 rounds 42 drafted 136 accepted 95 (70%) tok/round 3.238 ms/round 28.47 sha 588ea3040db7
 r6-speed-exit=0
-forge flock -n /home/jun/nemotron-tf/prompt-disk/657fd129b671c1ba/lock exit=1 (1: held by the server)
-anvil flock -n /home/jun/nemotron-tf/prompt-disk/befa2ada25e54d53/lock exit=1 (1: held by the server)
-info: prompt cache: disk tier at /home/jun/nemotron-tf/prompt-disk/657fd129b671c1ba: 3 states, 0.9 GiB on disk (cap 128 GiB, states of 4096 tokens or more)
+spark1 flock -n ~/nemotron-tf/prompt-disk/657fd129b671c1ba/lock exit=1 (1: held by the server)
+spark2 flock -n ~/nemotron-tf/prompt-disk/befa2ada25e54d53/lock exit=1 (1: held by the server)
+info: prompt cache: disk tier at ~/nemotron-tf/prompt-disk/657fd129b671c1ba: 3 states, 0.9 GiB on disk (cap 128 GiB, states of 4096 tokens or more)
 info: prompt cache: read 14946 learned tokens from disk
 info: prompt cache: read 81068 learned tokens from disk
-forge aea6d36d5426f51e tive serve /home/jun/models/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 --host 0.0.0.0 --port 8100 --no-update-check --context 307200 --parallel 16 --segments 4 --prompt-cache-gib 40 
-anvil aea6d36d5426f51e tive serve /home/jun/models/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 --host 0.0.0.0 --port 8100 --no-update-check --context 307200 --parallel 16 --segments 4 --prompt-cache-gib 40 
-ember aea6d36d5426f51e tive serve /home/jun/models/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 --host 0.0.0.0 --port 8100 --no-update-check --context 307200 --parallel 16 --segments 4 --prompt-cache-gib 40 
-flame aea6d36d5426f51e tive serve /home/jun/models/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 --host 0.0.0.0 --port 8100 --no-update-check --context 307200 --parallel 16 --segments 4 --prompt-cache-gib 40 
+spark1 aea6d36d5426f51e tive serve ~/models/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 --host 0.0.0.0 --port 8100 --no-update-check --context 307200 --parallel 16 --segments 4 --prompt-cache-gib 40 
+spark2 aea6d36d5426f51e tive serve ~/models/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 --host 0.0.0.0 --port 8100 --no-update-check --context 307200 --parallel 16 --segments 4 --prompt-cache-gib 40 
+spark3 aea6d36d5426f51e tive serve ~/models/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 --host 0.0.0.0 --port 8100 --no-update-check --context 307200 --parallel 16 --segments 4 --prompt-cache-gib 40 
+spark4 aea6d36d5426f51e tive serve ~/models/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 --host 0.0.0.0 --port 8100 --no-update-check --context 307200 --parallel 16 --segments 4 --prompt-cache-gib 40 
 NCCL_MAX_NCHANNELS=2
-TF_NEMOTRON_DISK=/home/jun/nemotron-tf/prompt-disk
-forge:8100 200
+TF_NEMOTRON_DISK=~/nemotron-tf/prompt-disk
+spark1:8100 200
 BGDONE

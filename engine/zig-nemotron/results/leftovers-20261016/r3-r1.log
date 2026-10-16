@@ -1,4 +1,4 @@
-info: [tensorfold] tp roce: roceP2p1s0f1 GID 3 (192.168.10.2), MTU enum 5, 3 queue pairs
+info: [tensorfold] tp roce: roceP2p1s0f1 GID 3 (10.10.10.2), MTU enum 5, 3 queue pairs
 info: [tensorfold] tp roce: rank 1 -> rank 0: HCA pairs { 0 }
 info: [tensorfold] tp roce: rank 1 -> rank 2: HCA pairs { 0 }
 info: [tensorfold] tp roce: rank 1 -> rank 3: HCA pairs { 0 }

@@ -1,5 +1,5 @@
 {
- "url": "http://forge:8100",
+ "url": "http://spark1:8100",
  "nonce": "fixednonce1",
  "doc_chars": 120000,
  "date": "2026-10-15T18:27:55-0700",

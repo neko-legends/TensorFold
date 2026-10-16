@@ -21,7 +21,7 @@ images = (args[3] if len(args) > 3 else "a1_poster,a3_shapes,a4_table_chart,k_f_
 os.environ["SPARK_VISION_URL"] = url
 os.environ["SPARK_VISION_MODEL"] = model
 os.environ.setdefault("SPARK_VISION_CACHE", os.path.join(os.path.dirname(os.path.abspath(out)), "vision-cache-" + model.replace("/", "_")))
-bench = "/home/jun/nest/tmp/spark-vision"
+bench = os.path.expanduser(os.environ.get("SPARK_VISION", "~/spark-vision"))
 sys.path.insert(0, bench)
 os.chdir(bench)
 from score import sv, score_text, score_shapes  # noqa: E402  (score.py loads spark-vision.py with the env above)

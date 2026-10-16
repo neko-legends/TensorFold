@@ -1,5 +1,6 @@
+import os
 import json, time, urllib.request, base64, sys
-U="http://forge:8100/v1/chat/completions"; M="NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4"
+U="http://spark1:8100/v1/chat/completions"; M="NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4"
 def chat(msgs, think, max_tokens=512, **kw):
     body={"model":M,"messages":msgs,"max_tokens":max_tokens,"temperature":0,"chat_template_kwargs":{"enable_thinking":think}, **kw}
     t=time.time(); r=json.load(urllib.request.urlopen(urllib.request.Request(U,json.dumps(body).encode(),{"Content-Type":"application/json"}),timeout=900))
@@ -10,7 +11,7 @@ for p,th in [("Explain in three sentences why the sky is blue.",False),
              ("Write a Python function that returns the n-th Fibonacci number iteratively, with a docstring.",False),
              ("A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost?",True)]:
     r=chat([{"role":"user","content":p}],th,1024); r["prompt"]=p; r["thinking"]=th; out.append(r); print(json.dumps(r)[:1500],flush=True)
-img=base64.b64encode(open("/home/jun/nest/tmp/spark-vision/bench/a4_table_chart.png","rb").read()).decode()
+img=base64.b64encode(open(os.path.expanduser(os.environ.get("SPARK_VISION", "~/spark-vision")) + "/bench/a4_table_chart.png","rb").read()).decode()
 r=chat([{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,"+img}},{"type":"text","text":"Describe this image and transcribe any table in it."}]}],False,1024)
 r["prompt"]="image a4_table_chart.png"; out.append(r); print(json.dumps(r)[:2000],flush=True)
 # 20K-token prompt: a long numbered list with a fact buried in it

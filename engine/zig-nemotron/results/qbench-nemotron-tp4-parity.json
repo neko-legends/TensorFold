@@ -2,7 +2,7 @@
  "bench": "qbench",
  "version": 1,
  "tag": "nemotron-tp4-parity-20261015",
- "base_url": "http://forge:8100/v1",
+ "base_url": "http://spark1:8100/v1",
  "model": "NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4",
  "thinking": false,
  "started": "2026-10-15T15:33:18-0700",

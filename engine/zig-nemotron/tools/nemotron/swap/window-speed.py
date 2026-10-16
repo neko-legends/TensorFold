@@ -3,8 +3,9 @@
 streamed TTFT is the wall time unless the server sends a `tensorfold` timing block (DeepSeek does, Nemotron does not).
   window-speed.py HOST PORT MODEL OUT.json"""
 
+import os
 import json, sys, time, http.client, concurrent.futures as cf
-sys.path.insert(0, "/home/jun/git/spark-bench/bench"); import qbench
+sys.path.insert(0, os.path.expanduser(os.environ.get("SPARK_BENCH", "~/git/spark-bench")) + "/bench"); import qbench
 host, port, model, out = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
 def one(prompt):
     body = {"model": model, "messages": [{"role": "user", "content": prompt}], "max_tokens": qbench.SPEED_TOKENS, "temperature": 0,
