@@ -1,4 +1,4 @@
-# Nemotron TP-4 swap window — agenda (needs Jun's explicit go)
+# Nemotron TP-4 swap window — agenda (needs the owner's explicit go)
 
 Everything below was dry-run on the truncated model (TF_NEMOTRON_LAYERS) beside the live engine; the full model's
 per-rank load was checked alone with TF_NEMOTRON_TP_SHARD (ranks 0 and 3: 8.5 s warm, no unused tensors).

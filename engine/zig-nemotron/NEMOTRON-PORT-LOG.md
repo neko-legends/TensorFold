@@ -22,7 +22,7 @@ Base: upstream TensorFold v1.0.11 vendored here (VENDORED.md). Target: `Nemotron
   DeepSeek tree): Megatron split (Mamba heads + groups, attention q heads with the one KV head they read, latent MoE
   expert width split 672 -> padded 704, fc1 gather / latent all-reduce / fc2 + shared expert one all-reduce, lm_head and
   the draft head by vocabulary rows -> gather). `Config.shard` gives the rank's widths. RoCE backend
-  (`TF_COMM_BACKEND=roce`, `TF_TP_ROCE_HCA=roceP2p1s0f1`; spark4's 10.10.2.x port is unreachable from the others).
+  (`TF_COMM_BACKEND=roce`, `TF_TP_ROCE_HCA=roceP2p1s0f1`; spark4's second-subnet port is unreachable from the others).
   Gate (8 layers): per-block residual cos vs TP-1 >= 0.99997 (TP-2), >= 0.99992 (TP-4), logits 0.99997; `widths`
   and `shared-widths` (4 streams) pass at TP-4.
 - Serving under TP (`cuda_mirror.zig`): rank 0 runs `tensorfold-native serve`; ranks 1-3 replay its lane-backend calls
@@ -40,6 +40,6 @@ Base: upstream TensorFold v1.0.11 vendored here (VENDORED.md). Target: `Nemotron
   past an idle keep-alive (so states are written at stop). Greedy text depends on the prompt cache's state (rounding
   drift, deterministic per state): A/B tests pin it (`swap/WINDOW.md`, Serving notes).
 
-## Not done (needs the swap window: Jun's go)
+## Not done (needs the swap window: the owner's go)
 Full-model TP-4 serving and TP-1 text parity, the per-layer HF gate on late layers, MTP acceptance, qbench + vision
 benches and the comparison table.

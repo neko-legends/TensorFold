@@ -1,6 +1,6 @@
 import os
 import json, time, urllib.request, base64, sys
-U="http://spark1:8100/v1/chat/completions"; M="NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4"
+U=f"http://{os.environ.get('R0', 'spark1')}:8100/v1/chat/completions"; M="NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4"
 def chat(msgs, think, max_tokens=512, **kw):
     body={"model":M,"messages":msgs,"max_tokens":max_tokens,"temperature":0,"chat_template_kwargs":{"enable_thinking":think}, **kw}
     t=time.time(); r=json.load(urllib.request.urlopen(urllib.request.Request(U,json.dumps(body).encode(),{"Content-Type":"application/json"}),timeout=900))
