@@ -15,6 +15,16 @@ pub const Stream = struct {
         return .{ .d = d, .handle = s };
     }
 
+    /// A non-blocking stream at the device's highest priority: its blocks are placed first as SMs free up.
+    pub fn initHigh(d: *const Driver) Error!Stream {
+        var least: c_int = 0;
+        var greatest: c_int = 0;
+        try d.check(d.api.cuCtxGetStreamPriorityRange(&least, &greatest), "cuCtxGetStreamPriorityRange");
+        var s: abi.Stream = null;
+        try d.check(d.api.cuStreamCreateWithPriority(&s, abi.stream_non_blocking, greatest), "cuStreamCreateWithPriority");
+        return .{ .d = d, .handle = s };
+    }
+
     pub fn deinit(self: *Stream) void {
         _ = self.d.api.cuStreamDestroy_v2(self.handle);
         self.* = undefined;

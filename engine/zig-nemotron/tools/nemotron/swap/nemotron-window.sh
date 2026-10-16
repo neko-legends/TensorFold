@@ -28,6 +28,7 @@ nemo_up() {
   done
   for i in $(seq 1 120); do
     curl -sf -m 5 http://forge:8100/v1/models >/dev/null && { log "nemotron serving at forge:8100"; return 0; }
+    [ $i -gt 4 ] && ! ssh forge "pgrep -f 'tensorfold-native[.a-z0-9]* serve'" >/dev/null && { log "rank 0 exited:"; ssh forge "tail -3 $LOGD/window-r0.log"; return 1; }
     sleep 5
   done
   log "nemotron did not come up in 10 min; logs: $LOGD/window-r*.log"; return 1

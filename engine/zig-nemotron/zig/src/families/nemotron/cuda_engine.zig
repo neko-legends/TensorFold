@@ -73,7 +73,7 @@ const pin_meta = 0;
 const pin_ids = 4;
 pub const pin_sampled = 32;
 pub const pin_prompt = 64;
-const pin_shared = pin_prompt + @max(segs.MAX * state.prefill_rows, state.pass_rows);
+const pin_shared = pin_prompt + segs.MAX * state.pass_rows; // a call of segments takes MAX chunks of up to pass_rows (tensor parallelism's)
 /// Graph ids of masked verify windows (launchGraph's ids: windows from 1, head levels from 1000).
 const masked_ids = 4000;
 
@@ -140,8 +140,7 @@ pub const Engine = struct {
         // tensor parallelism (TF_TP_WORLD ranks): this rank's widths, and its communicator
         e.tp = try cuda_tp.open(ctx.d);
         if (e.tp.on()) {
-            e.c = try e.c.shard(e.tp.world, e.tp.rank);
-            if (opts.segments != 1) return error.TpNeedsOneSegment; // staggered segments run collectives on several streams
+            e.c = try e.c.shard(e.tp.world, e.tp.rank); // staggered segments queue their collectives on one stream
         }
         if (opts.segments < 1 or opts.segments > segs.MAX) return error.BadSegments;
         e.segments = opts.segments;

@@ -18,15 +18,23 @@ pub const Segments = struct {
     runner: segs.Runner,
     sibs: [MAX - 1]state.Buffers = undefined,
     n: usize = 1,
+    comm: ?fwd.CommLane = null, // tensor parallelism: every segment's collectives, in host order, on one stream
 
     pub fn init(e: *const Engine, n: usize) !Segments {
         var s: Segments = .{ .runner = try segs.Runner.init(e.ctx.d, n) };
         errdefer s.deinit();
         while (s.n < n) : (s.n += 1) s.sibs[s.n - 1] = try e.b.sibling(e.ctx.d, e.c, e.nch);
+        // one communicator: its calls must meet in one order on every rank (two communicators' kernels deadlocked)
+        if (e.tp.on()) s.comm = .{ .s = try cuda.Stream.initHigh(e.ctx.d), .sent = try cuda.Event.init(e.ctx.d, false), .done = try cuda.Event.init(e.ctx.d, false) };
         return s;
     }
 
     pub fn deinit(s: *Segments) void {
+        if (s.comm) |*c| {
+            c.done.deinit();
+            c.sent.deinit();
+            c.s.deinit();
+        }
         for (s.sibs[0 .. s.n - 1]) |*b| b.deinit();
         s.runner.deinit();
         s.* = undefined;
@@ -56,6 +64,12 @@ const Hooks = struct {
     pub fn post(h: *Hooks, l: *const segs.Lane, i: usize) !void {
         try h.list[l.k].f.chunkPost(&h.list[l.k].walk, i);
     }
+    pub fn parts(h: *Hooks, i: usize) usize {
+        return h.list[0].f.postParts(i);
+    }
+    pub fn postPart(h: *Hooks, l: *const segs.Lane, i: usize, p: usize) !void {
+        try h.list[l.k].f.chunkPostPart(&h.list[l.k].walk, i, p);
+    }
     pub fn finish(h: *Hooks, l: *const segs.Lane) !void {
         try h.list[l.k].f.chunkFinish(&h.list[l.k].walk);
     }
@@ -64,7 +78,9 @@ const Hooks = struct {
 /// The prompt from a reset state, `parts` chunks a call (`cancel` asked between calls); leaves the head and prompt buffers as serial does.
 pub fn prefill(e: *Engine, s: *Segments, prompt: []const u32, head: ?*Head, parts: usize, cancel: ?Cancel) !void {
     if (parts < 2 or parts > s.n) return error.Segments;
-    const R = state.prefill_rows;
+    // tensor parallelism: segments of a serial pass's rows, so every collective moves the bytes a serial chunk's does
+    // (NCCL's ring sums in an order its message size sets: the same rows give the same bits)
+    const R: usize = if (e.tp.on()) state.pass_rows else state.prefill_rows;
     var bufs: [MAX]*state.Buffers = undefined;
     bufs[0] = &e.b;
     for (1..parts) |k| {
@@ -88,11 +104,14 @@ pub fn prefill(e: *Engine, s: *Segments, prompt: []const u32, head: ?*Head, part
             const ops: kern.Ops = .{ .k = &e.k, .s = s.runner.stream(e.stream, k) };
             var f = fwd.Forward.init(e.c, &e.w, bufs[k], ops, e.max_len, e.nch, e.sampling != null);
             f.untaught = e.bound.untaught;
+            f.tp = e.tp;
+            f.comm = s.comm;
             seg[k] = .{ .f = f, .walk = .{ .rows = rows, .pos = e.pos + k * R } };
         }
         try e.copied.record(e.stream);
         var hooks: Hooks = .{ .list = seg[0..c.parts] };
-        try s.runner.run(e.stream, c.parts, e.w.blocks.len, &hooks);
+        // tensor parallelism: posts in parts, so the segments' collectives alternate on the one comm stream
+        if (e.tp.on()) try segs.runPhased(&s.runner, e.stream, c.parts, e.w.blocks.len, &hooks) else try s.runner.run(e.stream, c.parts, e.w.blocks.len, &hooks);
         for (0..c.parts) |k| { // the caller's stream has joined every segment
             const start = at + k * R;
             const known = @min(seg[k].walk.rows, prompt.len - 1 - start);

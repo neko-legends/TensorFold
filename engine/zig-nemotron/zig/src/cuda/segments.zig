@@ -67,6 +67,48 @@ pub const Runner = struct {
     }
 };
 
+/// `run` with each layer's posts in parts, interleaved across the segments: every segment's pre and mixer first (k's
+/// mixer after k-1's, as `run`), then part 0 of every segment's post, part 1 of every one, and so on (`fam.parts(i)`,
+/// `fam.postPart(lane, i, p)`). A family whose parts each end at a collective on one shared stream so queues them
+/// alternately, and one segment's collective moves while the other's kernels run; each segment's own kernels keep
+/// `run`'s order.
+pub fn runPhased(r: *const Runner, caller: Stream, parts: usize, layers: usize, fam: anytype) !void {
+    if (parts == 0 or parts > r.n) return error.Segments;
+    var lanes: [MAX]Lane = undefined;
+    for (0..parts) |k| lanes[k] = .{ .k = k, .s = r.stream(caller, k) };
+    const ops: Ops = .{ .r = r, .lanes = lanes[0..parts] };
+    if (parts > 1) try ops.fork();
+    drivePhased(ops, fam, lanes[0..parts], layers) catch |err| {
+        if (parts > 1) ops.join() catch {};
+        ops.drain();
+        return err;
+    };
+    if (parts > 1) try ops.join();
+}
+
+fn drivePhased(ops: Ops, fam: anytype, lanes: []Lane, layers: usize) !void {
+    const n = lanes.len;
+    for (lanes) |*l| try fam.begin(l);
+    for (0..layers) |i| {
+        const w: Wait = fam.wait(i);
+        for (lanes, 0..) |*l, k| {
+            if (k > 0 and w == .pre) {
+                try ops.waitFor(k);
+                try fam.handoff(l, i);
+            }
+            try fam.pre(l, i);
+            if (k > 0 and w == .mixer) {
+                try ops.waitFor(k);
+                try fam.handoff(l, i);
+            }
+            try fam.mixer(l, i);
+            if (k + 1 < n) try ops.signal(k);
+        }
+        for (0..fam.parts(i)) |p| for (lanes) |*l| try fam.postPart(l, i, p);
+    }
+    for (lanes) |*l| try fam.finish(l);
+}
+
 /// The events between real streams: lanes[0] is the caller's stream.
 const Ops = struct {
     r: *const Runner,

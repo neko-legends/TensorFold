@@ -24,6 +24,11 @@ pub const Delta = enum { none, dense, moe };
 /// A latent MoE's decode window records `mid` on it once the routing is planned (the shared expert runs on after it).
 pub const Side = struct { s: cuda.Stream, fork: cuda.Event, join: cuda.Event, mid: cuda.Event };
 
+/// Tensor parallelism's collectives on a stream of their own (staggered prompt segments, cuda_segments.zig): a segment
+/// hands each one over by event and waits for its end, so the other segment's kernels run while it moves. Every rank
+/// queues the segments' collectives in the same host order onto this one stream, so they meet in the same order.
+pub const CommLane = struct { s: cuda.Stream, sent: cuda.Event, done: cuda.Event };
+
 /// A verify window supplies its stream buffers and starting row.
 pub const Seg = struct { b: *const state.Buffers, row0: usize, rows: usize, sampled: bool, mask: Mask = .{}, slot: u32 = 0, untaught: bool = false };
 
@@ -68,6 +73,7 @@ pub const Forward = struct {
     segs: []const Seg = &.{}, // a window's sequences, as windowSegs runs them
     captures: []const kept.Mark = &.{}, // marks inside the prompt chunk: their Mamba states are copied out as it runs
     tp: *const Shard = &one_rank, // tensor parallelism (cuda_tp.zig): the rank's slices summed or gathered between blocks
+    comm: ?CommLane = null, // the collectives' own stream (staggered prompt segments under tensor parallelism)
 
     pub fn init(c: Config, w: *const weights.Weights, b: *const state.Buffers, ops: kern.Ops, max_len: usize, nch: usize, sampled: bool) Forward {
         return .{
@@ -101,8 +107,24 @@ pub const Forward = struct {
 
     /// Tensor parallelism: the ranks' partial rows of a split projection's output (bf16 [rows, n]) summed in place.
     pub fn reduce(f: *const Forward, buf: u64, rows: usize, n: usize) !void {
-        if (f.tp.on()) try f.tp.sum(buf, rows * n, f.ops.s);
+        if (f.tp.on()) if (f.comm) |c| {
+            try f.handOver(c);
+            try f.tp.sum(buf, rows * n, c.s);
+            try f.takeBack(c);
+        } else try f.tp.sum(buf, rows * n, f.ops.s);
         try f.mark(.comm);
+    }
+
+    /// The comm lane waits for this stream's work so far.
+    fn handOver(f: *const Forward, c: CommLane) !void {
+        try c.sent.record(f.ops.s);
+        try c.s.wait(c.sent);
+    }
+
+    /// This stream waits for the comm lane's collective.
+    fn takeBack(f: *const Forward, c: CommLane) !void {
+        try c.done.record(c.s);
+        try f.ops.s.wait(c.done);
     }
 
     /// A projection whose output rows are split across the ranks (`width` this rank's): its rows into tp_part, then every
@@ -111,7 +133,11 @@ pub const Forward = struct {
         if (!f.tp.on()) return f.linear(x, xs, q, out, rows, prompt);
         try f.linear(x, xs, q, f.b.tp_part, rows, prompt);
         try f.mark(.fc1);
-        try f.tp.gatherCols(f.ops, f.b.tp_part, out, rows, width, 2, f.b.tp_gather);
+        if (f.comm) |c| {
+            try f.handOver(c);
+            try f.tp.gatherCols(kern.Ops{ .k = f.ops.k, .s = c.s }, f.b.tp_part, out, rows, width, 2, f.b.tp_gather);
+            try f.takeBack(c);
+        } else try f.tp.gatherCols(f.ops, f.b.tp_part, out, rows, width, 2, f.b.tp_gather);
         try f.mark(.comm);
     }
 
@@ -303,14 +329,18 @@ pub const Forward = struct {
     /// work there, their weighted sum goes through fc2 back to hidden, and the shared expert (hidden width) is added.
     /// The layer's output is left in b.delta (bf16), which the next norm adds to the residual.
     fn latentExperts(f: *const Forward, m: weights.MoE, lt: weights.Latent, rows: usize, prompt: bool) !void {
+        if (prompt) {
+            for (0..moe_phases) |p| try f.latentPhase(m, lt, rows, p);
+            return;
+        }
         const c = f.c;
         const b = f.b;
         const o = f.ops;
         const ex = m.experts;
         const D = c.hidden;
         const pairs = rows * c.slots();
-        const shared_side: ?Side = if (prompt or !latent_side) null else f.side;
-        const tile: usize = if (prompt) cuda.experts.promptTile(ex.format) else 16;
+        const shared_side: ?Side = if (!latent_side) null else f.side;
+        const tile: usize = 16;
         if (shared_side) |sd| {
             // a decode window: the side stream routes and plans, then runs the shared expert, while this one runs fc1
             // and its gather; the experts wait for the plan, the sum for the shared expert
@@ -324,31 +354,24 @@ pub const Forward = struct {
             try sd.mid.record(sd.s);
             try f.sharedLatent(so, lt, rows, false);
             try sd.join.record(sd.s);
-            try f.splitLinear(b.y, b.xs, lt.fc1, b.lat, rows, c.latent / f.tp.world, prompt);
+            try f.splitLinear(b.y, b.xs, lt.fc1, b.lat, rows, c.latent / f.tp.world, false);
             try o.s.wait(sd.mid);
             try f.mark(.plan);
         } else {
             try f.glue.route(b.y, m.router, m.bias, b.part, b.pick, b.wts, rows, D, c.experts, c.top_k, c.slots(), c.routed_scaling, c.norm_topk);
             try f.mark(.route);
-            try f.splitLinear(b.y, b.xs, lt.fc1, b.lat, rows, c.latent / f.tp.world, prompt);
+            try f.splitLinear(b.y, b.xs, lt.fc1, b.lat, rows, c.latent / f.tp.world, false);
             try o.plan(b.pick, pairs, ex.experts, tile, b.plan);
             try f.mark(.plan);
         }
         const items = kern.maxItems(pairs, ex.experts, tile);
         const g = o.grouped();
         const in: [2]cuda.experts.Rows = .{ .{ .x = b.lat, .stride = ex.dims, .slots = c.slots() }, .{ .x = b.act, .stride = ex.width } };
-        if (prompt) {
-            try g.prompt(o.s, .up, in[0], ex, b.plan, b.act, items, -1);
-            try f.mark(.experts_up);
-            try g.prompt(o.s, .down_bf16, in[1], ex, b.plan, b.ymoe, items, -1);
-            try f.mark(.experts_down);
-        } else {
-            try g.decode(o.s, .up, in[0], ex, b.plan, b.act, items, -1);
-            try f.mark(.experts_up);
-            try g.decode(o.s, .down_f32, in[1], ex, b.plan, b.ymoe, items, -1);
-            try f.mark(.experts_down);
-        }
-        try o.latentSum(b.ymoe, !prompt, b.wts, b.lat2, rows, ex.dims, c.slots());
+        try g.decode(o.s, .up, in[0], ex, b.plan, b.act, items, -1);
+        try f.mark(.experts_up);
+        try g.decode(o.s, .down_f32, in[1], ex, b.plan, b.ymoe, items, -1);
+        try f.mark(.experts_down);
+        try o.latentSum(b.ymoe, true, b.wts, b.lat2, rows, ex.dims, c.slots());
         try f.mark(.latent_sum);
         var fc2_in = b.lat2;
         if (f.tp.on()) {
@@ -361,11 +384,74 @@ pub const Forward = struct {
                 fc2_in = b.tp_part;
             }
         }
-        try f.linear(fc2_in, b.xs, lt.fc2, b.delta, rows, prompt);
+        try f.linear(fc2_in, b.xs, lt.fc2, b.delta, rows, false);
         try f.mark(.fc2);
         // the shared expert: up, relu^2, down in the hidden width, added to the routed path's output (a decode
         // window ran it on the side stream from the start, beside the routed path and its exchanges)
-        if (shared_side) |sd| try o.s.wait(sd.join) else try f.sharedLatent(o, lt, rows, prompt);
+        if (shared_side) |sd| try o.s.wait(sd.join) else try f.sharedLatent(o, lt, rows, false);
+        try f.latentOut(rows);
+    }
+
+    /// The parts of a prompt chunk's latent MoE, each ending at a collective (staggered segments interleave them).
+    pub const moe_phases = 3;
+
+    /// A prompt chunk's latent MoE part `phase`: 0 routes and runs fc1 (gathered); 1 the experts and their latent
+    /// sum (summed across ranks); 2 fc2 and the shared expert (summed). The kernels of 0, 1, 2 in a row are
+    /// latentExperts' own.
+    pub fn latentPhase(f: *const Forward, m: weights.MoE, lt: weights.Latent, rows: usize, phase: usize) !void {
+        const c = f.c;
+        const b = f.b;
+        const o = f.ops;
+        const ex = m.experts;
+        const pairs = rows * c.slots();
+        const tile: usize = cuda.experts.promptTile(ex.format);
+        switch (phase) {
+            0 => {
+                try f.glue.route(b.y, m.router, m.bias, b.part, b.pick, b.wts, rows, c.hidden, c.experts, c.top_k, c.slots(), c.routed_scaling, c.norm_topk);
+                try f.mark(.route);
+                try f.splitLinear(b.y, b.xs, lt.fc1, b.lat, rows, c.latent / f.tp.world, true);
+            },
+            1 => {
+                try o.plan(b.pick, pairs, ex.experts, tile, b.plan);
+                try f.mark(.plan);
+                const items = kern.maxItems(pairs, ex.experts, tile);
+                const g = o.grouped();
+                const in: [2]cuda.experts.Rows = .{ .{ .x = b.lat, .stride = ex.dims, .slots = c.slots() }, .{ .x = b.act, .stride = ex.width } };
+                try g.prompt(o.s, .up, in[0], ex, b.plan, b.act, items, -1);
+                try f.mark(.experts_up);
+                try g.prompt(o.s, .down_bf16, in[1], ex, b.plan, b.ymoe, items, -1);
+                try f.mark(.experts_down);
+                try o.latentSum(b.ymoe, false, b.wts, b.lat2, rows, ex.dims, c.slots());
+                try f.mark(.latent_sum);
+                // each rank's experts gave part of every latent row: summed
+                if (f.tp.on()) try f.reduce(b.lat2, rows, c.latent);
+            },
+            else => {
+                var fc2_in = b.lat2;
+                if (f.tp.on()) {
+                    // fc2 reads the rank's latent columns
+                    const part = c.latent / f.tp.world;
+                    fc2_in = b.lat2 + f.tp.rank * part * 2;
+                    if (rows > 1) {
+                        try o.copyRows(b.tp_part, part * 2, fc2_in, c.latent * 2, part * 2, rows);
+                        fc2_in = b.tp_part;
+                    }
+                }
+                try f.linear(fc2_in, b.xs, lt.fc2, b.delta, rows, true);
+                try f.mark(.fc2);
+                try f.sharedLatent(o, lt, rows, true);
+                try f.latentOut(rows);
+            },
+        }
+    }
+
+    /// A latent MoE's end: the routed and shared outputs added, summed across ranks into b.delta.
+    fn latentOut(f: *const Forward, rows: usize) !void {
+        const c = f.c;
+        const b = f.b;
+        const o = f.ops;
+        const D = c.hidden;
+        const pairs = rows * c.slots();
         if (f.dump) |d| {
             // the layer's parts, for tools/nemotron/layer_ref.py: picks, weights, the latent sum, routed (fc2) and shared outputs
             try d.input(o, "pick", b.pick, pairs * 4);
@@ -569,6 +655,20 @@ pub const Forward = struct {
                 w.delta = if (c.latent != 0) .dense else .moe;
             },
         }
+    }
+
+    /// Parts block i's post runs in (chunkPostPart): a latent MoE's three, else one.
+    pub fn postParts(f: *const Forward, i: usize) usize {
+        const blk = f.w.blocks[i];
+        return if (blk.kind == .moe and blk.moe.latent != null) moe_phases else 1;
+    }
+
+    /// Part `p` of block i's post (chunkPost is every part in a row).
+    pub fn chunkPostPart(f: *const Forward, w: *Walk, i: usize, p: usize) !void {
+        const blk = f.w.blocks[i];
+        if (f.postParts(i) == 1) return f.chunkPost(w, i);
+        try f.latentPhase(blk.moe, blk.moe.latent.?, w.rows, p);
+        if (p + 1 == moe_phases) w.delta = .dense;
     }
 
     /// The chunk's last norm alone: w.x then holds the residual it read, b.y every row's normed hidden state.
