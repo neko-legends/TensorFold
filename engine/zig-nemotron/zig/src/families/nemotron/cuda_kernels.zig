@@ -8,12 +8,12 @@ const glue = @import("cuda_glue.zig");
 
 /// Mangled names of the instantiations the copies in zig/kernels/cuda export (cuobjdump -symbols of each fatbin).
 const sym = struct {
-    const pattn = "_ZN20tf_prefill_attention12pattn_kernelILi128ELi8ELi8ELi8EEEvPK13__nv_bfloat16S3_S3_PS1_iiiiif";
+    const pattn = "_ZN20tf_prefill_attention12pattn_kernelILi128ELi4ELi4ELi4EEEvPK13__nv_bfloat16S3_S3_PS1_iiiiif";
     const scan_rows = "_ZN12tf_scan_rows11scan_kernelILb0EEEvPK13__nv_bfloat16S3_PfPKfS6_S6_PS1_iiiiiiiiffNS_5SnapsE";
     const scan_snaps = "_ZN12tf_scan_rows11scan_kernelILb1EEEvPK13__nv_bfloat16S3_PfPKfS6_S6_PS1_iiiiiiiiffNS_5SnapsE";
 };
 
-pub const pattn_smem: u32 = 65536; // eight 32-key slots of 128 dims
+pub const pattn_smem: u32 = 32768; // four 32-key slots of 128 dims
 
 /// The projections' shared pieces (cuda/qlinear.zig): split-K scratch, a weight in any format, the 4-bit tiles.
 pub const Split = cuda.qlinear.Split;
@@ -361,7 +361,7 @@ pub const Ops = struct {
         for ([_]u64{ q, kc, vc, out }) |v| a.add(v);
         for ([_]usize{ p0, rows, heads, kv_heads, g }) |v| a.add(int(v));
         a.add(scale);
-        try o.go(o.k.pattn, .{ (rows + 15) / 16, kv_heads * (g / 8), 1 }, 256, pattn_smem, &a);
+        try o.go(o.k.pattn, .{ (rows + 15) / 16, kv_heads * (g / 4), 1 }, 128, pattn_smem, &a); // 16 rows and 4 heads a block
     }
 
     /// mamba.scan_rows: a chunk's scan through scan_rows.cu; `state` ends at the chunk's last row, `snaps` at theirs.

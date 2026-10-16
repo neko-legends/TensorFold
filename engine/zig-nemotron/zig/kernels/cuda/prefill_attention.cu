@@ -240,6 +240,8 @@ pattn_kernel(const __nv_bfloat16* __restrict__ q, const __nv_bfloat16* __restric
 
 } // namespace tf_prefill_attention
 
-// Head dim 128, eight warps, eight query heads a block, eight staging slots (Nemotron's 16 heads a KV head).
-template __global__ void tf_prefill_attention::pattn_kernel<128, 8, 8, 8>(const __nv_bfloat16*,
+// Head dim 128, four warps, four query heads a block, four staging slots: the kernel holds ~230 registers a thread,
+// so a GB10 SM runs eight warps either way, and two blocks of four keep it busier than one of eight (+20% at 20K and
+// 150K keys, the same bits: a row's arithmetic does not depend on the block it is in).
+template __global__ void tf_prefill_attention::pattn_kernel<128, 4, 4, 4>(const __nv_bfloat16*,
     const __nv_bfloat16*, const __nv_bfloat16*, __nv_bfloat16*, int, int, int, int, int, float);

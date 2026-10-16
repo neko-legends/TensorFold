@@ -190,9 +190,9 @@ pub const Glue = struct {
             try g.go(g.f.router_rows, .{ cdiv(e, 8), 1, 1 }, 256, 0, &a);
             shape.sk = 1;
         } else if (rows > 16 and (d / shape.sk) % 8 == 0) {
-            // a prompt chunk's rows: the same slices and sums, 4 x 4 outputs a thread
+            // a prompt chunk's rows: the same slices and sums, 8 x 4 outputs a thread
             ints(&a, &.{ rows, d, e, shape.sk });
-            try g.go(g.f.router_tiles, .{ cdiv(rows, 64), cdiv(e, 64), shape.sk }, 256, 0, &a);
+            try g.go(g.f.router_tiles, .{ cdiv(rows, 128), cdiv(e, 64), shape.sk }, 256, 0, &a);
         } else {
             ints(&a, &.{ rows, d, e, shape.sk });
             try g.go(g.f.router, .{ cdiv(rows, 16), cdiv(e, 16), shape.sk }, 256, shape.shared, &a);
