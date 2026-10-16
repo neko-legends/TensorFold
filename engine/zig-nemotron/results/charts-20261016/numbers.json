@@ -2,7 +2,7 @@
  "sources": {
   "quality.deepseek": "spark-bench:results/qbench-dsv41-zig-rebench-20261015.json (same scores as qbench-dsv41-zig-20261015.json)",
   "quality.nemotron": "tensorfold:engine/zig-nemotron/results/rebench-nemotron-tp4-20261015/qbench-*.json",
-  "speed": "the speed area of the same two qbench sets (server timing block on both engines)",
+  "speed": "DeepSeek: the speed area of qbench-dsv41-zig-rebench-20261015.json; Nemotron: tensorfold:engine/zig-nemotron/results/live-speed-20261016/qbench-speed-live.json (server timing block on both engines)",
   "vision.deepseek": "tensorfold:engine/zig-nemotron/results/vision-dsv41-recheck.json",
   "vision.nemotron": "tensorfold:engine/zig-nemotron/results/rebench-nemotron-tp4-20261015/vision-*.json",
   "prefill.nemotron.before": "tensorfold:engine/zig-nemotron/results/prefill-nemotron-20261015-before.json",
@@ -14,7 +14,7 @@
   "warm.cache40": "tensorfold:engine/zig-nemotron/results/spare-mem-20261015/c40-warm200x10000.json",
   "warm.restart_nodisk": "tensorfold:engine/zig-nemotron/results/spare-mem-20261015/gA-warmfrom.json",
   "warm.restart_disk": "tensorfold:engine/zig-nemotron/results/spare-mem-20261015/gB-warmfrom.json",
-  "drafting": "tensorfold:engine/zig-nemotron/results/drafting-20261015/final-before.json, tensorfold:engine/zig-nemotron/results/drafting-20261015/final-after.json"
+  "drafting": "tensorfold:engine/zig-nemotron/results/drafting-20261015/final-before.json, tensorfold:engine/zig-nemotron/results/live-speed-20261016/draft-live.json"
  },
  "quality": {
   "mmlu": {
@@ -123,11 +123,11 @@
    "ttft_prose_ms": 144.0
   },
   "nemotron": {
-   "code": 163.08,
-   "prose": 88.43,
-   "c4": 201.87,
-   "ttft_code_ms": 101.0,
-   "ttft_prose_ms": 85.0
+   "code": 185.35,
+   "prose": 94.92,
+   "c4": 206.79,
+   "ttft_code_ms": 43.0,
+   "ttft_prose_ms": 41.0
   }
  },
  "vision": {
@@ -304,27 +304,27 @@
  "drafting": {
   "code": {
    "before": 164.86,
-   "after": 179.17,
+   "after": 183.31,
    "same_text": true
   },
   "prose": {
    "before": 95.18,
-   "after": 95.35,
-   "same_text": true
+   "after": 94.49,
+   "same_text": false
   },
   "story": {
    "before": 99.13,
-   "after": 103.3,
-   "same_text": true
+   "after": 97.66,
+   "same_text": false
   },
   "explain": {
    "before": 117.43,
-   "after": 125.28,
-   "same_text": true
+   "after": 126.6,
+   "same_text": false
   },
   "essay": {
    "before": 112.02,
-   "after": 112.86,
+   "after": 110.95,
    "same_text": true
   }
  }

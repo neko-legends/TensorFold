@@ -95,8 +95,12 @@ def extract() -> dict:
                 "c4": sp["c4"]["aggregate_tok_s"],
                 "ttft_code_ms": 1000 * sp["c1"]["code"]["ttft_s"], "ttft_prose_ms": 1000 * sp["c1"]["prose"]["ttft_s"]}
 
-    out["speed"] = {"deepseek": speed(da["speed"]), "nemotron": speed(na["speed"])}
-    src["speed"] = "the speed area of the same two qbench sets (server timing block on both engines)"
+    # Nemotron speed: the live server (drafting on, build c3ede919), re-measured 2026-10-16 with the same speed area
+    live = RES / "live-speed-20261016"
+    nl = load(live / "qbench-speed-live.json")["areas"]["speed"]
+    out["speed"] = {"deepseek": speed(da["speed"]), "nemotron": speed(nl)}
+    src["speed"] = (f"DeepSeek: the speed area of {ds_q.name}; Nemotron: " + rel(live / "qbench-speed-live.json")
+                    + " (server timing block on both engines)")
 
     # vision: the same harness on both, refine on
     dv = load(RES / "vision-dsv41-recheck.json")
@@ -144,13 +148,13 @@ def extract() -> dict:
         src[f"warm.{tag}"] = rel(sm / f)
     out["serving"] = {"load16": load16, "warm": warm}
 
-    # drafting (test build, single stream, prompt cache off, median of 3)
+    # drafting: before = the 2026-10-15 live build (prompt cache off), after = the live server 2026-10-16; median of 3
     dr = RES / "drafting-20261015"
-    b, a = load(dr / "final-before.json"), load(dr / "final-after.json")
+    b, a = load(dr / "final-before.json"), load(live / "draft-live.json")
     out["drafting"] = {k: {"before": b[k]["median_tok_s"], "after": a[k]["median_tok_s"],
                            "same_text": [r["token_sha"] for r in b[k]["runs"]] == [r["token_sha"] for r in a[k]["runs"]]}
                        for k in ("code", "prose", "story", "explain", "essay")}
-    src["drafting"] = rel(dr / "final-before.json") + ", " + rel(dr / "final-after.json")
+    src["drafting"] = rel(dr / "final-before.json") + ", " + rel(live / "draft-live.json")
 
     NUMBERS.write_text(json.dumps(out, indent=1) + "\n")
     return out
@@ -365,7 +369,8 @@ def chart_speed(c: Chart, d: dict):
     c.ylabels(b, [("Code prompt", "~50 tokens"), ("Prose prompt", "~50 tokens")], 8.92)
     c.notes(["Replies capped at 320 tokens · thinking off, greedy · times from each server's own timing block · one run per "
              "cell; single-stream code speed moves about ±7 % between runs of the same build · DeepSeek: 2026-10-15 · "
-             "Nemotron: rebench of the current build, 2026-10-15"])
+             "Nemotron: the live server with drafting on, 2026-10-16; its prompt cache may already hold these short prompts "
+             "(the cold rebench on 2026-10-15 read 101 ms and 85 ms)"])
     c.legend([(DS, t["ds"]), (NE, t["ne"])])
 
 
@@ -468,9 +473,12 @@ def chart_drafting(c: Chart, d: dict):
         c.bar(ax, y + c.slot(ax, 1, 2), a, t["ne"], f"{a:.1f}", note=f"{100 * (a / b - 1):+.1f}%")
     c.ylabels(ax, [k.capitalize() for k in keys], 1.52)
     same = all(v["same_text"] for v in dr.values())
-    c.notes([f"{NE} only, 2026-10-15 · 320-token replies, greedy, prompt cache off, median of 3"
-             + (" · every reply is token-for-token identical before and after" if same else "")])
-    c.legend([("Drafts sized by confidence (test build)", t["ne"]), ("Drafts sized by running hit rate (then live)", t["old"])])
+    c.notes([f"{NE} only · 320-token replies, greedy, median of 3 · before: 2026-10-15, 4 slots, prompt cache off · "
+             "after: the live server 2026-10-16, 16 slots, prompt cache on"
+             + (" · every reply is token-for-token identical before and after" if same else
+                " · code and essay replies are token-for-token identical; under the live config the other three "
+                "differ by a few words")])
+    c.legend([("Drafts sized by confidence (live)", t["ne"]), ("Drafts sized by running hit rate (before)", t["old"])])
 
 
 CHARTS = [
@@ -487,7 +495,7 @@ CHARTS = [
     ("nemotron-vs-deepseek-vision", 12, 6.9, "Vision: DeepSeek V4.1 Flash vs Nemotron 3.5 Super VL",
      "Four DGX Sparks · six synthetic test images with known text, shapes and positions", chart_vision),
     ("nemotron-drafting", 11, 7.1, "Nemotron 3.5 Super VL: drafts sized by confidence",
-     "Four DGX Sparks · the model's own MTP head drafts ahead and stops when unsure · test build, live install pending",
+     "Four DGX Sparks · the model's own MTP head drafts ahead and stops when unsure · live since 2026-10-16",
      chart_drafting),
 ]
 

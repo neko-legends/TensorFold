@@ -1,0 +1,58 @@
+{
+ "bench": "qbench",
+ "version": 1,
+ "tag": "live-nemotron-speed-20261016",
+ "base_url": "http://localhost:8100/v1",
+ "model": "NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4",
+ "thinking": false,
+ "started": "2026-10-16T00:46:42-0700",
+ "areas": {
+  "speed": {
+   "c1": {
+    "code": {
+     "timing": "server",
+     "ttft_s": 0.043,
+     "prefill_tok_s": 1134.0,
+     "completion_tokens": 250,
+     "wall_s": 1.41,
+     "decode_s": 1.349,
+     "decode_tok_s": 185.35,
+     "finish": "stop"
+    },
+    "prose": {
+     "timing": "server",
+     "ttft_s": 0.041,
+     "prefill_tok_s": 1053.0,
+     "completion_tokens": 267,
+     "wall_s": 2.86,
+     "decode_s": 2.813,
+     "decode_tok_s": 94.92,
+     "finish": "stop"
+    }
+   },
+   "c4": {
+    "streams": 4,
+    "completion_tokens": 1034,
+    "wall_s": 5.0,
+    "aggregate_tok_s": 206.79,
+    "per_stream_tok_s": [
+     93.91,
+     55.02,
+     105.41,
+     56.13
+    ],
+    "ttft_s": [
+     0.045,
+     0.142,
+     0.335,
+     0.238
+    ]
+   },
+   "error": null,
+   "seconds": 9.3
+  }
+ },
+ "finished": "2026-10-16T00:46:52-0700",
+ "requests": 6,
+ "transport_errors": 0
+}
