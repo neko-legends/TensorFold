@@ -68,6 +68,19 @@ pub const Config = struct {
     environ: ?*const std.process.Environ.Map = null,
 };
 
+/// Requests between their read and the end of their reply, every connection together. A process-wide count (not the
+/// server's): a connection parked after the stop reads it after the server is gone.
+pub var busy: std.atomic.Value(u32) = .init(0);
+/// serve.zig's stop signal, which Server.serve was given (a process-wide flag, valid after the server is gone).
+var stop_flag: ?*const std.atomic.Value(bool) = null;
+
+fn stopped() bool {
+    const f = stop_flag orelse return false;
+    return f.load(.seq_cst);
+}
+
+extern "c" fn pause() c_int;
+
 pub const Server = struct {
     gpa: Allocator,
     io: std.Io,
@@ -289,6 +302,7 @@ pub const Server = struct {
 
     /// Accepts connections until ``stop`` is set, each on its own thread.
     pub fn serve(srv: *Server, listener: listener_mod.Listener, stop: *const std.atomic.Value(bool)) void {
+        stop_flag = stop;
         while (listener.accept(stop)) |c| {
             const t = std.Thread.spawn(.{ .stack_size = 8 << 20 }, connection, .{ srv, c }) catch {
                 _ = std.posix.system.close(c.fd);
@@ -314,7 +328,16 @@ pub const Server = struct {
         while (true) {
             _ = arena.reset(.retain_capacity);
             const a = arena.allocator();
-            const outcome = conn.readRequest(a, true) catch break;
+            const outcome = conn.readRequest(a, true) catch {
+                if (stopped()) park(accepted.fd);
+                break;
+            };
+            _ = busy.fetchAdd(1, .seq_cst);
+            defer _ = busy.fetchSub(1, .seq_cst);
+            if (stopped()) { // after the stop signal no request starts: the engine may be closing
+                _ = busy.fetchSub(1, .seq_cst); // park does not return, so the defer does not run
+                park(accepted.fd);
+            }
             switch (outcome) {
                 .closed => break,
                 .handled => if (conn.close) break else continue,
@@ -325,6 +348,14 @@ pub const Server = struct {
             routes.dispatch(srv, &conn, a);
             if (conn.close or conn.broken) break;
         }
+    }
+
+    /// A connection that woke after the stop signal: its socket closed, its thread waiting for the process to end, so
+    /// nothing it holds touches the server or the engine while they close (an idle keep-alive must not keep the
+    /// stop from being clean).
+    fn park(fd: std.posix.fd_t) noreturn {
+        _ = std.posix.system.close(fd);
+        while (true) _ = pause();
     }
 
     fn countReply(ctx: *anyopaque, conn: *http_conn.Conn, code: u16) void {

@@ -15,7 +15,7 @@ const posix = std.posix;
 var stop_requested: std.atomic.Value(bool) = .init(false);
 
 fn onStop(_: posix.SIG) callconv(.c) void {
-    stop_requested.store(true, .release);
+    stop_requested.store(true, .seq_cst); // seq_cst: a connection counts itself busy, then reads this (Server.connection)
 }
 
 /// SIGTERM and SIGINT stop the server cleanly; SIGHUP rereads the key file; SIGPIPE is ignored, as Python ignores it.
@@ -170,7 +170,9 @@ pub fn run(gpa: Allocator, io: std.Io, args: cli.Args, s: Setup) u8 {
     if (drawing) ticker.finish();
     var waited: u32 = 0;
     while (srv.open_connections.load(.acquire) > 0 and waited < 40) : (waited += 1) std.Io.sleep(io, .fromMilliseconds(50), .awake) catch {};
-    if (srv.open_connections.load(.acquire) > 0) std.process.exit(0); // replies still open: end without freeing what they read
+    // replies still open: end without freeing what they read. Connections that are only idle (a monitor's keep-alive)
+    // park when they wake (Server.connection), so the engine still stops cleanly: its prompt cache's disk tier is written
+    if (srv.open_connections.load(.acquire) > 0 and server_mod.busy.load(.seq_cst) > 0) std.process.exit(0);
     return 0;
 }
 
