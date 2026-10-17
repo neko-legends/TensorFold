@@ -6,10 +6,10 @@ speculative decoding from each model's own draft head.
 
 | | **DeepSeek V4.1 Flash 1017** (live) | Nemotron 3.5 Super VL 120B-A12B | DeepSeek V4.1 Flash |
 | --- | --- | --- | --- |
-| weights | DeepSeek's official 1017 checkpoint, 2.9 bpw EXL3 | NVIDIA's NVFP4 checkpoint, 70 GB | 2.9 bpw EXL3 pack |
+| weights | the official 1017 weights, third-party 2.9 bpw EXL3 quant | NVIDIA's NVFP4 checkpoint, 70 GB | 2.9 bpw EXL3 pack |
 | engine | the DeepSeek engine, unchanged: [a config-only drop-in](#deepseek-v41-flash-1017-a-config-only-drop-in) | TensorFold 1.0.11 (Zig, CUDA) + this repo's TP-4 port, [`engine/zig-nemotron`](engine/zig-nemotron) | Jay Leaton's DeepSeek CUDA port of the Zig engine + this repo's TP-4 work, [`engine/zig`](engine/zig) |
 | one stream, code / prose | 152 / 67 tok/s (DSpark drafting) | **185 / 95 tok/s** (MTP drafting) | 155 / 72 tok/s (DSpark drafting) |
-| at once | 4 request slots of up to **512K tokens** (524,288; passkey correct at 520K) | **16 conversations**, 307,200-token window each | 4 request slots of up to 420K tokens |
+| at once | up to **512K tokens** per request (524,288; passkey correct at 520K; the shared KV pool fits about 2.3 such contexts across the 4 slots) | **16 conversations**, 307,200-token window each | 4 request slots of up to 420K tokens |
 | serving | since 2026-10-17 | 2026-10-15 → 2026-10-16 | 2026-10-11 → 2026-10-15, 2026-10-16 → 2026-10-17 |
 
 DeepSeek V4.1 Flash 1017 is what these four Sparks serve today, on the same DeepSeek engine. Nemotron's and the earlier
@@ -63,7 +63,9 @@ greedy. Chart sources and the script that draws them: [`engine/zig-nemotron/resu
 | math (30) | 96.7% | **100%** |
 | coding (5) | 80% | 80% |
 | instruction following (20) | **95%** | 90% |
-| JSON schema / tool calls / long context to 299K / summaries | 100% / 100% / 100% / 100% | 100% / 100% / 100% / 100% |
+| JSON schema / tool calls / long context (25K/100K/229K-token prompts) / summaries | 100% / 100% / 100% / 100% | 100% / 100% / 100% / 100% |
+
+¹ Same harness, same engine; the earlier pack's Blender 3D score (79) came from a hosted endpoint in a race, so the 3D columns are not like-for-like. Long-context prompts measured 25K/100K/229K tokens.
 | one stream, code / prose (tok/s) | **185 / 95** | 155 / 72 |
 | four streams, aggregate (tok/s) | **207** | 172 |
 | first token, short prompt | **43 ms** | 167 ms |
@@ -284,7 +286,7 @@ The engine's prompt renderer matches 1017's own `encoding.py` on every request s
 | --- | ---: | ---: |
 | MMLU (200) | **89.5%** | 88.5% |
 | math (30) / coding (5) / instruction following (20) | 100% / 80% / 90% | 100% / 80% / 90% |
-| JSON schema / tool calls / long context to 299K / summaries | 100% / 100% / 100% / 100% | 100% / 100% / 100% / 100% |
+| JSON schema / tool calls / long context (25K/100K/229K-token prompts) / summaries | 100% / 100% / 100% / 100% | 100% / 100% / 100% / 100% |
 | one stream, code / prose (tok/s) | 151.8 / 67.3 | **155.4 / 72.0** |
 | four streams, aggregate (tok/s) | 162.4 | **172.1** |
 | cold prompt, 32K / 131K / 200K tokens | 6.2 / 22.8 / **35.7 s** | – / – / 36.8 s |
