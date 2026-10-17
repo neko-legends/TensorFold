@@ -12,6 +12,7 @@ results/tooleval/
 
 # local config: cp config/prod.env.example config/prod.env and fill it in
 config/*.env
+deploy/*/*.env
 .env
 
 # build context exports (docker TF_SRC=build/...)

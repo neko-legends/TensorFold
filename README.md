@@ -24,7 +24,8 @@ this repository adds the four-Spark parts and the measurements.
 - [Nemotron 3.5 Super VL](#nemotron-35-super-vl-120b-a12b-nvfp4): [serving capacity](#serving-capacity) ·
   [memory](#memory-per-spark) · [images under load](#images-under-load) · [how to run](#how-to-run-nemotron) ·
   [what we changed](#what-we-changed-for-nemotron)
-- [DeepSeek V4.1 Flash](#deepseek-v41-flash): [the 1017 checkpoint as a drop-in](#deepseek-v41-flash-1017-a-config-only-drop-in),
+- [DeepSeek V4.1 Flash](#deepseek-v41-flash): [the 1017 checkpoint as a drop-in](#deepseek-v41-flash-1017-a-config-only-drop-in)
+  ([how to run it](#run-deepseek-v41-flash-1017-config-only-drop-in)),
   results, quick start, the engine and its tests
 - [Shared engine notes](#shared-engine-notes): TP-4 over RoCE, the prompt cache under TP and its disk tier, staggered
   prompt segments
@@ -281,6 +282,15 @@ Speed cells are single runs (earlier noise: 1–2.5 %), so the 2–7 % lower dec
 cause is the 1017 pack's different, higher-bpw drafter (not isolated). The 3D scores are single builds scored by one
 judge; the earlier pack's Blender build ran on a hosted endpoint, not here. Full tables, the harness-effect bench and
 the 3D charts: [spark-bench](https://github.com/neko-legends/spark-bench#dsv41-1017).
+
+#### Run DeepSeek-V4.1-Flash-1017 (config-only drop-in)
+
+Step by step in **[deploy/dsv41-1017/RUN.md](deploy/dsv41-1017/RUN.md)**: download the pinned revisions and check them
+against the Hugging Face tree (sha256), copy the pack to the workers, pack the Engram tables per rank, extract the image
+bias, start, verify. Those are the scripts the live service ran, with its hostnames and paths turned into a settings
+file ([`deploy/dsv41-1017/`](deploy/dsv41-1017)). Measured on four Sparks: MMLU 89.5 %; 151.8 / 67.3 tok/s code /
+prose, 162.4 tok/s over four streams; a cold prompt of 32K / 131K / 200K tokens in 6.2 / 22.8 / 35.7 s;
+`verify.py` 7/7.
 
 ### Results (four Sparks)
 
