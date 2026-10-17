@@ -4,16 +4,16 @@ Two large models served across **four** NVIDIA DGX Sparks with [TensorFold](http
 Zig engine: tensor-parallel (TP-4) over a switched CX7 RoCE fabric, one OpenAI-compatible endpoint, image input,
 speculative decoding from each model's own draft head.
 
-| | **Nemotron 3.5 Super VL 120B-A12B** (live) | DeepSeek V4.1 Flash |
-| --- | --- | --- |
-| weights | NVIDIA's NVFP4 checkpoint, 70 GB | 2.9 bpw EXL3 pack |
-| engine | TensorFold 1.0.11 (Zig, CUDA) + this repo's TP-4 port, [`engine/zig-nemotron`](engine/zig-nemotron) | Jay Leaton's DeepSeek CUDA port of the Zig engine + this repo's TP-4 work, [`engine/zig`](engine/zig) |
-| one stream, code / prose | **185 / 95 tok/s** (MTP drafting) | 155 / 72 tok/s (DSpark drafting) |
-| at once | **16 conversations**, 307,200-token window each | 4 request slots of up to 420K tokens |
-| serving since | 2026-10-15 (drafting live 2026-10-16) | 2026-10-11 → 2026-10-15 |
+| | **DeepSeek V4.1 Flash 1017** (live) | Nemotron 3.5 Super VL 120B-A12B | DeepSeek V4.1 Flash |
+| --- | --- | --- | --- |
+| weights | DeepSeek's official 1017 checkpoint, 2.9 bpw EXL3 | NVIDIA's NVFP4 checkpoint, 70 GB | 2.9 bpw EXL3 pack |
+| engine | the DeepSeek engine, unchanged: [a config-only drop-in](#deepseek-v41-flash-1017-a-config-only-drop-in) | TensorFold 1.0.11 (Zig, CUDA) + this repo's TP-4 port, [`engine/zig-nemotron`](engine/zig-nemotron) | Jay Leaton's DeepSeek CUDA port of the Zig engine + this repo's TP-4 work, [`engine/zig`](engine/zig) |
+| one stream, code / prose | 152 / 67 tok/s (DSpark drafting) | **185 / 95 tok/s** (MTP drafting) | 155 / 72 tok/s (DSpark drafting) |
+| at once | 4 request slots of up to 420K tokens | **16 conversations**, 307,200-token window each | 4 request slots of up to 420K tokens |
+| serving | since 2026-10-17 | 2026-10-15 → 2026-10-16 | 2026-10-11 → 2026-10-15, 2026-10-16 → 2026-10-17 |
 
-Nemotron is the engine these four Sparks serve today; DeepSeek's numbers come from its own runs on the same cluster
-before the switch, and its recipe below still works. Built on **Ash Hart's [TensorFold](https://github.com/ashhart/TensorFold)**
+DeepSeek V4.1 Flash 1017 is what these four Sparks serve today, on the same DeepSeek engine. Nemotron's and the earlier
+DeepSeek pack's numbers come from their own runs on the same cluster, and their recipes below still work. Built on **Ash Hart's [TensorFold](https://github.com/ashhart/TensorFold)**
 (the engine, the server, the kernels) and **Jay Leaton's [DeepSeek V4.1 Flash port](https://github.com/jayleaton/deepseek-v41-tensorfold-spark)**;
 this repository adds the four-Spark parts and the measurements.
 
@@ -24,7 +24,8 @@ this repository adds the four-Spark parts and the measurements.
 - [Nemotron 3.5 Super VL](#nemotron-35-super-vl-120b-a12b-nvfp4): [serving capacity](#serving-capacity) ·
   [memory](#memory-per-spark) · [images under load](#images-under-load) · [how to run](#how-to-run-nemotron) ·
   [what we changed](#what-we-changed-for-nemotron)
-- [DeepSeek V4.1 Flash](#deepseek-v41-flash): results, quick start, the engine and its tests
+- [DeepSeek V4.1 Flash](#deepseek-v41-flash): [the 1017 checkpoint as a drop-in](#deepseek-v41-flash-1017-a-config-only-drop-in),
+  results, quick start, the engine and its tests
 - [Shared engine notes](#shared-engine-notes): TP-4 over RoCE, the prompt cache under TP and its disk tier, staggered
   prompt segments
 - [Documentation](#documentation) · [Licensing](#licensing) · [Credits](#credits)
@@ -222,8 +223,9 @@ Sparks we added
 
 ## DeepSeek V4.1 Flash
 
-*DeepSeek served these four Sparks from 2026-10-04 to 2026-10-15, when Nemotron replaced it. This section is written
-as of that period: "live" below means live then. The recipe and the engine still run as described.*
+*DeepSeek served these four Sparks from 2026-10-04 to 2026-10-15 and again from 2026-10-16. Since 2026-10-17 the same
+engine serves the official 1017 checkpoint ([below](#deepseek-v41-flash-1017-a-config-only-drop-in)). The rest of this
+section is written as of the earlier pack: "live" below means live then. The recipe and the engine still run as described.*
 
 Serve DeepSeek-V4.1-Flash (the 2.9 bpw EXL3 pack) across **four** NVIDIA DGX Sparks, tensor-parallel (TP=4) over a
 switched CX7 RoCE fabric, behind an OpenAI-compatible API: exact DSpark speculative decoding, Engram rows from local
@@ -246,6 +248,39 @@ engine, TP=4 over RoCE, with pipelined prompt reading** ([ZIG-RESULTS](docs/ZIG-
 in [ZIG-TP4-PLAN](docs/ZIG-TP4-PLAN.md), the pipeline's design and proofs are in
 [ZIG-PREFILL-PIPE](docs/ZIG-PREFILL-PIPE.md)). The Python engine it replaced stays on this page as the previous
 engine, its numbers kept as history.
+
+### DeepSeek V4.1 Flash 1017: a config-only drop-in
+
+Live since 2026-10-17. DeepSeek's official `deepseek-ai/DeepSeek-V4.1-Flash-1017`, as the third-party 2.9 bpw EXL3 quant
+[`LibertAIDAI/DeepSeek-V4.1-Flash-1017-EXL3-2.9bpw`](https://huggingface.co/LibertAIDAI/DeepSeek-V4.1-Flash-1017-EXL3-2.9bpw)
+(rev `afc7aa0a`), runs on **the same engine, image and serving settings** as the pack below, at TP=4 over RoCE. No code
+change and no new image were needed. The config, tokenizer and every tensor name and shape match the earlier pack; the
+1017 pack adds 43 `gate.bias_vl` tensors, and its drafter matrices are 6 bpw (the loader reads the width from the
+weights). Three weight-derived inputs changed in 1017 and had to be rebuilt:
+
+- **Engram tables:** repacked per rank from the 1017 base checkpoint's Engram shards (47 and 48), as in
+  [docs/FOUR_SPARKS.md](docs/FOUR_SPARKS.md). The earlier tables do not match the 1017 weights.
+- **Image-routing bias (`TF_DSV41_BIAS_VL`):** rebuilt from the 1017 pack's `gate.bias_vl` tensors; 34 of the 43 differ
+  from the old V4.1.
+- **Prepared rank folders:** written fresh on the first start (405 s); later starts load them.
+
+The engine's prompt renderer matches 1017's own `encoding.py` on every request shape the bench sends.
+
+| 1017 on four Sparks (2026-10-17, spark-bench's frozen suite, thinking off, greedy) | 1017 | earlier pack, same engine |
+| --- | ---: | ---: |
+| MMLU (200) | **89.5%** | 88.5% |
+| math (30) / coding (5) / instruction following (20) | 100% / 80% / 90% | 100% / 80% / 90% |
+| JSON schema / tool calls / long context to 299K / summaries | 100% / 100% / 100% / 100% | 100% / 100% / 100% / 100% |
+| one stream, code / prose (tok/s) | 151.8 / 67.3 | **155.4 / 72.0** |
+| four streams, aggregate (tok/s) | 162.4 | **172.1** |
+| cold prompt, 32K / 131K / 200K tokens | 6.2 / 22.8 / **35.7 s** | – / – / 36.8 s |
+| vision: text read exactly / shapes / objects counted | 166/166 · 29/30 · 22/23 | 166/166 · – · 22/23 |
+| 3D agent tests, voxel / Blender (referee, of 180) | **98 / 108** | 87 / 79 |
+
+Speed cells are single runs (earlier noise: 1–2.5 %), so the 2–7 % lower decode is probably real but small; a likely
+cause is the 1017 pack's different, higher-bpw drafter (not isolated). The 3D scores are single builds scored by one
+judge; the earlier pack's Blender build ran on a hosted endpoint, not here. Full tables, the harness-effect bench and
+the 3D charts: [spark-bench](https://github.com/neko-legends/spark-bench#dsv41-1017).
 
 ### Results (four Sparks)
 
