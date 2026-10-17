@@ -67,10 +67,10 @@ docker build -f docker/Dockerfile \
 ```
 
 Then the repo's own ship step (what `scripts/serve4.sh ship` does; `config/tp4.env` is not in that checkout, so the
-three worker targets are named explicitly -- `jun@192.168.10.2/3/4`):
+three worker targets are named explicitly -- `worker@WORKER_HOST/3/4`):
 
 ```bash
-for w in jun@192.168.10.2 jun@192.168.10.3 jun@192.168.10.4; do
+for w in worker@WORKER_HOST worker@WORKER_HOST worker@WORKER_HOST; do
     (docker save dsv41-tensorfold:tp4rot-lp1 | ssh -o BatchMode=yes "$w" docker load) &
 done; wait
 ```
@@ -166,7 +166,7 @@ eva-core; exit 1):
 
 ```
 entrypoint: python
-args: -m tensorfold serve /model --tp 4 --rank <r> --master 192.168.10.1 --master-port 29571 \
+args: -m tensorfold serve /model --tp 4 --rank <r> --master MASTER_ADDR --master-port 29571 \
       --context 420000 --parallel 4 --kv-dtype fp8 --no-update-check [rank 0 only:] \
       --host 0.0.0.0 --port 8000 --name DeepSeek-V4.1-Flash-TF --max-tokens 32768 --alias deepseek-v4.1-flash
 mounts:  /home/jun/models/deepseek-v4.1-flash-uncensored-exl3-2.9bpw:/model:ro, /home/jun/dsv41-tf-engram-w4:/engram:ro,
