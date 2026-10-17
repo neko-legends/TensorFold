@@ -38,8 +38,10 @@ cp deploy/dsv41-1017/zig-1017.env.example deploy/dsv41-1017/zig-1017.env    # IM
 `sparks.env` names the three workers (ssh targets, rank order), the repo path and every directory. `zig-1017.env` is the
 engine config each rank reads: your `config/tp4-zig.env` plus the 1017 weights and their own directories (rank `r`
 reads `$ASSETS_ROOT/rank-r`). The knobs are the four-Spark serving profile unchanged: RoCE, `TF_DSV41_PREFILL_PIPE=1024`,
-native images, 4 slots of 420,096 tokens. On the live cluster the effective engine environment of this template is
-identical to the running rank 0's, apart from the link names and addresses.
+native images, 4 slots. The template sets **524,288 tokens (512K) a slot**, as the live service runs since 2026-10-17;
+delete its `TF_DSV41_CONTEXT` line to keep tp4-zig.env's 420,096 (420K). A context other than the one your assets were
+built for needs new assets first ([6. Runtime assets](#choosing-the-context)). On the live cluster the effective engine
+environment of this template is identical to the running rank 0's, apart from the link names and addresses.
 
 Keep the 1017 directories apart from an earlier pack's. Switching between the two is then one stop and one start
 with the other config.
@@ -108,6 +110,46 @@ Otherwise generate them with [`scripts/zig-tp4-assets.sh`](../../scripts/zig-tp4
 `MODEL_DIR`, `aot` per rank). Export `TF_DSV41_IMAGES=native` and `TF_DSV41_PREFILL_PIPE=1024` for the `aot` step;
 see the runbook in docs/ZIG-TP4-PLAN.md.
 
+### Choosing the context
+
+Two of the assets depend on `TF_DSV41_CONTEXT`, so copied 420K assets do not start a 512K engine:
+
+- **`rope.bin`** needs at least `context + 2048` rows; the engine refuses to start with fewer. `zig-tp4-assets.sh host`
+  writes `context + 4096` rows (`ROPE_ROWS` overrides it): 528,384 rows for 524,288. The table is the same function of
+  position for any length, so the first rows of a longer `rope.bin` are byte-identical to a shorter one's (checked on
+  the live 420K and 512K files).
+- **The AOT Triton variants.** The engine runs only precompiled Triton programs, and a missing variant is a hard error
+  at start (`MissingTritonVariant`). Some stride and alignment classes depend on the context, so `aot-needs` lists a
+  slightly different set for each one. Going from 420,096 to 524,288 added 11 variants a rank and no longer needed 9.
+
+To move an existing asset set to a new context, set `TF_DSV41_CONTEXT` (a multiple of 256) in the config that the
+steps below read, keep the served assets untouched and build new folders next to them:
+
+```bash
+# 1. rope.bin (same for every rank): with the new context in the config, ROPE_ROWS defaults to context + 4096
+CONFIG=<config> scripts/zig-tp4-assets.sh host <new-assets>/rope MODEL_DIR   # also rewrites engram-host.bin (unchanged; copy either)
+# 2. per rank: what the new context needs, compile only what the served aot/ lacks, merge it into a copy.
+#    aot-needs reads the engine knobs from the environment: export every knob zig-1017.env serves (at least these).
+cd engine/zig
+python3 tools/zig/triton_fill.py sigs --py <src> --out sigs.json
+TF_TP_WORLD=4 TF_TP_RANK=<rank> TF_DSV41_CONTEXT=<context> TF_DSV41_IMAGES=native TF_DSV41_PREFILL_PIPE=1024 \
+    TF_DSV41_ASSETS=<served-assets>/rank-<rank> tf-dsv41-m1 aot-needs sigs.json needs-<rank>.json
+python3 tools/zig/triton_fill.py compile --py <src> --needs needs-<rank>.json \
+    --options tools/zig/dsv41_triton_options.json --arch 121 --have <served-assets>/rank-<rank>/aot --out fill-<rank>
+cp -a <served-assets>/rank-<rank> <new-assets>/rank-<rank>        # then put the new rope.bin in it
+python3 tools/zig/triton_fill.py merge <new-assets>/rank-<rank>/aot fill-<rank>
+```
+
+Run the compile with the same Triton and `ptxas` as the served set (the `aot` step's `PTXAS`; Triton 3.7.1 and ptxas
+13.3.73 here) and all the knobs that `zig-1017.env` serves, then re-run `compile --have <new aot>`: it should report
+every needed variant present and compile 0. Point `ASSETS_ROOT` at the new folders and restart. A start that loads
+logs `serving: 4 slot(s) x <context> tokens`. Keep the old folders and the old config as the rollback.
+
+Measured at 524,288 on the live cluster (2026-10-17): the engine predicts ~0.1 GiB more start-up scratch a rank and
+every rank keeps 18 GiB or more free in the worst case. The shared KV pool is 1,201,152 tokens a rank either way, so four
+slots hold about 2.3 full 512K prompts at once (about 2.9 at 420K). The model allows up to 1,048,576; nothing above
+524,288 was tried.
+
 ## 7. Start
 
 ```bash
@@ -155,6 +197,17 @@ The numbers in the README come from [spark-bench](https://github.com/neko-legend
 | four streams, aggregate | 162.4 tok/s |
 | cold prompt 32K / 131K / 200K tokens | 6.2 / 22.8 / 35.7 s |
 | verify.py | 7/7 |
+
+At 512K a slot (2026-10-17, same service; passkey test, qbench's filler and scoring):
+
+| prompt | result | cold prompt reading |
+| --- | --- | ---: |
+| 500,006 tokens, passkey in the filler | correct | 101 s (~4,950 tok/s) |
+| 520,006 tokens, passkey in the filler | correct | 107 s (~4,880 tok/s) |
+| decode after a cached 520,000-token prefix | passkey and a count to 60 correct | 1.3 s for 123 tokens |
+| 530,000 tokens (over the limit) | clean HTTP 400, engine healthy | 2.3 s |
+
+`verify.py` stays 7/7 at 512K.
 
 ## Notes
 

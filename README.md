@@ -9,7 +9,7 @@ speculative decoding from each model's own draft head.
 | weights | DeepSeek's official 1017 checkpoint, 2.9 bpw EXL3 | NVIDIA's NVFP4 checkpoint, 70 GB | 2.9 bpw EXL3 pack |
 | engine | the DeepSeek engine, unchanged: [a config-only drop-in](#deepseek-v41-flash-1017-a-config-only-drop-in) | TensorFold 1.0.11 (Zig, CUDA) + this repo's TP-4 port, [`engine/zig-nemotron`](engine/zig-nemotron) | Jay Leaton's DeepSeek CUDA port of the Zig engine + this repo's TP-4 work, [`engine/zig`](engine/zig) |
 | one stream, code / prose | 152 / 67 tok/s (DSpark drafting) | **185 / 95 tok/s** (MTP drafting) | 155 / 72 tok/s (DSpark drafting) |
-| at once | 4 request slots of up to 420K tokens | **16 conversations**, 307,200-token window each | 4 request slots of up to 420K tokens |
+| at once | 4 request slots of up to **512K tokens** (524,288; passkey correct at 520K) | **16 conversations**, 307,200-token window each | 4 request slots of up to 420K tokens |
 | serving | since 2026-10-17 | 2026-10-15 → 2026-10-16 | 2026-10-11 → 2026-10-15, 2026-10-16 → 2026-10-17 |
 
 DeepSeek V4.1 Flash 1017 is what these four Sparks serve today, on the same DeepSeek engine. Nemotron's and the earlier
@@ -265,6 +265,19 @@ weights). Three weight-derived inputs changed in 1017 and had to be rebuilt:
   from the old V4.1.
 - **Prepared rank folders:** written fresh on the first start (405 s); later starts load them.
 
+**512K context since 2026-10-17.** Each of the 4 slots takes up to 524,288 tokens (the model's limit is 1,048,576, yarn
+×16). Raising it from 420K needed no engine change, only a longer `rope.bin` (context + 2048 rows at least) and 11 more
+AOT Triton variants a rank; [RUN.md](deploy/dsv41-1017/RUN.md#choosing-the-context) shows how to build both for any
+context. The KV pool is shared by the slots and did not grow. 420K stays a supported setting.
+
+| 512K on four Sparks (2026-10-17, passkey test, qbench's filler and scoring) | result | cold prompt reading |
+| --- | --- | ---: |
+| 500,006-token prompt | passkey correct | 101 s (~4,950 tok/s) |
+| 520,006-token prompt | passkey correct | 107 s (~4,880 tok/s) |
+| decode after a cached 520,000-token prefix | passkey and a count to 60 correct | 123 tokens in 1.3 s |
+| 530,000-token prompt (over the limit) | clean HTTP 400, engine healthy | 2.3 s |
+| `verify.py` | 7/7 | |
+
 The engine's prompt renderer matches 1017's own `encoding.py` on every request shape the bench sends.
 
 | 1017 on four Sparks (2026-10-17, spark-bench's frozen suite, thinking off, greedy) | 1017 | earlier pack, same engine |
@@ -290,7 +303,8 @@ against the Hugging Face tree (sha256), copy the pack to the workers, pack the E
 bias, start, verify. Those are the scripts the live service ran, with its hostnames and paths turned into a settings
 file ([`deploy/dsv41-1017/`](deploy/dsv41-1017)). Measured on four Sparks: MMLU 89.5 %; 151.8 / 67.3 tok/s code /
 prose, 162.4 tok/s over four streams; a cold prompt of 32K / 131K / 200K tokens in 6.2 / 22.8 / 35.7 s;
-`verify.py` 7/7.
+`verify.py` 7/7. The template serves 512K a slot; delete its `TF_DSV41_CONTEXT` line for 420K, or build the assets for
+another context as RUN.md describes.
 
 ### Results (four Sparks)
 
