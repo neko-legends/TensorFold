@@ -23,9 +23,8 @@ const limit: i64 = 420096; // TP=4's TF_DSV41_CONTEXT (1,641 pages)
 
 /// A served boot's prefill options on TP=4 rank `rank` (the switches that reach the emitter), with the served pool.
 fn bootOptions(rank: u32) block.Options {
-    _ = rank;
     const pages = @divExact(limit, block.Pool.page);
-    return .{ .world = 4, .gm_v2 = .one, .r1 = true, .branches = true, .mhc_defer = true, .expert_topp = 0.85, .limit = limit, .rope_rows = limit + 2048, .prefill_rows = 2048, .index_budget = 64 << 20, .pool = .{ .comp_pages = pages + 1, .ik_pages = pages + 1, .pts = pages } };
+    return .{ .world = 4, .rank = rank, .gm_v2 = .one, .r1 = true, .branches = true, .mhc_defer = true, .expert_topp = 0.85, .limit = limit, .rope_rows = limit + 2048, .prefill_rows = 2048, .index_budget = 64 << 20, .pool = .{ .comp_pages = pages + 1, .ik_pages = pages + 1, .pts = pages } };
 }
 
 const pfd_table: @import("knob_types.zig").PfDense = .{};
@@ -96,7 +95,8 @@ fn eqArg(x: calls.Arg, y: calls.Arg) bool {
     };
 }
 
-/// The same launch (or glue step): name, kind, grid, streams and marks, every argument (`begin` is a scope marker of.
+/// The same launch (or glue step): name, kind, grid, streams and marks, every argument (`begin` is a scope marker of
+/// the roles it opens, not part of the launch).
 fn sameCall(c: calls.Call, d: calls.Call) !void {
     try testing.expectEqualStrings(c.name, d.name);
     try testing.expectEqual(c.triton, d.triton);
@@ -313,9 +313,11 @@ test "a stage program (its namespace, the P. names) reads every replicated tenso
         const layers = st.layers(&buf);
         const plain = try bp.emitStage(aa, &cfg, &w, o1, layers, 2048, 300000, stageIo(&cfg, &s, @intCast(r)));
         const stage = try pipe.rename(aa, try bp.ownCalls(aa, plain, pipe.tag));
-        // the TP reference at world 2: the naming rule is the sharded tensors', not a rank count (the test model's.
+        // the TP reference at world 2: the naming rule is the sharded tensors', not a rank count (the test model's
+        // widths divide by 2; the stage runs the whole width either way).
         var oref = o4;
         oref.world = 2;
+        oref.rank = @intCast(r % 2);
         const tp = try bp.emitReplay(aa, &cfg, &w, oref, layers, 2048, 300000, if (st.last) .encoder else .whole);
         var sm: std.StringHashMapUnmanaged(std.ArrayList(View)) = .empty;
         var tm: std.StringHashMapUnmanaged(std.ArrayList(View)) = .empty;
@@ -424,7 +426,8 @@ test "every role a stage names at any segment the line runs is in the boot's sta
             var plan: buffers.Plan = .{ .a = aa };
             for (try pipe.planned(aa, &cfg, &w, o1, s, r)) |x| try plan.add(try pipe.program(aa, &cfg, &w, o1, &s, r, x[0], x[1]));
             var bad: usize = 0;
-            // the line's whole segments through the first 16K positions (the window-6 prompt's), a ragged tail's and.
+            // the line's whole segments through the first 16K positions (the window-6 prompt's), a ragged tail's and
+            // every start the plan must cover.
             const ns = [_]i64{ R, R - 1, 1547, 1366, 1365, 1024, 100, 64, 33 };
             for (ns) |n| {
                 var start: i64 = 0;
@@ -543,7 +546,8 @@ test "a stage's gm_plan glue reads a K2 table (k2 > 0, the forward's bare name) 
 }
 
 test "the stage plan's indexer scores and sort keys hold a 2,048-row segment from 2,048 (round 1's 16 MiB scores overran an 8 MiB slot)" {
-    // the 2,048-row segment from 2,048 (nvis 2,048, materialised whole) writes 16,777,216 bytes of scores and.
+    // the 2,048-row segment from 2,048 (nvis 2,048, materialised whole) writes 16,777,216 bytes of scores and
+    // 33,554,432 bytes of keys.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const aa = arena.allocator();
@@ -559,7 +563,8 @@ test "the stage plan's indexer scores and sort keys hold a 2,048-row segment fro
         try need.add(try pipe.program(aa, &cfg, &w, o1, &s, r, 2048, 2048));
         try testing.expectEqual(@as(u64, 16777216), need.sizes.get("L.pp~ix.scores").?);
         try testing.expectEqual(@as(u64, 33554432), need.sizes.get("L.pp~ix.keys").?);
-        // the plan's: the materialised ceiling n x nvis <= index_budget / 12 at (1547, nvis 3615), f32 scores; the.
+        // the plan's: the materialised ceiling n x nvis <= index_budget / 12 at (1547, nvis 3615), f32 scores; the
+        // keys take twice the scores' bytes at the same element count.
         try testing.expectEqual(@as(u64, 22369620), plan.sizes.get("L.pp~ix.scores").?);
         try testing.expect(plan.sizes.get("L.pp~ix.keys").? >= 44739240);
         try testing.expectEqual(@as(u64, 109051904), plan.sizes.get("L.pp~ix.keys").?);

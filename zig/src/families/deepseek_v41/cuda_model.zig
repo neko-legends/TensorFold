@@ -290,7 +290,8 @@ pub const Model = struct {
             m.f.opts.rope_rows = c + 2048;
         }
         try @import("serve_knobs_apply.zig").apply(&m.f, a, io, m.tcfg.rank);
-        // the line (pipe_run.zig) on every rank: its stage options are the forward's at world 1 (refreshed once the.
+        // the line (pipe_run.zig) on every rank: its stage options are the forward's at world 1 (refreshed once the
+        // line boots, at rank 0).
         if (pipe_s) |ps| (try pipe_run.Line.create(gpa, &m.f, ps)).install(&m.f);
         m.slots = try slots_mod.countFromEnv();
         if (try kvs.optionsFromEnv(@intCast(m.f.opts.limit), world)) |ko_| {

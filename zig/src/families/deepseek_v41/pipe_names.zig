@@ -1,4 +1,5 @@
-//! TF_DSV41_PREFILL_PIPE: the names of a pipeline stage's own weights (pipe.zig renames a stage program's roles to.
+//! TF_DSV41_PREFILL_PIPE: the names of a pipeline stage's own weights (pipe.zig renames a stage program's roles to
+//! the `P.` prefix so a stage's whole-width copies are told apart from the TP shards).
 
 const std = @import("std");
 const named = @import("named.zig");
@@ -6,7 +7,8 @@ const named = @import("named.zig");
 /// the weight prefix of a stage's full-width copies
 pub const prefix = "P.";
 
-/// A layer tensor's field (names.zig's TP splits): col (wq_b, the routed and shared experts' gate / up), row (wo_b.
+/// A layer tensor's field (names.zig's TP splits): col (wq_b, the routed and shared experts' gate / up), row (wo_b,
+/// moe.w2 and the shared experts' down).
 pub fn sharded(field: []const u8) bool {
     const whole = [_][]const u8{ "attn.wq_b", "attn.wo_b", "attn.sink", "moe.w1", "moe.w2", "moe.w3" };
     for (whole) |w| if (std.mem.eql(u8, field, w) or (std.mem.startsWith(u8, field, w) and field.len > w.len and field[w.len] == '.')) return true;
@@ -22,7 +24,8 @@ pub fn fieldOf(name: []const u8) ?[]const u8 {
     return name[dot + 1 ..];
 }
 
-/// A layer's world-1 images (named.Builder.layer at rank 0 of 1) down to the stage's own copies: each sharded tensor.
+/// A layer's world-1 images (named.Builder.layer at rank 0 of 1) down to the stage's own copies: each sharded tensor
+/// under the `P.` prefix, everything else freed.
 pub fn keepSharded(b: *named.Builder) !void {
     // the new names first (a failure leaves the images as they were), then the swap
     const names = try b.gpa.alloc(?[]u8, b.out.items.len);

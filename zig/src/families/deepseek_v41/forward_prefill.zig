@@ -301,7 +301,8 @@ pub fn prompt(f: *Forward, ids_in: []const u32) !void {
     return tpRows(f, ids);
 }
 
-/// Prompt rows `ids` from the slot's position as the forward's own segments (tensor parallel; `prompt` without the.
+/// Prompt rows `ids` from the slot's position as the forward's own segments (tensor parallel; `prompt` without the
+/// line routes here).
 pub fn tpRows(f: *Forward, ids: []const u32) !void {
     const st = state(f);
     // TF_DSV41_PF_4K / _PF_TBO: the workspace for this call, decided on every rank alike (else 2,048-row segments)
@@ -326,7 +327,8 @@ pub fn tpRows(f: *Forward, ids: []const u32) !void {
     }
 }
 
-/// TF_DSV41_PREFILL_PIPE: a segment's host commit at its entry into the line (pipe_run.zig), every rank alike: the.
+/// TF_DSV41_PREFILL_PIPE: a segment's host commit at its entry into the line (pipe_run.zig), every rank alike: the
+/// slot's position, tail and session advance before the stage runs.
 pub fn advanceHost(f: *Forward, start: u64, ids: []const u32) !void {
     if (f.slot.pending != null or f.slot.pos != start) return error.BadWindow;
     if (f.engram) |h| pf_finish.tailOf(&f.slot, ids, h.max_ngram - 1);
@@ -335,7 +337,8 @@ pub fn advanceHost(f: *Forward, start: u64, ids: []const u32) !void {
     f.slot.ced.extend(start, ids);
 }
 
-/// TF_DSV41_PREFILL_PIPE: the active slot's line drained before its state is read (the CED finish, a snapshot), on.
+/// TF_DSV41_PREFILL_PIPE: the active slot's line drained before its state is read (the CED finish, a snapshot), on
+/// every rank alike.
 pub fn settle(f: *Forward) !void {
     const ln = state(f).pipe orelse return;
     const s = ln.slot orelse return;

@@ -54,7 +54,8 @@ pub const Line = struct {
     eng_stage: [eh.max_layers]hs.Stage = @splat(.{}),
     stats: Stats = .{},
     lines: u64 = 0,
-    /// the tp session's fail-fast (model.zig: tp.Session.fatal): a line that fails takes every rank down with its.
+    /// the tp session's fail-fast (model.zig: tp.Session.fatal): a line that fails takes every rank down with its own
+    /// exit, which in serving does not return.
     fatal: ?Fatal = null,
 
     pub const Fatal = struct { ctx: *anyopaque, run: *const fn (ctx: *anyopaque, where: []const u8, err: anyerror) void };
@@ -148,7 +149,8 @@ pub const Line = struct {
         const steps = pipe.route(ln.s, ln.at(), activeSlot(f), start, ids.len, images, buf);
         for (steps, 0..) |st, i| switch (st) {
             .enter => |sg| {
-                // the next segment's Engram reads ahead of this round (a wrong guess costs a read, never a bit): the.
+                // the next segment's Engram reads ahead of this round (a wrong guess costs a read, never a bit): the
+                // prefetch is issued now and the round does not wait for it.
                 const nxt: ?pipe.Seg = if (i + 1 < steps.len) switch (steps[i + 1]) {
                     .enter => |nx| nx,
                     else => null,
@@ -230,7 +232,8 @@ pub const Line = struct {
         ln.close();
     }
 
-    /// A failed line on this rank: every rank goes down (fail-fast's exit, which in serving does not return), never a.
+    /// A failed line on this rank: every rank goes down (fail-fast's exit, which in serving does not return), never a
+    /// peer left waiting in a collective this rank will not reach.
     fn fail(ln: *Line, f: *Forward, e: anyerror) anyerror {
         log.err("pipeline: rank {d}: the line failed ({t}): every rank goes down", .{ ln.rank, e });
         ln.close();
@@ -537,7 +540,8 @@ pub const Line = struct {
     }
 };
 
-/// A stage program's glue (pipe.program's calls): its hand-off, the world-1 exchange (the partial is the sum), the.
+/// A stage program's glue (pipe.program's calls): its hand-off, the world-1 exchange (the partial is the sum), the
+/// Engram rows and prefill's other steps.
 fn stageGlue(ctx: *anyopaque, r: *run.Runner, c: *const calls.Call) anyerror!void {
     const f: *Forward = @ptrCast(@alignCast(ctx));
     const ln = pf.state(f).pipe orelse return error.BadGlue;

@@ -33,7 +33,8 @@ pub const Settings = struct {
     world: u32,
     bounds: [max_world + 1]u32,
     trace: bool = false,
-    /// the end up to which every rank's stage emits a segment (pipe_run.Line.agreeEnd, at boot: the least of the.
+    /// the end up to which every rank's stage emits a segment (pipe_run.Line.agreeEnd, at boot: the least of the
+    /// ranks' last segment ends).
     end: u64 = std.math.maxInt(u64),
 
     pub fn boundsSlice(s: *const Settings) []const u32 {
@@ -373,7 +374,7 @@ pub const HandoffLayout = struct {
 /// Rows [row, row + n) of a family, at physical rows [phys, phys + n) of its tensor.
 pub const Run = struct { row: u64, phys: u64, n: u64 };
 
-/// Logical rows [a, b) of a family through the slot's page table (`table[page]`: the physical page; 2^shift rows a.
+/// Logical rows [a, b) of a family through the slot's page table (`table[page]`: the physical page; 2^shift rows a page).
 pub fn pageRuns(table: []const u32, shift: u6, a: u64, b: u64, buf: []Run) []const Run {
     var k: usize = 0;
     var j = a;
@@ -455,7 +456,7 @@ pub fn widthsFromCopies(a: std.mem.Allocator, w: *block.Widths) !void {
     for (add.items) |x| try w.dense.put(a, try a.dupe(u8, x[0]), x[1]);
 }
 
-/// Every `wo_a` group's width from group 0's where a listing has only a TP rank's groups (one checkpoint tensor a.
+/// Every `wo_a` group's width from group 0's where a listing has only a TP rank's groups (one checkpoint tensor a group).
 pub fn fillGroups(a: std.mem.Allocator, w: *block.Widths, cfg: *const Config) !void {
     var nb: [64]u8 = undefined;
     for (0..cfg.allLayers()) |L| {
@@ -475,7 +476,8 @@ pub fn stageIo(cfg: *const Config, s: *const Settings, rank: u32) bp.StageIo {
     return .{ .entered = rank > 0, .last = st.last, .sel_in = st.selIn(cfg), .sel_out = st.selOut(cfg, s.boundsSlice()) };
 }
 
-/// Rank `rank`'s stage over an `n`-row segment from `start`, as emitted (aot-needs reduces these: the namespace and.
+/// Rank `rank`'s stage over an `n`-row segment from `start`, as emitted (aot-needs reduces these: the namespace and
+/// every stage's own copies decide the variants).
 pub fn emit(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths, o1: block.Options, s: *const Settings, rank: u32, n: i64, start: i64) ![]calls.Call {
     var buf: [64]u32 = undefined;
     return bp.emitStage(a, cfg, w, o1, s.stage(rank).layers(&buf), n, start, stageIo(cfg, s, rank));
@@ -570,9 +572,11 @@ pub fn planned(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths,
 }
 
 /// A stage program's options: the forward's at world 1, rank 0 (every head, every wo_a group, every expert column).
+/// The rank must be cleared with the world: a stage is a one-rank program, whatever rank the forward is.
 pub fn stageOptions(o: block.Options, rows: u32) block.Options {
     var x = o;
     x.world = 1;
+    x.rank = 0;
     x.taps = false;
     x.pf_tbo = false;
     x.pf_overlap = 0;

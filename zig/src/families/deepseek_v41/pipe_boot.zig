@@ -35,7 +35,8 @@ pub const Bufs = struct {
     }
 };
 
-/// The device buffers' bytes (`bind` allocates them at boot; the boot check prices them before the Engram host is.
+/// The device buffers' bytes (`bind` allocates them at boot; the boot check prices them before the Engram host is
+/// allocated).
 pub fn bufferBytes(cfg: *const Config, s: pipe.Settings, rank: u32) u64 {
     const W: u64 = s.world;
     const R: u64 = s.rows;

@@ -303,9 +303,11 @@ test "a family's logical rows through the slot's page table as runs of physical 
 }
 
 test "a stage's options: world 1 rank 0, the line's rows, no taps / TBO / exchange pieces / images" {
-    var o: block.Options = .{ .world = 4, .taps = true, .pf_tbo = true, .pf_overlap = 2, .pf_overlap_site = true, .image_keep = true, .image_rows = 5, .prefill_rows = 2048, .gm_v2 = .one, .r1 = true, .limit = 420096 };
+    var o: block.Options = .{ .world = 4, .rank = 2, .taps = true, .pf_tbo = true, .pf_overlap = 2, .pf_overlap_site = true, .image_keep = true, .image_rows = 5, .prefill_rows = 2048, .gm_v2 = .one, .r1 = true, .limit = 420096 };
     const x = pipe.stageOptions(o, 2048);
+    // a stage is a one-rank program: rank 2 of a world-4 forward emits at world 1, rank 0
     try testing.expectEqual(@as(u32, 1), x.world);
+    try testing.expectEqual(@as(u32, 0), x.rank);
     try testing.expect(!x.taps and !x.pf_tbo and x.pf_overlap == 0 and !x.pf_overlap_site and !x.image_keep and x.image_rows == 0 and !x.pf4k);
     try testing.expectEqual(@as(i64, 2048), x.prefill_rows);
     try testing.expect(x.r1 and x.gm_v2 == .one and x.limit == 420096);
