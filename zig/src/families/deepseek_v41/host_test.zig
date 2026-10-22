@@ -187,6 +187,62 @@ test "a synthetic pack: both ranks plan every block, the parts tile the full ten
     try testing.expectEqual(@as(u64, 128 * 256 * 2), r0.top[0].bytes);
 }
 
+test "a synthetic pack at TP=4: uneven whole-block expert and head splits tile the stored tensors, nothing is left" {
+    // the release's TP=4 shape in small: 5 blocks of expert columns and vocabulary (2 / 1 / 1 / 1 a rank), heads even
+    const a = testing.allocator;
+    var c = config.tiny();
+    c.heads = 8;
+    c.o_groups = 4;
+    c.expert_width = 640;
+    c.vocab = 640;
+    try c.validate();
+    const json = try tinyPack(a, &c, "", "");
+    defer a.free(json);
+    var p = Pack.init(a);
+    defer p.deinit();
+    try p.addHeader("model.safetensors", json, std.math.maxInt(u32));
+    var pls: [4]plan.Plan = undefined;
+    for (&pls, 0..) |*pl, r| pl.* = try plan.build(a, &c, &p, .{ .rank = @intCast(r), .world = 4 });
+    defer for (&pls) |*pl| pl.deinit();
+    const widths = [_]u32{ 256, 128, 128, 128 };
+    for (pls, widths) |pl, w| {
+        try testing.expectEqual(@as(usize, 0), pl.leftovers.len);
+        try testing.expectEqual(w, pl.head.?.part.group.n());
+        // every routed and shared expert: this rank's columns (gate / up) and rows (down)
+        for (pl.layers) |l| {
+            try testing.expectEqual(w, l.experts[0].layout.n_tiles * 16);
+            try testing.expectEqual(w, l.experts[1].layout.k_tiles * 16);
+            for (l.groups) |g| switch (g.proj) {
+                .shared_w1, .shared_w3 => try testing.expectEqual(w, g.part.group.n()),
+                .shared_w2 => try testing.expectEqual(w, g.part.group.k()),
+                .wq_b => try testing.expectEqual(@as(u32, 128), g.part.group.n()), // 8 heads x 64 / 4
+                else => {},
+            };
+        }
+        // the embedding's vocabulary rows stay an even split (160 a rank)
+        try testing.expectEqual(@as(u64, 160 * 256 * 2), pl.top[0].bytes);
+    }
+    // the four ranks' parts add up to each stored tensor
+    for (0..pls[0].layers.len) |li| for (0..pls[0].layers[li].groups.len) |gi| {
+        const g0 = pls[0].layers[li].groups[gi];
+        var sum: u64 = 0;
+        for (pls) |pl| sum += pl.layers[li].groups[gi].part.trellis.bytes();
+        try testing.expectEqual(if (g0.split == .whole) 4 * g0.full.trellisBytes() else g0.full.trellisBytes(), sum);
+    };
+    var head: u64 = 0;
+    for (pls) |pl| head += pl.head.?.part.trellis.bytes();
+    try testing.expectEqual(pls[0].head.?.full.trellisBytes(), head);
+    // the head's columns tile the vocabulary in rank order (the ids greedy and sampling give back)
+    var at: u64 = 0;
+    for (pls) |pl| {
+        try testing.expectEqual(2 * 16 * (at / 16), pl.head.?.part.svh.offset);
+        at += pl.head.?.part.group.n();
+    }
+    try testing.expectEqual(@as(u64, 640), at);
+    // a world whose split leaves a rank no whole block is refused
+    try testing.expectError(error.BadWorld, plan.build(a, &c, &p, .{ .rank = 0, .world = 8 }));
+}
+
 test "a synthetic pack: unknown names are leftovers, missing ones and wrong shapes are refused" {
     const a = testing.allocator;
     const c = config.tiny();

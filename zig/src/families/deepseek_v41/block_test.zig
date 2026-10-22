@@ -52,6 +52,19 @@ test "whole backbone and DSpark emit named calls and bounded reusable buffer pla
     try t.expect(totals.roles[0] > 0 and totals.roles[1] > 0 and totals.roles[2] > 0);
 }
 
+test "admission takes each TP=4 rank's whole-block expert shard (2,304 columns are 640 / 640 / 512 / 512)" {
+    const admission = @import("block_admission.zig");
+    const c: Config = .{};
+    for (0..4) |r| {
+        try admission.options(&c, block.Options{ .world = 4, .rank = @intCast(r), .expert_rows = 8, .dspark_rows = 8 }, &.{0}, 8);
+    }
+    // a rank past the world, or more ranks than the experts have blocks, is refused
+    try t.expectError(error.InvalidBlock, admission.options(&c, block.Options{ .world = 4, .rank = 4, .expert_rows = 8, .dspark_rows = 8 }, &.{0}, 8));
+    try t.expectError(error.InvalidBlock, admission.options(&c, block.Options{ .world = 32, .expert_rows = 8, .dspark_rows = 8 }, &.{0}, 8));
+    // two ranks admit as before
+    try admission.options(&c, block.Options{ .world = 2, .expert_rows = 8, .dspark_rows = 8 }, &.{0}, 8);
+}
+
 test "expert scratch admission covers backbone and DSpark windows" {
     var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
