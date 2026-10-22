@@ -66,32 +66,47 @@ pub const Group = struct {
         return @as(u64, g.k_tiles) * g.n_tiles * g.tileBytes();
     }
 
-    /// The rank's part of the group; a split that does not fall on 128-value blocks is refused.
+    /// The rank's part of the group, split on whole 128-value blocks (uneven when they do not divide evenly).
     pub fn part(g: Group, split: Split, rank: u32, world: u32) !Part {
-        if (world == 0 or rank >= world or world > std.math.maxInt(u32) / 128) return error.SplitNotOnBlocks;
+        const block: u32 = 128;
+        const tiles_a_block: u32 = block / 16;
+        if (world == 0 or rank >= world) return error.SplitNotOnBlocks;
         var p: Part = .{ .group = g, .trellis = .{ .offset = 0, .len = g.trellisBytes() }, .suh = .{ .offset = 0, .len = 2 * @as(u64, g.k()) }, .svh = .{ .offset = 0, .len = 2 * @as(u64, g.n()) } };
         switch (split) {
             .whole => {},
             .row => {
-                if (g.k() % (world * 128) != 0) return error.SplitNotOnBlocks;
-                const per = g.k_tiles / world;
+                if (g.k() % block != 0) return error.SplitNotOnBlocks;
+                const b = try blocks(g.k() / block, world, rank);
+                const lo: u64 = b.lo * tiles_a_block;
+                const per: u32 = b.len * tiles_a_block;
                 p.group.k_tiles = per;
                 const row = @as(u64, g.n_tiles) * g.tileBytes();
-                p.trellis = .{ .offset = rank * per * row, .len = per * row };
-                p.suh = .{ .offset = 2 * 16 * @as(u64, rank * per), .len = 2 * 16 * @as(u64, per) };
+                p.trellis = .{ .offset = lo * row, .len = per * row };
+                p.suh = .{ .offset = 2 * 16 * lo, .len = 2 * 16 * @as(u64, per) };
             },
             .col => {
-                if (g.n() % (world * 128) != 0) return error.SplitNotOnBlocks;
-                const per = g.n_tiles / world;
+                if (g.n() % block != 0) return error.SplitNotOnBlocks;
+                const b = try blocks(g.n() / block, world, rank);
+                const lo: u64 = b.lo * tiles_a_block;
+                const per: u32 = b.len * tiles_a_block;
                 p.group.n_tiles = per;
                 // one K-tile row at a time: this rank's N tiles are a run inside each row
-                p.trellis = .{ .offset = rank * per * g.tileBytes(), .len = per * g.tileBytes(), .stride = @as(u64, g.n_tiles) * g.tileBytes(), .count = g.k_tiles };
-                p.svh = .{ .offset = 2 * 16 * @as(u64, rank * per), .len = 2 * 16 * @as(u64, per) };
+                p.trellis = .{ .offset = lo * g.tileBytes(), .len = per * g.tileBytes(), .stride = @as(u64, g.n_tiles) * g.tileBytes(), .count = g.k_tiles };
+                p.svh = .{ .offset = 2 * 16 * lo, .len = 2 * 16 * @as(u64, per) };
             },
         }
         return p;
     }
 };
+
+/// `rank`'s run of `n_blocks` blocks: `n_blocks / world` each, the first `n_blocks % world` ranks one more.
+fn blocks(n_blocks: u32, world: u32, rank: u32) !struct { lo: u32, len: u32 } {
+    if (world == 0 or rank >= world) return error.SplitNotOnBlocks;
+    const base = n_blocks / world;
+    const extra = n_blocks % world;
+    if (base == 0) return error.SplitNotOnBlocks;
+    return .{ .lo = rank * base + @min(rank, extra), .len = base + @intFromBool(rank < extra) };
+}
 
 /// Bytes of a stored tensor to read: `count` runs of `len` bytes, `stride` apart, from `offset` into the tensor.
 pub const Span = struct {
@@ -224,6 +239,21 @@ test "TP parts: rows contiguous, columns a run a K-tile row" {
     const wk = try Group.fromShape(&.{ 32, 8, 128 });
     try testing.expectError(error.SplitNotOnBlocks, wk.part(.col, 0, 2));
     try testing.expectEqual(wk.trellisBytes(), (try wk.part(.whole, 1, 2)).trellis.bytes());
+}
+
+test "TP parts split on whole blocks, uneven when the blocks do not divide: 18 blocks over four ranks are 5/5/4/4" {
+    const g = try Group.fromShape(&.{ 320, 144, 32 }); // 2,304 columns: 18 blocks of 128
+    const widths = [_]u32{ 640, 640, 512, 512 };
+    var at: u64 = 0;
+    for (widths, 0..) |w, r| {
+        const p = try g.part(.col, @intCast(r), 4);
+        try testing.expectEqual(w, p.group.n());
+        try testing.expectEqual(2 * at, p.svh.offset);
+        try testing.expectEqual(p.group.trellisBytes(), p.trellis.bytes());
+        at += w;
+    }
+    try testing.expectEqual(@as(u64, 2304), at);
+    try testing.expectError(error.SplitNotOnBlocks, g.part(.col, 0, 19));
 }
 
 test "expert layouts: one width stacks, mixed widths go ragged with aligned offsets" {
