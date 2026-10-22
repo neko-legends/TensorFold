@@ -132,6 +132,11 @@ pub const Forward = struct {
         return .{ .gpa = gpa, .cfg = cfg, .widths = widths, .opts = opts, .runner = runner, .comm = comm, .arena = std.heap.ArenaAllocator.init(gpa) };
     }
 
+    /// This rank's head columns: [lo, lo + len) of the vocabulary on whole 128-blocks, uneven at TP=4.
+    pub fn vocabShard(f: *const Forward) block.shard.Shard {
+        return block.shard.checked(f.cfg.vocab, @intCast(f.comm.world()), @intCast(f.comm.rank()));
+    }
+
     pub fn upload(f: *Forward, destination: u64, bytes: []const u8) !void {
         const owned = try f.uploads.take(f.runner.d, bytes.len);
         @memcpy(owned, bytes);

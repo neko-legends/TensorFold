@@ -213,7 +213,7 @@ pub fn hostStep(x: *GpuPass, r: *run.Runner, logits_t: calls.Tensor, hid_t: call
     defer gpa.free(packed_);
     const ids = try gpa.alloc(i32, k);
     defer gpa.free(ids);
-    const id0: u32 = @intCast(comm.rank() * V);
+    const id0: u32 = x.f.vocabShard().lo; // this rank's first head column (uneven at TP=4)
     for (0..n) |i| {
         const row = packed_[i * 2 * k ..][0 .. 2 * k];
         try dspark.candidates(gpa, logits[i * V ..][0..V], id0, ids, row[0..k]);

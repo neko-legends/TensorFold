@@ -1,4 +1,11 @@
 //! A width split over the TP ranks on whole 128-value blocks (EXL3's Hadamard blocks).
+//!
+//! Two shardings of one vocabulary share these rules and are not interchangeable: the embedding's rows
+//! split evenly (`vocab / world`, so the plan requires `vocab % world == 0`), while the head's columns
+//! split on whole blocks (`of`, uneven at world 4). `vocabShard` is the head's sharding; the embedding
+//! sites (batch_graph.zig, forward_glue.zig, dspark_gpu_device.zig, dspark_slots_device.zig) deliberately
+//! still read `vocab / world`. Relaxing the plan's `vocab % world` check without changing those sites
+//! would silently mis-index the embedding gather.
 const std = @import("std");
 
 pub const block: u32 = 128;
@@ -39,6 +46,7 @@ pub fn of(n: u32, world: u32, rank: u32) !Shard {
 }
 
 /// `of`, else (a width that is not whole blocks, as in test vocabularies) the equal parts when `world` divides it.
+/// The one fallback rule: `checked` applies the same rule on serving paths.
 pub fn ofOrEven(n: u32, world: u32, rank: u32) !Shard {
     if (of(n, world, rank)) |s| return s else |_| {}
     if (world == 0 or rank >= world or n % world != 0) return error.SplitNotEven;
@@ -52,9 +60,17 @@ pub fn widest(n: u32, world: u32) u32 {
     return n / world;
 }
 
-/// `of` for a width the plan already checked: a refused split here is a bug.
+/// `ofOrEven` for a width the plan and the admission gate already checked: the equal-parts fallback is
+/// reached only by test vocabularies, never by a served width (plan.build refuses those). A width neither
+/// rule can split here is a bug, not a fallback.
 pub fn checked(n: u32, world: u32, rank: u32) Shard {
-    return of(n, world, rank) catch unreachable;
+    return ofOrEven(n, world, rank) catch unreachable;
+}
+
+test "checked is ofOrEven's rule on every width" {
+    try testing.expectEqual(try ofOrEven(129280, 4, 2), checked(129280, 4, 2));
+    try testing.expectEqual(try ofOrEven(1500, 3, 1), checked(1500, 3, 1));
+    try testing.expectEqual(try ofOrEven(2304, 2, 0), checked(2304, 2, 0));
 }
 
 const testing = std.testing;

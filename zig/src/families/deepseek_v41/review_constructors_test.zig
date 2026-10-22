@@ -54,7 +54,7 @@ test "Completion ownership: failed DSpark event construction unwinds its precedi
     vt.world = world;
     const comm: @import("tp").collective.Collective = .{ .ptr = &d, .vtable = &vt };
     mock.fail_event = true;
-    try t.expectError(error.NotReady, @import("dspark_dev.zig").Dev.init(t.allocator, &d, comm, .{ .d = &d, .handle = null }, .device, 1, 8, 1, false, 16, 1));
+    try t.expectError(error.NotReady, @import("dspark_dev.zig").Dev.init(t.allocator, &d, comm, .{ .d = &d, .handle = null }, .device, 1, 8, 1, false, 16, 1, 0));
     try t.expectEqual(mock.allocated, mock.freed);
     try t.expect(mock.pinned == null);
 }

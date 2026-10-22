@@ -3,6 +3,7 @@
 const std = @import("std");
 const tp = @import("tp");
 const smp = @import("dsv41_serve").sampling;
+const shard = @import("shard.zig");
 
 pub const Sampling = smp.Sampling;
 
@@ -26,6 +27,8 @@ pub const Device = struct {
         download: *const fn (ptr: *anyopaque, src: u64, dst: []u8) anyerror!void,
         /// The stream the collectives run on.
         stream: *const fn (ptr: *anyopaque) tp.collective.Stream,
+        /// `bytes` device bytes from `src` to `dst`, in stream order (an uneven vocabulary's whole-row staging).
+        copy: *const fn (ptr: *anyopaque, src: u64, dst: u64, bytes: usize) anyerror!void,
     };
 };
 
@@ -127,8 +130,12 @@ pub fn nucleusEnv() !u32 {
 pub const Pipe = struct {
     gpa: std.mem.Allocator,
     comm: tp.collective.Collective,
-    /// this rank's vocabulary slice (the head's columns): global ids rank x V + column
+    /// this rank's vocabulary slice (the head's columns, the logits' row stride): global ids vs.lo + column
     V: u32,
+    /// the slice on whole 128-blocks (uneven at TP=4): decisions every rank must agree on read vs.min / vs.max, not V
+    vs: shard.Shard,
+    /// the whole vocabulary (the sum of every rank's V)
+    vocab: u32,
     nucleus: u32,
     picker: smp.Picker,
     values: []f32,
@@ -141,13 +148,16 @@ pub const Pipe = struct {
     /// rows taken whole in the last call (the nucleus fallback or k > max_k): the tests' and logs' count
     whole_rows: usize = 0,
 
-    pub fn init(gpa: std.mem.Allocator, comm: tp.collective.Collective, V: u32, nucleus: u32) !Pipe {
-        const vocab: usize = @as(usize, V) * comm.world();
-        var picker = try smp.Picker.init(gpa, vocab);
+    /// `vocab`: the whole vocabulary, split over the communicator's ranks on whole 128-blocks.
+    pub fn init(gpa: std.mem.Allocator, comm: tp.collective.Collective, vocab: u32, nucleus: u32) !Pipe {
+        const vs = try shard.ofOrEven(vocab, @intCast(comm.world()), @intCast(comm.rank()));
+        // the whole-row gather lands W x the widest slice
+        const room: usize = @as(usize, vs.max) * comm.world();
+        var picker = try smp.Picker.init(gpa, room);
         errdefer picker.deinit();
-        const values = try gpa.alloc(f32, vocab);
+        const values = try gpa.alloc(f32, room);
         errdefer gpa.free(values);
-        return .{ .gpa = gpa, .comm = comm, .V = V, .nucleus = nucleus, .picker = picker, .values = values, .ids = try gpa.alloc(u32, vocab) };
+        return .{ .gpa = gpa, .comm = comm, .V = vs.len, .vs = vs, .vocab = vocab, .nucleus = nucleus, .picker = picker, .values = values, .ids = try gpa.alloc(u32, room) };
     }
 
     pub fn deinit(p: *Pipe) void {
@@ -169,11 +179,13 @@ pub const Pipe = struct {
         std.debug.assert(out.len >= n and n > 0);
         const W: usize = p.comm.world();
         const V: usize = p.V;
-        const count: usize = countOf(s, @intCast(V * W), p.nucleus);
-        const k = @min(count, V);
+        const count: usize = countOf(s, p.vocab, p.nucleus);
+        // the same k and path on every rank (their gathers pair up): the narrowest slice bounds k
+        const k = @min(count, p.vs.min);
         p.whole_rows = 0;
         try p.picks.resize(p.gpa, n);
-        if (k > max_k or V > max_cols) {
+        // (uneven slices: a count past the narrowest would cut the wider ranks' candidates short, so whole rows)
+        if (k > max_k or p.vs.max > max_cols or count > k and !p.vs.even()) {
             // every row whole (top_k 0 without the nucleus path, a top_k past the device bound, or one rank's 129,280)
             p.full.clearRetainingCapacity();
             for (0..n) |r| try p.full.append(p.gpa, @intCast(r));
@@ -185,7 +197,7 @@ pub const Pipe = struct {
         const row_f32 = 2 * k;
         const packed_ = try vt.scratch(dev.ptr, 0, 4 * n * row_f32);
         const gathered = try vt.scratch(dev.ptr, 1, 4 * W * n * row_f32);
-        try vt.top(dev.ptr, lg, n, V, k, @intCast(p.comm.rank() * V), packed_);
+        try vt.top(dev.ptr, lg, n, V, k, p.vs.lo, packed_);
         try p.comm.allGather(packed_, gathered, n * row_f32, .f32, stream);
         var stats_dev: u64 = 0;
         if (nuc) {
@@ -224,19 +236,32 @@ pub const Pipe = struct {
         for (p.full.items) |r| out[r] = try p.wholeRow(dev, lg + 4 * @as(u64, r) * p.V, s, count, if (positions) |ps| ps[r] else 0);
     }
 
-    /// One row at `row` (this rank's slice), gathered whole and picked at `position` (`wholeRows`' step).
+    /// One row (this rank's slice) gathered whole and picked at `position`; an uneven split stages a padded row first.
     fn wholeRow(p: *Pipe, dev: Device, row: u64, s: Sampling, count: usize, position: u64) !u32 {
         const W: usize = p.comm.world();
         const V: usize = p.V;
+        const M: usize = p.vs.max;
         const vt = dev.vtable;
-        const recv = try vt.scratch(dev.ptr, 4, 4 * W * V);
-        const host = try p.hostBytes(4 * W * V);
+        // [W][M] received, then this rank's [M] stage
+        const recv = try vt.scratch(dev.ptr, 4, 4 * W * M + 4 * M);
+        const host = try p.hostBytes(4 * W * M);
         const vals: []const f32 = @alignCast(std.mem.bytesAsSlice(f32, host));
-        for (p.ids[0 .. W * V], 0..) |*id, i| id.* = @intCast(i); // rank order: global id = the index
-        try p.comm.allGather(row, recv, V, .f32, vt.stream(dev.ptr));
+        var src = row;
+        if (!p.vs.even()) {
+            src = recv + 4 * W * M;
+            try vt.copy(dev.ptr, row, src, 4 * V);
+        }
+        try p.comm.allGather(src, recv, M, .f32, vt.stream(dev.ptr));
         try vt.download(dev.ptr, recv, host);
-        @memcpy(p.values[0 .. W * V], vals);
-        const r: smp.Row = .{ .values = p.values[0 .. W * V], .ids = p.ids[0 .. W * V], .count = count };
+        var m: usize = 0;
+        for (0..W) |w| {
+            const ws = shard.checked(p.vocab, @intCast(W), @intCast(w));
+            @memcpy(p.values[m..][0..ws.len], vals[w * M ..][0..ws.len]);
+            for (p.ids[m..][0..ws.len], 0..) |*id, i| id.* = @intCast(ws.id(i));
+            m += ws.len;
+        }
+        std.debug.assert(m == p.vocab);
+        const r: smp.Row = .{ .values = p.values[0..m], .ids = p.ids[0..m], .count = count };
         p.whole_rows += 1;
         return p.picker.pick(r, position, s).token; // no statistics: never .full_row
     }
@@ -246,8 +271,10 @@ pub const Pipe = struct {
 
     /// Whether `chooseSegments` takes a segment under `s`: a keyed candidates-path row within the device bounds.
     pub fn batchable(p: *const Pipe, s: Sampling) bool {
-        if (!sampled(s) or p.V > max_cols) return false;
-        return @min(countOf(s, @intCast(@as(usize, p.V) * p.comm.world()), p.nucleus), p.V) <= max_k;
+        if (!sampled(s) or p.vs.max > max_cols) return false;
+        const count = countOf(s, p.vocab, p.nucleus);
+        if (count > p.vs.min and !p.vs.even()) return false; // `choose` takes those rows whole
+        return @min(count, p.vs.min) <= max_k;
     }
 
     /// `chooseSegments`' hook over the gathered candidates before their download; true when it downloaded `host`.
@@ -258,7 +285,7 @@ pub const Pipe = struct {
         std.debug.assert(segs.len > 0);
         const W: usize = p.comm.world();
         const V: usize = p.V;
-        const vocab: u32 = @intCast(V * W);
+        const vocab: u32 = p.vocab;
         var count: usize = 0;
         var nuc = false;
         const r0: usize = segs[0].row0;
@@ -271,7 +298,7 @@ pub const Pipe = struct {
             nuc = nuc or smp.isNucleus(g.s);
         }
         const n = end - r0;
-        const k = @min(count, V);
+        const k = @min(count, p.vs.min); // the same on every rank (`choose`)
         p.whole_rows = 0;
         const vt = dev.vtable;
         const stream = vt.stream(dev.ptr);
@@ -279,7 +306,7 @@ pub const Pipe = struct {
         const span = lg + 4 * @as(u64, r0) * V;
         const packed_ = try vt.scratch(dev.ptr, 0, 4 * n * row_f32);
         const gathered = try vt.scratch(dev.ptr, 1, 4 * W * n * row_f32);
-        try vt.top(dev.ptr, span, n, V, k, @intCast(p.comm.rank() * V), packed_);
+        try vt.top(dev.ptr, span, n, V, k, p.vs.lo, packed_);
         try p.comm.allGather(packed_, gathered, n * row_f32, .f32, stream);
         var stats_dev: u64 = 0;
         if (nuc) {
@@ -337,7 +364,7 @@ pub const HostDevice = struct {
     }
 
     pub fn device(h: *HostDevice) Device {
-        return .{ .ptr = h, .vtable = &.{ .top = top, .stats = stats, .scratch = scratch, .download = download, .stream = stream } };
+        return .{ .ptr = h, .vtable = &.{ .top = top, .stats = stats, .scratch = scratch, .download = download, .stream = stream, .copy = copy } };
     }
 
     fn self_(p: *anyopaque) *HostDevice {
@@ -396,6 +423,10 @@ pub const HostDevice = struct {
 
     fn download(_: *anyopaque, src: u64, dst: []u8) anyerror!void {
         @memcpy(dst, @as([*]const u8, @ptrFromInt(src))[0..dst.len]);
+    }
+
+    fn copy(_: *anyopaque, src: u64, dst: u64, bytes: usize) anyerror!void {
+        @memcpy(@as([*]u8, @ptrFromInt(dst))[0..bytes], @as([*]const u8, @ptrFromInt(src))[0..bytes]);
     }
 
     fn stream(_: *anyopaque) tp.collective.Stream {

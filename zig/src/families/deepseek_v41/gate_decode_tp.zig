@@ -255,7 +255,7 @@ pub fn main(gpa: std.mem.Allocator, io: std.Io, pack_dir: []const u8, ref: []con
     // greedy decoding against the reference's tokens
     const mine = meta.object.get("ranks").?.array.items[rank].object;
     const want_logits = mine.get("logits_sha256").?.array.items;
-    const V: usize = cfg.vocab / 2;
+    const V: usize = f.vocabShard().len; // this rank's head columns (uneven at world 4)
     const host_logits = try a.alloc(u8, 4 * V);
     var trace: std.AutoArrayHashMapUnmanaged(u32, [64]u8) = .empty;
     defer trace.deinit(gpa);

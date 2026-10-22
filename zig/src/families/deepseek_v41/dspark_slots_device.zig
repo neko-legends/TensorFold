@@ -490,7 +490,7 @@ pub fn hostStep(x: *SlotPass, r: *run.Runner, logits_t: calls.Tensor, hid_t: cal
     try cuda.DeviceBuffer.download(.{ .d = r.d, .ptr = try r.tensorAddr(hid_t), .len = 2 * hid16.len }, 0, std.mem.sliceAsBytes(hid16));
     for (hid16, x.hid[0 .. R * D]) |b, *h| h.* = dspark.bf16(b);
     const packed_ = x.packed_[0 .. R * 2 * k];
-    const id0: u32 = @intCast(comm.rank() * V);
+    const id0: u32 = x.f.vocabShard().lo; // this rank's first head column (uneven at TP=4)
     for (0..R) |i| {
         const row = packed_[i * 2 * k ..][0 .. 2 * k];
         try dspark.candidates(x.gpa, logits[i * V ..][0..V], id0, x.ids, row[0..k]);

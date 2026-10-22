@@ -42,7 +42,7 @@ pub const Gpu = struct {
     }
 
     pub fn device(g: *Gpu) pipe.Device {
-        return .{ .ptr = g, .vtable = &.{ .top = top, .stats = stats, .scratch = scratch, .download = download, .stream = streamOf } };
+        return .{ .ptr = g, .vtable = &.{ .top = top, .stats = stats, .scratch = scratch, .download = download, .stream = streamOf, .copy = copy } };
     }
 
     fn self_(p: *anyopaque) *Gpu {
@@ -79,6 +79,11 @@ pub const Gpu = struct {
         const g = self_(p);
         try g.stream.synchronize();
         try cuda.DeviceBuffer.download(.{ .d = g.d, .ptr = src, .len = dst.len }, 0, dst);
+    }
+
+    fn copy(p: *anyopaque, src: u64, dst: u64, bytes: usize) anyerror!void {
+        const g = self_(p);
+        try g.d.check(g.d.api.cuMemcpyDtoDAsync_v2(dst, src, bytes, g.stream.handle), "cuMemcpyDtoDAsync");
     }
 
     fn streamOf(p: *anyopaque) cuda.abi.Stream {

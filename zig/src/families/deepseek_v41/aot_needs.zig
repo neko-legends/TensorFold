@@ -179,7 +179,9 @@ pub const Served = struct {
     /// The engine's knobs as it reads them (PF_DENSE is CUDA, so the `_gemm` variants it replaces are listed too).
     pub fn fromEnv() !Served {
         const knobs = @import("serve_knobs.zig");
-        var o: block.Options = .{ .world = @intCast(try envInt("TF_TP_WORLD", 2)), .r1 = knobs.r1(&knobs.env) };
+        // the world and the rank: an uneven split gives each rank its own expert and head widths, so its own variants
+        var o: block.Options = .{ .world = @intCast(try envInt("TF_TP_WORLD", 2)), .rank = @intCast(try envInt("TF_TP_RANK", 0)), .r1 = knobs.r1(&knobs.env) };
+        if (o.rank >= o.world) return error.BadRank;
         if (std.c.getenv("TF_DSV41_EXPERT_TOPP")) |v| o.expert_topp = try std.fmt.parseFloat(f64, std.mem.span(v));
         o.limit = try envInt("TF_DSV41_CONTEXT", o.limit);
         o.rope_rows = o.limit + 2048;
@@ -572,7 +574,19 @@ pub fn main(gpa: std.mem.Allocator, io: std.Io, sigs_path: []const u8, out_path:
     try log.print("aot-needs: limit {d}, {d} slot(s), rows cap {d}, prefill rows {d}, index budget {d} MiB, R1 {}, drafts {}, slot drafts {} (group {d}), world {d}, pool {s}\n", .{ sv.o.limit, sv.slots, sv.cap, sv.o.prefill_rows, sv.o.index_budget >> 20, sv.o.r1, sv.drafts, sv.slot_drafts, sv.group, sv.o.world, if (sv.o.pool) |p| (if (p.split) "split" else "on") else "none (contiguous slot)" });
     var n: Needs = .{ .gpa = gpa, .sigs = &parsed.value.kernels };
     defer n.deinit();
-    try enumerate(gpa, &n, &cfg, &w, sv, log);
+    // An uneven split gives each rank its own expert and head widths, so its own variants. TF_TP_RANK names
+    // one rank; unset enumerates every rank, since a silent default of 0 would ship only rank 0's variants.
+    if (std.c.getenv("TF_TP_RANK") != null) {
+        try enumerate(gpa, &n, &cfg, &w, sv, log);
+    } else {
+        var rank: u32 = 0;
+        while (rank < sv.o.world) : (rank += 1) {
+            var one = sv;
+            one.o.rank = rank;
+            try log.print("aot-needs: rank {d}/{d}\n", .{ rank, sv.o.world });
+            try enumerate(gpa, &n, &cfg, &w, one, log);
+        }
+    }
     var out: std.Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
     const ow = &out.writer;
