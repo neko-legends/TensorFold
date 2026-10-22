@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# One rank of the two-host TP=2 gate over RoCE: `run_hosts.sh RANK RANK0_ADDR ./tf-tp-test OUTDIR` on both hosts.
+# One rank of the multi-host TP gate over RoCE: `[WORLD=N] run_hosts.sh RANK RANK0_ADDR ./tf-tp-test OUTDIR`.
 set -u
 RANK=${1:?rank}; MASTER=${2:?master address}; BIN=${3:?tf-tp-test}; OUT=${4:?outdir}
+WORLD=${WORLD:-${TF_TP_WORLD:-2}}
 mkdir -p "$OUT"
 [ -n "${NCCL_SOCKET_IFNAME:-}" ] && export NCCL_SOCKET_IFNAME # else NCCL picks the interface
+export TF_TP_WORLD=$WORLD
 # NCCL uses the RoCE wire's devices unless NCCL_IB_HCA is set: the names without `:gid` (NCCL reads `:N` as a port)
 [ -n "${TF_TP_ROCE_HCA:-}" ] && [ -z "${NCCL_IB_HCA:-}" ] && NCCL_IB_HCA=$(echo "$TF_TP_ROCE_HCA" | sed 's/:[0-9]*//g; s/ //g')
 [ -n "${TF_TP_ROCE_HCA:-}" ] && export TF_TP_ROCE_HCA
@@ -39,13 +41,14 @@ step() { # NAME BACKEND ARGS...: this host's rank; log OUT/NAME.log ending with 
     PORT=$((PORT + 10))
     ( TF_TP_RANK=$RANK TF_TP_MASTER=$MASTER TF_TP_PORT=$PORT TF_COMM_BACKEND=$backend TF_TP_ROCE_FALLBACK=error \
         timeout 900 "$BIN" "$@"; echo "EXIT rank $RANK rc $? at $(date +%s.%N)" ) > "$OUT/$name.log" 2>&1
-    echo "$name: $(grep -h '^SUMMARY\|^PASS roce-host\|^INJECT\|^EXIT' "$OUT/$name.log" | tr '\n' ' ')"
+    echo "$name: $(grep -h '^SUMMARY\|^PASS roce-host\|^FAIL roce-host\|^INJECT\|^EXIT' "$OUT/$name.log" | tr '\n' ' ')"
 }
 step roce-host roce roce-host
 step suite-roce roce suite
 step suite-nccl nccl suite
+[ "${FAILFAST:-1}" = 0 ] && exit 0 # FAILFAST=0 skips the fail-fast steps
 for backend in roce nccl; do
     for mode in fatal kill; do
-        for victim in 0 1; do step "ff-$backend-$mode-$victim" "$backend" failfast "$victim" "$mode"; done
+        for ((victim = 0; victim < WORLD; victim++)); do step "ff-$backend-$mode-$victim" "$backend" failfast "$victim" "$mode"; done
     done
 done
