@@ -312,8 +312,7 @@ pub const Seg = struct {
             try e.glue("mpositions", &.{try e.buf("w.mpos64", .{}, .i64, &.{n})});
             try e.glue("embed", &.{ try e.streams(), try e.buf("w.recv.moe", .{}, .bf16, &.{ e.o.world, n, D }) });
         } else if (s.stage) |io| {
-            // a pipeline stage: its input instead of the embedding (the round embedded the segment for stage 0; a later
-            // stage's is the previous stage's streams, its pending post and the selection its first layers reuse)
+            // a pipeline stage: its input instead of the embedding (the round embedded the segment for stage 0; a.
             try e.glue("positions", &.{ try pos(e), try e.buf("w.pos64", .{}, .i64, &.{n}), try e.buf("w.lo", .{}, .i32, &.{n}) });
             try e.glue("pipe_in", try s.handoff(io.entered, io.sel_in));
         } else {
@@ -328,9 +327,7 @@ pub const Seg = struct {
             if (s.part == .decoder and i == 0) {
                 // entered (forward._layers): the first block's attention site is the stash's
             } else if ((i == 0 and !(if (s.stage) |io| io.entered else false)) or e.cfg.isEngram(L)) {
-                // the run's first block, or an Engram block: post alone, Engram, then a site collapsing with the pre
-                // (a pipeline stage after the first enters its first block through a boundary: the pending post is
-                // what the next block would apply in one process)
+                // the run's first block, or an Engram block: post alone, Engram, then a site collapsing with the pre.
                 const fresh = i == 0 and !(if (s.stage) |io| io.entered else false);
                 if (!fresh) try s.postOnly(try e.streams());
                 if (e.cfg.isEngram(L)) try s.engram(L);
@@ -349,7 +346,7 @@ pub const Seg = struct {
             if (s.short and i + 1 < layers.len) try e.prefetchX(layers[i + 1]);
             if (!s.sent_moe) try e.glue("exchange", &.{ try e.buf("L.moe16", .{}, .bf16, &.{ n, D }), try s.recv("moe") });
             s.sent_moe = false;
-            // a pipeline stage before the last stops here: its last block's MoE partial is the next stage's pending post
+            // a pipeline stage before the last stops here: its last block's MoE partial is the next stage's pending.
             if (s.stage) |io| if (!io.last and i + 1 == layers.len) {
                 s.unpend();
                 return e.glue("pipe_out", try s.handoff(true, io.sel_out));
@@ -364,11 +361,7 @@ pub const Seg = struct {
         s.unpend();
     }
 
-    /// A pipeline stage's hand-off tensors (glue pipe_in / pipe_out, pipe_run.zig): the streams; with `post` the
-    /// pending post (the last exchange's gathered MoE partial, [1, n, D] at world 1, and the coefficient set its post
-    /// reads); with `sel` that index source's selection and visible counts. The two ends name the same tensors at the
-    /// same stream / coefficient buffers: a stage enters at buffers 0 / set 0, where one process is at that layer
-    /// (segments past split_rows rows), and leaves after an even number of sites.
+    /// A pipeline stage's hand-off tensors (glue pipe_in / pipe_out, pipe_run.zig): the streams; with `post` the.
     pub fn handoff(s: *Seg, post: bool, sel: ?u32) ![]const Arg {
         const e = s.e;
         var out: std.ArrayList(Arg) = .empty;
@@ -432,9 +425,7 @@ pub fn rowStep(budget: i64, n: i64, per_row: i64) i64 {
     return if (n > 16) @max(16, @divFloor(budget, @max(1, per_row))) else n;
 }
 
-/// The start-dependent scratch a full-mode index layer's selection names over an `n`-row segment from `start` at a
-/// ratio-`ratio` source: its largest launch's materialised scores, its stream launch's scratch and its row blocks.
-/// Neither is monotone in the start, so a plan holding the first and last starts alone can miss the largest.
+/// The start-dependent scratch a full-mode index layer's selection names over an `n`-row segment from `start` at a.
 pub const SelectScratch = struct { mat: i64 = 0, stream: i64 = 0, blocks: i64 = 0 };
 
 pub fn selectScratch(o: block.Options, ratio: i64, topk: i64, n: i64, start: i64) SelectScratch {
@@ -459,8 +450,7 @@ pub fn selectScratch(o: block.Options, ratio: i64, topk: i64, n: i64, start: i64
     return if (streamed) .{ .stream = most, .blocks = named } else .{ .mat = most, .blocks = named };
 }
 
-/// The segments of `lo`..`hi` rows ending by `end` whose selection scratch is the largest of each kind: exact over
-/// every (rows, start) — within a key count the scratch grows with the start, so each count's last start is searched.
+/// The segments of `lo`..`hi` rows ending by `end` whose selection scratch is the largest of each kind: exact over.
 pub fn selectWorst(o: block.Options, ratio: i64, topk: i64, lo: i64, hi: i64, end: i64) [3]?[2]i64 {
     var best: [3]i64 = @splat(0);
     var at: [3]?[2]i64 = @splat(null);
@@ -504,8 +494,7 @@ pub fn selectWorst(o: block.Options, ratio: i64, topk: i64, lo: i64, hi: i64, en
 pub const StageIo = struct {
     /// a stage after the first: its first block applies the previous stage's pending post (glue pipe_in loads it)
     entered: bool,
-    /// the last stage ends with the encoder pass's end (the decoder's first layer's site and compressor, the stash);
-    /// the others stop after their last block's MoE partial (glue pipe_out)
+    /// the last stage ends with the encoder pass's end (the decoder's first layer's site and compressor, the stash).
     last: bool,
     /// the index source whose selection it enters with / leaves with ("w.sel<src>", "w.cnt<src>")
     sel_in: ?u32 = null,

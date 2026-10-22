@@ -60,8 +60,14 @@ pub const State = struct {
     /// what "w.taps" holds after the prompt: positions [taps_at, taps_at + taps_rows) at rows 0 ..: the DSpark hand-off
     taps_at: u64 = 0,
     taps_rows: u32 = 0,
+    /// TF_DSV41_PREFILL_PIPE (pipe_run.zig, the model installs it): long prompts' encoder segments through the ranks'.
+    pipe: ?*@import("pipe_run.zig").Line = null,
+    /// with `pipe`: `settle` / the release hook for the session store's snapshots and the forward's release, called.
+    pipe_settle: ?*const fn (f: *Forward) anyerror!void = null,
+    pipe_release: ?*const fn (f: *Forward) void = null,
 
     pub fn deinit(s: *State, gpa: std.mem.Allocator) void {
+        if (s.pipe) |p| p.deinit();
         s.long.deinit(gpa);
         s.long_b.deinit(gpa);
         if (s.k4ws.buf) |*b| b.free();
@@ -134,6 +140,8 @@ pub fn plan(f: *Forward, p: *buffers.Plan, rows: u32) !void {
     defer la.deinit();
     const layers = try f.backbone(la.allocator());
     try planPrograms(f, p, rows, layers);
+    // TF_DSV41_PREFILL_PIPE: the stage programs' roles (their own namespace, the stage copies' forms)
+    if (state(f).pipe) |ln| try @import("pipe_run.zig").planInto(f, ln, p);
     if (state(f).k4 or (state(f).mode == .replay and f.opts.pf_tbo)) {
         const ws = &state(f).k4ws;
         if (ws.plan == null) {
@@ -287,11 +295,19 @@ pub fn prompt(f: *Forward, ids_in: []const u32) !void {
     const ids = st.ids.items;
     st.taps_rows = 0;
     try ready(f);
+    defer st.next.clearRetainingCapacity();
+    // TF_DSV41_PREFILL_PIPE: the line routes the call (its rows through the stages, or tensor parallel)
+    if (st.pipe) |ln| if (st.mode == .replay) return ln.call(f, ids);
+    return tpRows(f, ids);
+}
+
+/// Prompt rows `ids` from the slot's position as the forward's own segments (tensor parallel; `prompt` without the.
+pub fn tpRows(f: *Forward, ids: []const u32) !void {
+    const st = state(f);
     // TF_DSV41_PF_4K / _PF_TBO: the workspace for this call, decided on every rank alike (else 2,048-row segments)
     st.ws_ok = true;
     if (st.k4 or (st.mode == .replay and f.opts.pf_tbo)) st.ws_ok = try wsAgreed(f);
     const seg: usize = segmentRows(f);
-    defer st.next.clearRetainingCapacity();
     var at: usize = 0;
     while (at < ids.len) {
         // TF_DSV41_PF_TBO: two segments at a time (the second at least tbo_min rows), else one
@@ -308,6 +324,29 @@ pub fn prompt(f: *Forward, ids_in: []const u32) !void {
         try segment(f, ids[at .. at + n], at + n == ids.len and st.mode == .full);
         at += n;
     }
+}
+
+/// TF_DSV41_PREFILL_PIPE: a segment's host commit at its entry into the line (pipe_run.zig), every rank alike: the.
+pub fn advanceHost(f: *Forward, start: u64, ids: []const u32) !void {
+    if (f.slot.pending != null or f.slot.pos != start) return error.BadWindow;
+    if (f.engram) |h| pf_finish.tailOf(&f.slot, ids, h.max_ngram - 1);
+    f.slot.pos = start + ids.len;
+    if (f.sess) |x| try x.commit(x.ptr, ids);
+    f.slot.ced.extend(start, ids);
+}
+
+/// TF_DSV41_PREFILL_PIPE: the active slot's line drained before its state is read (the CED finish, a snapshot), on.
+pub fn settle(f: *Forward) !void {
+    const ln = state(f).pipe orelse return;
+    const s = ln.slot orelse return;
+    if (s == @import("pipe_run.zig").activeSlot(f)) try ln.drain(f);
+}
+
+/// TF_DSV41_PREFILL_PIPE: the active slot is released (or reset): its segments in the line are dropped.
+pub fn pipeRelease(f: *Forward) void {
+    const ln = state(f).pipe orelse return;
+    const s = ln.slot orelse return;
+    if (s == @import("pipe_run.zig").activeSlot(f)) ln.abandon();
 }
 
 /// TF_DSV41_PF_TBO's split of the `left` rows ahead into two segments; null when off, full mode, or under tbo_min.
@@ -472,6 +511,7 @@ const enterRun = pf_finish.enterRun;
 const segGlue = pf_glue.segGlue;
 const runPositions = pf_glue.runPositions;
 pub const finish = pf_finish.finish;
+pub const glueStep = @import("forward_prefill_glue.zig").glueOne;
 const stashCopy = pf_glue.stashCopy;
 const commit = pf_finish.commit;
 const commitAt = pf_finish.commitAt;

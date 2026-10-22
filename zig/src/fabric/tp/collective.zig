@@ -60,6 +60,8 @@ pub const Collective = struct {
         var_fits: ?*const fn (ptr: *anyopaque, bytes: usize) bool = null,
         /// Host: whether every rank's transport takes device lengths, agreed once per communicator. Null: false.
         var_agreed: ?*const fn (ptr: *anyopaque) Error!bool = null,
+        /// One group of a send to `to` and a receive from `from` (either null; the peers checked by `sendRecv`).
+        send_recv: ?*const fn (ptr: *anyopaque, send: DevicePtr, send_count: usize, to: ?u32, recv: DevicePtr, recv_count: usize, from: ?u32, t: DType, stream: Stream) Error!void = null,
     };
 
     pub fn kind(c: Collective) Kind {
@@ -110,6 +112,23 @@ pub const Collective = struct {
 
     pub fn recv(c: Collective, buf: DevicePtr, count: usize, t: DType, peer: u32, stream: Stream) Error!void {
         return c.vtable.recv(c.ptr, buf, count, t, peer, stream);
+    }
+
+    /// A pipeline's shift (deepseek_v41's TF_DSV41_PREFILL_PIPE): this rank's send[send_count] to rank `to` and rank.
+    pub fn sendRecv(c: Collective, send_buf: DevicePtr, send_count: usize, to: ?u32, recv_buf: DevicePtr, recv_count: usize, from: ?u32, t: DType, stream: Stream) Error!void {
+        const me = c.rank();
+        const w = c.world();
+        if (to) |p| try checkPeer(me, w, p);
+        if (from) |p| try checkPeer(me, w, p);
+        if (to == null and from == null) return;
+        if (c.vtable.send_recv) |f| return f(c.ptr, send_buf, send_count, to, recv_buf, recv_count, from, t, stream);
+        if (me % 2 == 0) {
+            if (to) |p| try c.send(send_buf, send_count, t, p, stream);
+            if (from) |p| try c.recv(recv_buf, recv_count, t, p, stream);
+        } else {
+            if (from) |p| try c.recv(recv_buf, recv_count, t, p, stream);
+            if (to) |p| try c.send(send_buf, send_count, t, p, stream);
+        }
     }
 
     pub fn barrier(c: Collective) Error!void {

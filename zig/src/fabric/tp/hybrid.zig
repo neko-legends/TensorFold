@@ -86,7 +86,13 @@ pub const Hybrid = struct {
             .all_gather_v = allGatherV,
             .var_fits = varFits,
             .var_agreed = varAgreed,
+            .send_recv = sendRecv,
         };
+    }
+
+    /// Point to point is NCCL's at any world (as `send` / `recv`).
+    fn sendRecv(ptr: *anyopaque, s: DevicePtr, sc: usize, to: ?u32, r: DevicePtr, rc: usize, from: ?u32, t: DType, stream: collective.Stream) Error!void {
+        return Nccl.sendRecv(self_(ptr).nccl, s, sc, to, r, rc, from, t, stream);
     }
 
     const mailbox_vtable = vtable(.hybrid);

@@ -370,6 +370,7 @@ pub const Sessions = struct {
         const h = &s.hist[s.cur()];
         if (h.items.len != s.f.slot.pos or s.f.slot.pending != null) return error.BadWindow;
         try s.f.sendSess(.save, 0);
+        if (pf.state(s.f).pipe_settle) |settle| try settle(s.f); // TF_DSV41_PREFILL_PIPE: the slot's line drained first
         if (h.items.len == 0) return null;
         const snap = try s.snapshot();
         const id = s.store.save(s.kx.slot, snap.bounded(), h.items, s.tag(), 0) catch |e| {
@@ -388,6 +389,7 @@ pub const Sessions = struct {
         if (h.items.len != s.f.slot.pos or s.f.slot.pending != null) return error.BadWindow;
         if (pf.state(s.f).mode == .replay and s.f.slot.ced.hi != s.f.slot.pos) return error.BadWindow;
         try s.f.sendSess(.prompt, 0);
+        if (pf.state(s.f).pipe_settle) |settle| try settle(s.f); // TF_DSV41_PREFILL_PIPE: the slot's line drained first
         if (h.items.len == 0) return null;
         const snap = try s.snapshot();
         const id = s.store.save(s.kx.slot, snap.bounded(), h.items, s.tag(), prompt_kind) catch |e| {

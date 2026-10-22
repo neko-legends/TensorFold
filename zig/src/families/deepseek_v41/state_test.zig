@@ -13,6 +13,7 @@ test {
     _ = @import("streamrb_test.zig");
     _ = @import("pipe_test.zig");
     _ = @import("pipe_emit_test.zig");
+    _ = @import("pipe_run.zig");
 }
 fn force(comptime T: type) void {
     inline for (comptime std.meta.declarations(T)) |name| {

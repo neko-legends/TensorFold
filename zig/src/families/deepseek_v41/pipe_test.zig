@@ -1,7 +1,4 @@
-//! Host tests of the pipelined prompt reading's rules (pipe.zig): the knobs and their
-//! refusals, the stages (Python's bounds_for, the layers a stage runs and loads, the selection it enters and leaves
-//! with), the round schedule and its drain, the rows a segment writes (Python's _rows_of), the exchanges' layouts and
-//! the stage weights' names (only the TP-sharded tensors and their forms are the stage's own).
+//! Host tests of the pipelined prompt reading's rules (pipe.zig): the knobs and their refusals, the stages (Python's.
 const std = @import("std");
 const testing = std.testing;
 const calls = @import("block_calls.zig");
@@ -224,7 +221,7 @@ test "a prompt call's route: which rows enter the line, which run tensor paralle
     const s = (try settingsOf(&.{.{ "TF_DSV41_PREFILL_PIPE", "1024" }}, 4)).?;
     // no line: a piece of 4,096 rows opens one, two whole segments
     try expectSteps(&.{ .{ .enter = .{ .start = 0, .n = 2048 } }, .{ .enter = .{ .start = 2048, .n = 2048 } } }, try routeOf(s, null, 1, 0, 4096, false));
-    // the line's slot goes on (a whole piece, then one cut at a snapshot point, then a short tail: drain, tensor parallel)
+    // the line's slot goes on (a whole piece, then one cut at a snapshot point, then a short tail: drain, tensor.
     const at: pipe.LineAt = .{ .slot = 1, .next = 4096 };
     try expectSteps(&.{ .{ .enter = .{ .start = 4096, .n = 2048 } }, .{ .enter = .{ .start = 6144, .n = 1000 } } }, try routeOf(s, at, 1, 4096, 3048, false));
     try expectSteps(&.{ .{ .enter = .{ .start = 4096, .n = 2048 } }, .drain, .{ .tp = .{ .start = 6144, .n = 16 } } }, try routeOf(s, at, 1, 4096, 2064, false));
@@ -237,15 +234,13 @@ test "a prompt call's route: which rows enter the line, which run tensor paralle
     // image rows never enter a line (their slot's line drains first)
     try expectSteps(&.{ .drain, .{ .tp = .{ .start = 4096, .n = 4096 } } }, try routeOf(s, at, 1, 4096, 4096, true));
     try expectSteps(&.{.{ .tp = .{ .start = 0, .n = 4096 } }}, try routeOf(s, null, 1, 0, 4096, true));
-    // the line's slot at another position (a reset the op stream should have abandoned): the line goes, the call starts
-    // afresh
+    // the line's slot at another position (a reset the op stream should have abandoned): the line goes, the call.
     try expectSteps(&.{ .abandon, .{ .enter = .{ .start = 0, .n = 2048 } } }, try routeOf(s, at, 1, 0, 2048, false));
     try expectSteps(&.{ .abandon, .{ .tp = .{ .start = 64, .n = 500 } } }, try routeOf(s, at, 1, 64, 500, false));
     // 4,096-row stages
     const t = (try settingsOf(&.{ .{ "TF_DSV41_PREFILL_PIPE", "1024" }, .{ "TF_DSV41_PIPE_ROWS", "4096" } }, 4)).?;
     try expectSteps(&.{ .{ .enter = .{ .start = 0, .n = 4096 } }, .{ .enter = .{ .start = 4096, .n = 4096 } } }, try routeOf(t, null, 0, 0, 8192, false));
-    // the ranks' agreed end (Settings.end: past it some rank's stage does not emit): rows past it run tensor parallel,
-    // the line drained first; a call wholly past it never opens a line
+    // the ranks' agreed end (Settings.end: past it some rank's stage does not emit): rows past it run tensor parallel.
     var c = s;
     c.end = 6144;
     try expectSteps(&.{ .{ .enter = .{ .start = 4096, .n = 2048 } }, .drain, .{ .tp = .{ .start = 6144, .n = 2048 } } }, try routeOf(c, at, 1, 4096, 4096, false));
@@ -317,4 +312,10 @@ test "a stage's options: world 1 rank 0, the line's rows, no taps / TBO / exchan
     o.prefill_rows = 2048;
     const y = pipe.stageOptions(o, 4096);
     try testing.expect(y.pf4k and y.prefill_rows == 4096);
+}
+
+test "the runtime module's declarations analyse on the host" {
+    // a body that only the served boot reaches is otherwise never analysed by a host test build
+    std.testing.refAllDecls(@import("pipe_run.zig"));
+    std.testing.refAllDecls(@import("pipe_load.zig"));
 }

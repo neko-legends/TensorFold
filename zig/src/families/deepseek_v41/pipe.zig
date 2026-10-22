@@ -1,19 +1,4 @@
-//! TF_DSV41_PREFILL_PIPE: CED's encoder pass as an assembly line over
-//! the TP ranks. Rank s also holds encoder layers [B[s], B[s + 1]) at full width (only their TP-sharded tensors, under
-//! the `P.` prefix: `rename`), and a long prompt's segments flow rank 0 -> W - 1: in round t, rank s runs segment
-//! t - s through its layers as a world-1 program (block_prefill.emitStage), no collective inside it. The last stage ends
-//! at the decoder's first layer's site and compressor, as the encoder pass does.
-//!
-//! This file holds the rules every rank applies alike (host only, tested in pipe_test.zig): the knobs, the stages and
-//! their selections in and out, the round schedule, the rows a segment writes, the exchanges' layouts and the stage
-//! weights' names. pipe_run.zig runs the rounds; block_prefill.emitStage emits a stage.
-//!
-//! - `TF_DSV41_PREFILL_PIPE=<rows>` (0 / unset: off): a replay-mode segment of at least that many rows opens the line
-//!   (at least `min_seg`); while it is open every segment of its slot past `min_seg` - 1 rows goes through it.
-//! - `TF_DSV41_PIPE_ROWS` = 2048 (default, Python's pchunk) | 4096 (the stages' segments under x3gm one block).
-//! - `TF_DSV41_PREFILL_PIPE_BOUNDS` = explicit stages ("0,5,10,15,21"): world + 1 increasing values from 0 to the
-//!   decoder's first layer + 1 (Python's).
-//! - `TF_DSV41_PIPE_TRACE=1`: each line's rounds timed (pre-steps, stage, exchange), logged when it drains.
+//! TF_DSV41_PREFILL_PIPE: CED's encoder pass as an assembly line over the TP ranks.
 
 const std = @import("std");
 const calls = @import("block_calls.zig");
@@ -25,14 +10,14 @@ const Config = @import("config.zig").Config;
 pub const Error = error{ BadKnob, BadBounds };
 pub const Get = *const fn ([]const u8) ?[]const u8;
 
+/// The knobs this module reads, null-terminated for `std.c.getenv` (the served engine's reader).
+pub const knob_names = [_][*:0]const u8{ "TF_DSV41_PREFILL_PIPE", "TF_DSV41_PIPE_ROWS", "TF_DSV41_PREFILL_PIPE_BOUNDS", "TF_DSV41_PIPE_TRACE" };
+
 const log = std.log.scoped(.dsv41);
 
 /// the most ranks a line spans
 pub const max_world: usize = 16;
-/// A segment of the line has more rows than the mHC sites' split programs (block_prefill split_rows, 32): its stage
-/// programs then never take the out-of-place boundary streams, so every stage starts at streams buffer 0 and
-/// coefficient set 0, exactly where the one-process encoder pass is at that layer (pipe_emit_test.zig). Shorter
-/// segments (a prompt's ragged tail) drain the line and run tensor parallel.
+/// A segment of the line has more rows than the mHC sites' split programs (block_prefill split_rows, 32): its stage.
 pub const min_seg: u32 = 33;
 const names = @import("pipe_names.zig");
 /// the weight prefix of a stage's full-width copies
@@ -48,8 +33,7 @@ pub const Settings = struct {
     world: u32,
     bounds: [max_world + 1]u32,
     trace: bool = false,
-    /// the end up to which every rank's stage emits a segment (pipe_run.Line.agreeEnd, at boot: the least of the ranks'
-    /// `lastEnd`); `route` keeps rows past it tensor parallel, so no rank meets a segment its stage refuses
+    /// the end up to which every rank's stage emits a segment (pipe_run.Line.agreeEnd, at boot: the least of the.
     end: u64 = std.math.maxInt(u64),
 
     pub fn boundsSlice(s: *const Settings) []const u32 {
@@ -100,8 +84,7 @@ pub const Stage = struct {
         return buf[0..n];
     }
 
-    /// The index source whose selection its first compressed layers reuse from an earlier stage ("w.sel<src>"), or null
-    /// (its first compressed layer selects itself, or it has none).
+    /// The index source whose selection its first compressed layers reuse from an earlier stage ("w.sel<src>"), or.
     pub fn selIn(st: Stage, cfg: *const Config) ?u32 {
         for (st.lo..st.hi) |i| {
             const L: u32 = @intCast(i);
@@ -160,8 +143,7 @@ fn roundHalfEven(num: u64, den: u64) u64 {
     return q;
 }
 
-/// Stage boundaries (pipe.bounds_for): the encoder layers [0, D) in `world` near-equal parts, the last stage through
-/// layer D's site and compressor; `raw`: TF_DSV41_PREFILL_PIPE_BOUNDS.
+/// Stage boundaries (pipe.bounds_for): the encoder layers [0, D) in `world` near-equal parts, the last stage through.
 pub fn boundsFor(cfg: *const Config, world: u32, raw: ?[]const u8, out: []u32) ![]const u32 {
     const d = ced.decoderStart(cfg) catch |e| {
         log.warn("TF_DSV41_PREFILL_PIPE: no decoder layer in this model ({t})", .{e});
@@ -190,8 +172,7 @@ fn badBounds(text: []const u8, world: u32, d: u32) error{BadBounds} {
     return error.BadBounds;
 }
 
-/// The compressed rows [a, b) of a ratio-`ratio` kv source a segment [start, start + n) can write, the one before it
-/// included (pipe._rows_of: a ratio-2 row straddling the segment's first position is rewritten with the carry).
+/// The compressed rows [a, b) of a ratio-`ratio` kv source a segment [start, start + n) can write, the one before it.
 pub fn rowsOf(ratio: u32, start: u64, n: u32) [2]u64 {
     const r: u64 = @max(1, ratio);
     const a = start / r;
@@ -201,8 +182,7 @@ pub fn rowsOf(ratio: u32, start: u64, n: u32) [2]u64 {
 /// One segment of the line: positions [start, start + n) of its slot.
 pub const Seg = struct { start: u64, n: u32 };
 
-/// The rounds since the line opened (pipe.Pipeline.entered): round t's new segment or null (a drain round); in round t
-/// stage s runs the segment entered in round t - s.
+/// The rounds since the line opened (pipe.Pipeline.entered): round t's new segment or null (a drain round); in round t.
 pub const Schedule = struct {
     world: u32,
     ring: [max_world]?Seg = @splat(null),
@@ -242,9 +222,7 @@ fn a16(x: u64) u64 {
     return std.mem.alignForward(u64, x, 16);
 }
 
-/// The round's rows exchange (one all-gather, a stride a rank): rank q's part holds, for each kv source its stage
-/// writes (in layer order), the comp rows `rowsOf` names (584-byte pool records) then their index keys (132 bytes),
-/// each part 16-byte aligned, sized for a whole segment of the line (rows / ratio + 2 rows).
+/// The round's rows exchange (one all-gather, a stride a rank): rank q's part holds, for each kv source its stage.
 pub const RowsLayout = struct {
     comp_bytes: [max_world]u64 = @splat(0),
     ik_bytes: [max_world]u64 = @splat(0),
@@ -284,9 +262,7 @@ pub const RowsLayout = struct {
     }
 };
 
-/// The drain's hand-off (one all-gather, a stride a rank): rank q's part holds each of its encoder layers' SWA ring (the
-/// slot's 2 x window rows: values then scales), each of its ratio-2 kv sources' carry (fp32 [kv | gate] of position
-/// pos - 1), and the last stage's CED stash ring (ced.roles), each part 16-byte aligned.
+/// The drain's hand-off (one all-gather, a stride a rank): rank q's part holds each of its encoder layers' SWA ring.
 pub const FinalsLayout = struct {
     used: [max_world]u64 = @splat(0),
     stride: u64 = 0,
@@ -330,16 +306,10 @@ pub const FinalsLayout = struct {
 /// An open line: its slot and the position its next segment starts at.
 pub const LineAt = struct { slot: u32, next: u64 };
 
-/// What a prompt call does, in order (every rank alike: `route` reads only what every rank holds): a segment enters
-/// the line, the line drains (its slot's state whole), the line is dropped (its slot was reset), or rows run tensor
-/// parallel (forward_prefill's own segments).
+/// What a prompt call does, in order (every rank alike: `route` reads only what every rank holds): a segment enters.
 pub const Step = union(enum) { enter: Seg, drain, abandon, tp: Seg };
 
-/// The route of a prompt call of `n` rows from `start` on slot `slot` (forward_prefill.prompt), `line` the line open
-/// before it. Segments of the line's rows enter while they are at least `min_seg` rows and the line is this slot's (or
-/// none is open and the call's first segment has at least `min_rows`); a shorter tail drains the line and runs tensor
-/// parallel; image rows never enter (their slot's line drains first); another slot's prompt runs tensor parallel and
-/// leaves the line open. A line whose slot is at another position (the op stream reset it) is abandoned first.
+/// The route of a prompt call of `n` rows from `start` on slot `slot` (forward_prefill.prompt), `line` the line open.
 pub fn route(s: Settings, line: ?LineAt, slot: u32, start: u64, n: usize, images: bool, buf: []Step) []const Step {
     var k: usize = 0;
     var open = line;
@@ -376,9 +346,7 @@ pub fn route(s: Settings, line: ?LineAt, slot: u32, start: u64, n: usize, images
     return buf[0..k];
 }
 
-/// The stage hand-off's tensors packed (glue pipe_in / pipe_out, block_prefill Seg.handoff): the streams [n, 4 D] bf16;
-/// with `post` the pending post's partial [1, n, D] bf16 and its coefficient set (pre [n, 4], post [n, 4], comb
-/// [n, 16] fp32); with `sel` the selection [n, K] and its counts [n] int32. Each part 16-byte aligned.
+/// The stage hand-off's tensors packed (glue pipe_in / pipe_out, block_prefill Seg.handoff): the streams [n, 4 D] bf16.
 pub const HandoffLayout = struct {
     parts: usize = 0,
     bytes: [7]u64 = @splat(0),
@@ -405,8 +373,7 @@ pub const HandoffLayout = struct {
 /// Rows [row, row + n) of a family, at physical rows [phys, phys + n) of its tensor.
 pub const Run = struct { row: u64, phys: u64, n: u64 };
 
-/// Logical rows [a, b) of a family through the slot's page table (`table[page]`: the physical page; 2^shift rows a
-/// page) as runs of consecutive physical rows (pages that follow each other physically merge).
+/// Logical rows [a, b) of a family through the slot's page table (`table[page]`: the physical page; 2^shift rows a.
 pub fn pageRuns(table: []const u32, shift: u6, a: u64, b: u64, buf: []Run) []const Run {
     var k: usize = 0;
     var j = a;
@@ -431,9 +398,7 @@ pub fn pageRuns(table: []const u32, shift: u6, a: u64, b: u64, buf: []Run) []con
 pub const sharded = names.sharded;
 const fieldOf = names.fieldOf;
 
-/// A stage program's role: a sharded tensor's weight and run-time forms (`s.<w>.lanes` / `.T`), the expert tables
-/// (`s.L<i>.ex.*`) and x3gm's pointer tables (`s.L<i>.gm.t{g,u,d}`) take the `P.` prefix (the stage's full-width
-/// copies); everything else stays (the replicated tensors and their forms, the slot's state, scratch).
+/// A stage program's role: a sharded tensor's weight and run-time forms (`s.<w>.lanes` / `.T`), the expert tables.
 pub fn renameRole(a: std.mem.Allocator, r: calls.Role) !calls.Role {
     switch (r) {
         .weight => |w| if (fieldOf(w)) |f| if (sharded(f)) return .{ .weight = try std.fmt.allocPrint(a, prefix ++ "{s}", .{w}) },
@@ -479,9 +444,7 @@ pub fn rename(a: std.mem.Allocator, cs: []const calls.Call) ![]calls.Call {
     return out;
 }
 
-/// The stage programs' dense widths: the emitter asks a group's K2 by its bare name (`L<i>.attn.wo_a.<g>` for every one
-/// of the model's groups at world 1, where a TP rank holds only its own), and the renaming happens after it. Every
-/// stage copy's width under its bare name, where the TP rank has none (pipe_load.zig loaded "P.<name>").
+/// The stage programs' dense widths: the emitter asks a group's K2 by its bare name (`L<i>.attn.wo_a.<g>` for every.
 pub fn widthsFromCopies(a: std.mem.Allocator, w: *block.Widths) !void {
     var add: std.ArrayList(struct { []const u8, u32 }) = .empty;
     defer add.deinit(a);
@@ -492,8 +455,7 @@ pub fn widthsFromCopies(a: std.mem.Allocator, w: *block.Widths) !void {
     for (add.items) |x| try w.dense.put(a, try a.dupe(u8, x[0]), x[1]);
 }
 
-/// Every `wo_a` group's width from group 0's where a listing has only a TP rank's groups (one checkpoint tensor a layer,
-/// one K2: the host listings aot-needs and the tests read).
+/// Every `wo_a` group's width from group 0's where a listing has only a TP rank's groups (one checkpoint tensor a.
 pub fn fillGroups(a: std.mem.Allocator, w: *block.Widths, cfg: *const Config) !void {
     var nb: [64]u8 = undefined;
     for (0..cfg.allLayers()) |L| {
@@ -513,8 +475,7 @@ pub fn stageIo(cfg: *const Config, s: *const Settings, rank: u32) bp.StageIo {
     return .{ .entered = rank > 0, .last = st.last, .sel_in = st.selIn(cfg), .sel_out = st.selOut(cfg, s.boundsSlice()) };
 }
 
-/// Rank `rank`'s stage over an `n`-row segment from `start`, as emitted (aot-needs reduces these: the namespace and
-/// the stage weights' names change no launch's variant).
+/// Rank `rank`'s stage over an `n`-row segment from `start`, as emitted (aot-needs reduces these: the namespace and.
 pub fn emit(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths, o1: block.Options, s: *const Settings, rank: u32, n: i64, start: i64) ![]calls.Call {
     var buf: [64]u32 = undefined;
     return bp.emitStage(a, cfg, w, o1, s.stage(rank).layers(&buf), n, start, stageIo(cfg, s, rank));
@@ -549,9 +510,7 @@ pub fn lastStart(cfg: *const Config, w: *const block.Widths, o1: block.Options, 
     return lo;
 }
 
-/// The bytes of rank `rank`'s stage's own roles in the buffer plan: its namespace's (window, layer and scratch roles)
-/// and its copies' run-time forms ("s.P.*"), each 256-aligned as the runner binds them, over the boot's planned
-/// programs (`planned`). The slot's state and the replicated tensors' forms are the forward's, already priced.
+/// The bytes of rank `rank`'s stage's own roles in the buffer plan: its namespace's (window, layer and scratch roles).
 pub fn stageRoleBytes(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths, o1: block.Options, s: Settings, rank: u32) !u64 {
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
@@ -566,23 +525,16 @@ pub fn stageRoleBytes(a: std.mem.Allocator, cfg: *const Config, w: *const block.
     return total;
 }
 
-/// The end up to which rank `rank`'s stage emits both a whole segment of the line and the shortest one (their last
-/// starts, `lastStart`, plus their rows): the line's routes stay under the least of the ranks' (pipe_run's agreement).
+/// The end up to which rank `rank`'s stage emits both a whole segment of the line and the shortest one (their last.
 pub fn lastEnd(cfg: *const Config, w: *const block.Widths, o1: block.Options, s: *const Settings, rank: u32) !u64 {
     const whole: u64 = @intCast(try lastStart(cfg, w, o1, s, rank, s.rows) + s.rows);
     const short: u64 = @intCast(try lastStart(cfg, w, o1, s, rank, min_seg) + min_seg);
     return @min(whole, short);
 }
 
-/// The (rows, start) of the stage programs the boot plans: a whole segment of the line and the shortest one, each at 0
-/// and at its last start, and the segments whose index selection names the most start-dependent scratch
-/// (block_prefill.selectWorst: the materialised scores' and the stream's largest launches, the most row blocks). A
-/// segment's scratch is not monotone in its start: the forward's rule (forward_prefill.plan: first and last starts)
-/// holds there only with its other programs, and a stage's namespace has none (a line's segment named a role in no
-/// planned program). pipe_emit_test.zig checks the plan against sampled segments.
+/// The (rows, start) of the stage programs the boot plans: a whole segment of the line and the shortest one, each at 0.
 pub fn planned(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths, o1: block.Options, s: Settings, rank: u32) ![]const [2]i64 {
-    // x3gm's width-bit plans (TF_DSV41_GM_V2=0 or split: gm_plan with k2 > 0) read "s.L<i>.ex.k2_{g,d}" by the bare name
-    // (forward_prefill.glueStep): the forward's TP-sharded table, not a world-1 stage's experts
+    // x3gm's width-bit plans (TF_DSV41_GM_V2=0 or split: gm_plan with k2 > 0) read "s.L<i>.ex.k2_{g,d}" by the bare.
     if (o1.gm_v2 != .one) {
         log.warn("TF_DSV41_PREFILL_PIPE: a stage's MoE needs TF_DSV41_GM_V2=1 (x3gm one plan), not {t}", .{o1.gm_v2});
         return error.Unsupported;
@@ -601,8 +553,7 @@ pub fn planned(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths,
     for (st.lo..@min(st.hi, st.d)) |i| {
         const L: u32 = @intCast(i);
         if (cfg.compressRatio(L) == 0 or !cfg.isIndexSource(L)) continue;
-        // a candidate source's selection never streams, a top-k off the powers of two neither, a reindex layer's names
-        // its own keys ("L.ix.ckeys" / "L.ix.bkeys"): not selectWorst's model, refused rather than left unplanned
+        // a candidate source's selection never streams, a top-k off the powers of two neither, a reindex layer's names.
         if (cfg.mode(L) != .full or cfg.isCandidateSource(L) or @popCount(cfg.index_topk) != 1) {
             log.warn("TF_DSV41_PREFILL_PIPE: stage {d} selects at layer {d} ({t} mode, candidate source {}, top-k {d}): its scratch is not planned", .{ rank, L, cfg.mode(L), cfg.isCandidateSource(L), cfg.index_topk });
             return error.Unsupported;
@@ -618,9 +569,7 @@ pub fn planned(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths,
     return out.items;
 }
 
-/// A stage program's options: the forward's at world 1, rank 0 (every head, every wo_a group, every expert column), the
-/// line's segment rows (4,096: x3gm one block, as TF_DSV41_PF_4K), and none of the TP-only or per-request paths (taps,
-/// TBO pairs, exchange pieces, image rows: an image segment never enters the line).
+/// A stage program's options: the forward's at world 1, rank 0 (every head, every wo_a group, every expert column).
 pub fn stageOptions(o: block.Options, rows: u32) block.Options {
     var x = o;
     x.world = 1;

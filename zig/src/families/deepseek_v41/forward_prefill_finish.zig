@@ -77,6 +77,11 @@ pub fn promptMulti(f: *Forward, segs: []const MultiSeg) !void {
 /// Whether a multi-segment run takes `segs` (promptMulti's refusals), checked before the leader sends it.
 pub fn runnable(f: *Forward, segs: []const MultiSeg) !bool {
     if (f.pf_switch == null or segs.len < 2 or segs.len > 16) return false;
+    // TF_DSV41_PREFILL_PIPE: a segment of the open line's slot, or one that would open a line, runs by itself (its.
+    if (pf.state(f).pipe) |ln| for (segs) |sg| {
+        if (ln.slot) |ls| if (ls == sg.slot) return false;
+        if (ln.slot == null and sg.ids.len >= ln.s.min_rows) return false;
+    };
     var sa = std.heap.ArenaAllocator.init(f.gpa);
     defer sa.deinit();
     const a = sa.allocator();
@@ -123,6 +128,11 @@ pub fn finishMulti(f: *Forward, slots: []const u32, out: []Replayed) !void {
     const st = pf.state(f);
     const sw = f.pf_switch orelse return error.Unsupported;
     if (st.mode != .replay or slots.len < 2 or slots.len > 16 or out.len < slots.len) return error.BadWindow;
+    // TF_DSV41_PREFILL_PIPE: a replayed slot's line drained first (on its own views)
+    if (st.pipe) |ln| if (ln.slot) |ls| if (std.mem.indexOfScalar(u32, slots, ls) != null) {
+        try sw.run(sw.ctx, ls);
+        try ln.drain(f);
+    };
     var sa = std.heap.ArenaAllocator.init(f.gpa);
     defer sa.deinit();
     const a = sa.allocator();

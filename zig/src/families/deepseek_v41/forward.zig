@@ -275,6 +275,8 @@ pub const Forward = struct {
             for (ids, 0..) |t, i| msg[2 + i] = t;
             try f.link.?.send(msg[0 .. 2 + ids.len]);
         }
+        // TF_DSV41_PREFILL_PIPE: a slot's open line drained before its window reads the slot (every rank, in the op).
+        if (f.prefill_state != null) if (@import("forward_prefill.zig").state(f).pipe_settle) |settle| try settle(f);
         const tf = ph.start(f.phases, .forward);
         defer tf.stop();
         f.runner.rows = @intCast(ids.len); // l2pf: wider windows skip the prefetch sites
