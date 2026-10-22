@@ -74,6 +74,8 @@ pub const Seg = struct {
     sent_attn: bool = false, // TF_DSV41_PF_OVERLAP: the partial already went out in pieces; no whole exchange
     sent_moe: bool = false,
     pend: i64 = 0, // TF_DSV41_PF_OVERLAP_SITE: the last exchange's k side pieces (marks 1..k); 0: none pending
+    /// TF_DSV41_PREFILL_PIPE (emitStage): this program is a pipeline stage, its entry and exit
+    stage: ?StageIo = null,
 
     // -- TF_DSV41_PF_OVERLAP: the exchanges in row pieces, overlapped with their producers' next piece -------------
 
@@ -309,6 +311,11 @@ pub const Seg = struct {
             // every segment's positions (rope over the run's rows); each segment's own at its CSA2 steps (pf_seg)
             try e.glue("mpositions", &.{try e.buf("w.mpos64", .{}, .i64, &.{n})});
             try e.glue("embed", &.{ try e.streams(), try e.buf("w.recv.moe", .{}, .bf16, &.{ e.o.world, n, D }) });
+        } else if (s.stage) |io| {
+            // a pipeline stage: its input instead of the embedding (the round embedded the segment for stage 0; a later
+            // stage's is the previous stage's streams, its pending post and the selection its first layers reuse)
+            try e.glue("positions", &.{ try pos(e), try e.buf("w.pos64", .{}, .i64, &.{n}), try e.buf("w.lo", .{}, .i32, &.{n}) });
+            try e.glue("pipe_in", try s.handoff(io.entered, io.sel_in));
         } else {
             try e.glue("positions", &.{ try pos(e), try e.buf("w.pos64", .{}, .i64, &.{n}), try e.buf("w.lo", .{}, .i32, &.{n}) });
             try e.glue("embed", &.{ try e.streams(), try e.buf("w.recv.moe", .{}, .bf16, &.{ e.o.world, n, D }) });
@@ -320,11 +327,14 @@ pub const Seg = struct {
             e.layer_ratio = e.cfg.compressRatio(L);
             if (s.part == .decoder and i == 0) {
                 // entered (forward._layers): the first block's attention site is the stash's
-            } else if (i == 0 or e.cfg.isEngram(L)) {
+            } else if ((i == 0 and !(if (s.stage) |io| io.entered else false)) or e.cfg.isEngram(L)) {
                 // the run's first block, or an Engram block: post alone, Engram, then a site collapsing with the pre
-                if (i > 0) try s.postOnly(try e.streams());
+                // (a pipeline stage after the first enters its first block through a boundary: the pending post is
+                // what the next block would apply in one process)
+                const fresh = i == 0 and !(if (s.stage) |io| io.entered else false);
+                if (!fresh) try s.postOnly(try e.streams());
                 if (e.cfg.isEngram(L)) try s.engram(L);
-                try s.site(L, "hc_attn", if (i == 0) .site1 else .site2);
+                try s.site(L, "hc_attn", if (fresh) .site1 else .site2);
             } else try s.site(L, "hc_attn", .boundary);
             // CED's encoder pass stops at the decoder's first layer once its site and compressor ran (`upto`)
             if (s.part == .encoder and i + 1 == layers.len) return s.encoderEnd(L);
@@ -339,6 +349,11 @@ pub const Seg = struct {
             if (s.short and i + 1 < layers.len) try e.prefetchX(layers[i + 1]);
             if (!s.sent_moe) try e.glue("exchange", &.{ try e.buf("L.moe16", .{}, .bf16, &.{ n, D }), try s.recv("moe") });
             s.sent_moe = false;
+            // a pipeline stage before the last stops here: its last block's MoE partial is the next stage's pending post
+            if (s.stage) |io| if (!io.last and i + 1 == layers.len) {
+                s.unpend();
+                return e.glue("pipe_out", try s.handoff(true, io.sel_out));
+            };
             if (e.o.trace) {
                 const y = try e.buf("w.trace", .{}, .bf16, &.{ n, 4 * D });
                 try s.postOnly(y);
@@ -347,6 +362,23 @@ pub const Seg = struct {
         }
         if (head) try s.final();
         s.unpend();
+    }
+
+    /// A pipeline stage's hand-off tensors (glue pipe_in / pipe_out, pipe_run.zig): the streams; with `post` the
+    /// pending post (the last exchange's gathered MoE partial, [1, n, D] at world 1, and the coefficient set its post
+    /// reads); with `sel` that index source's selection and visible counts. The two ends name the same tensors at the
+    /// same stream / coefficient buffers: a stage enters at buffers 0 / set 0, where one process is at that layer
+    /// (segments past split_rows rows), and leaves after an even number of sites.
+    pub fn handoff(s: *Seg, post: bool, sel: ?u32) ![]const Arg {
+        const e = s.e;
+        var out: std.ArrayList(Arg) = .empty;
+        try out.append(e.a, try e.streams());
+        if (post) {
+            try out.append(e.a, try block_prefill_mhc.gathered(e, ""));
+            for (try block_prefill_mhc.coefs(e, e.coef)) |c| try out.append(e.a, c);
+        }
+        if (sel) |src| for (try block_prefill_select.selection(e, src)) |x| try out.append(e.a, x);
+        return out.items;
     }
 
     /// A program ending on an exchange's pieces: its last piece back on the main stream after a join (no open fork).
@@ -395,8 +427,94 @@ pub const planRuns = block_prefill_emit.planRuns;
 /// A prefill program's part: a whole segment, or one of CED replay's passes (ced.zig).
 pub const Part = enum { whole, encoder, decoder };
 
+/// backend._row_blocks' rows a block (Seg.step): `per_row` bytes a row under the index budget.
+pub fn rowStep(budget: i64, n: i64, per_row: i64) i64 {
+    return if (n > 16) @max(16, @divFloor(budget, @max(1, per_row))) else n;
+}
+
+/// The start-dependent scratch a full-mode index layer's selection names over an `n`-row segment from `start` at a
+/// ratio-`ratio` source: its largest launch's materialised scores, its stream launch's scratch and its row blocks.
+/// Neither is monotone in the start, so a plan holding the first and last starts alone can miss the largest.
+pub const SelectScratch = struct { mat: i64 = 0, stream: i64 = 0, blocks: i64 = 0 };
+
+pub fn selectScratch(o: block.Options, ratio: i64, topk: i64, n: i64, start: i64) SelectScratch {
+    const nvis = @max(@divFloor(start + n, ratio), 1);
+    const B = o.index_budget;
+    const fits = n * nvis * 12 <= B;
+    const streamed = n > 16 and nvis >= stream_min;
+    if (n <= dtopk_rows and fits and !streamed) return .{ .mat = n * nvis };
+    const st = if (streamed) longpf.plan(n, nvis, topk) else if (fits) n else rowStep(B, n, nvis * 12);
+    // the largest block: the last whole one (its keys the most of the whole ones) or the ragged last
+    const k = std.math.divCeil(i64, n, st) catch unreachable;
+    const whole_blocks = @divFloor(n, st);
+    var most: i64 = 0;
+    for ([_]i64{ whole_blocks - 1, k - 1 }) |b| {
+        if (b < 0) continue;
+        const a = b * st;
+        const rows = @min(st, n - a);
+        const nk = if (!streamed and fits) nvis else @max(@divFloor(start + a + rows, ratio), 1);
+        most = @max(most, rows * if (streamed) longpf.splits(nk) else nk);
+    }
+    const named: i64 = if (st < n) k else 0;
+    return if (streamed) .{ .stream = most, .blocks = named } else .{ .mat = most, .blocks = named };
+}
+
+/// The segments of `lo`..`hi` rows ending by `end` whose selection scratch is the largest of each kind: exact over
+/// every (rows, start) — within a key count the scratch grows with the start, so each count's last start is searched.
+pub fn selectWorst(o: block.Options, ratio: i64, topk: i64, lo: i64, hi: i64, end: i64) [3]?[2]i64 {
+    var best: [3]i64 = @splat(0);
+    var at: [3]?[2]i64 = @splat(null);
+    const Note = struct {
+        fn f(b: *[3]i64, x: *[3]?[2]i64, sc: SelectScratch, n: i64, s: i64) void {
+            for ([_]i64{ sc.mat, sc.stream, sc.blocks }, 0..) |v, i| if (v > b[i]) {
+                b[i] = v;
+                x[i] = .{ n, s };
+            };
+        }
+    };
+    const top_keys = @divFloor(end, ratio);
+    var n = lo;
+    while (n <= hi and n <= end) : (n += 1) {
+        const v0 = @max(@divFloor(n, ratio), 1);
+        const fit = @divFloor(o.index_budget, 12 * n);
+        if (fit >= v0) {
+            const s = @min(end, @min(fit, stream_min - 1) * ratio + ratio - 1) - n;
+            if (s >= 0) Note.f(&best, &at, selectScratch(o, ratio, topk, n, s), n, s);
+        }
+        var v = @max(v0, fit + 1);
+        while (v < stream_min and v <= top_keys) : (v += 1) {
+            const s = @min(end, v * ratio + ratio - 1) - n;
+            if (s < 0) continue;
+            Note.f(&best, &at, selectScratch(o, ratio, topk, n, s), n, s);
+        }
+        // the stream: each key split's last start (its row blocks and splits are constant across it)
+        var c: i64 = 1;
+        while ((c - 1) * longpf.split_keys < top_keys) : (c += 1) {
+            const keys = @min(c * longpf.split_keys, top_keys);
+            if (keys < stream_min) continue;
+            const s = @min(end, keys * ratio + ratio - 1) - n;
+            if (s < 0) continue;
+            Note.f(&best, &at, selectScratch(o, ratio, topk, n, s), n, s);
+        }
+    }
+    return at;
+}
+
+/// A pipeline stage's entry and exit (TF_DSV41_PREFILL_PIPE, pipe.zig: Stage.selIn / selOut).
+pub const StageIo = struct {
+    /// a stage after the first: its first block applies the previous stage's pending post (glue pipe_in loads it)
+    entered: bool,
+    /// the last stage ends with the encoder pass's end (the decoder's first layer's site and compressor, the stash);
+    /// the others stop after their last block's MoE partial (glue pipe_out)
+    last: bool,
+    /// the index source whose selection it enters with / leaves with ("w.sel<src>", "w.cnt<src>")
+    sel_in: ?u32 = null,
+    sel_out: ?u32 = null,
+};
+
 pub const emitReplay = block_prefill_emit.emitReplay;
 pub const emitPrefill = block_prefill_emit.emitPrefill;
+pub const emitStage = block_prefill_emit.emitStage;
 pub const tbo_min = block_prefill_emit.tbo_min;
 pub const own_scratch = block_prefill_emit.own_scratch;
 pub const ownRole = block_prefill_emit.ownRole;

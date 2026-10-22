@@ -34,7 +34,7 @@ fn tapOf(e: *E, L: u32, which: []const u8, mode: moe.Mode) !?Arg {
 }
 
 /// The exchange a post reads: the attention's partials at the FFN site, the MoE's anywhere else (layer-scoped).
-fn gathered(e: *E, which: []const u8) !Arg {
+pub fn gathered(e: *E, which: []const u8) !Arg {
     const D: i64 = e.cfg.hidden;
     if (std.mem.eql(u8, which, "hc_ffn")) return e.buf("L.recv.attn", .{}, .bf16, &.{ e.o.world, e.n, D });
     return e.buf("L.recv.moe", .{}, .bf16, &.{ e.o.world, e.n, D });

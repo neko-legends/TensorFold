@@ -219,6 +219,16 @@ pub fn emitTbo(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths,
 }
 
 fn emitMarked(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths, o: block.Options, layers: []const u32, n: i64, start: i64, head: bool, part: Part, marks: ?*std.ArrayList(usize)) ![]calls.Call {
+    return emitMarkedIo(a, cfg, w, o, layers, n, start, head, part, marks, null);
+}
+
+/// TF_DSV41_PREFILL_PIPE: one rank's stage of the line (pipe.zig), `n` rows from `start` over its layers, at world 1.
+pub fn emitStage(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths, o: block.Options, layers: []const u32, n: i64, start: i64, io: prefill.StageIo) ![]calls.Call {
+    if (layers.len == 0 or n <= prefill.split_rows or o.world != 1) return error.Unsupported;
+    return emitMarkedIo(a, cfg, w, o, layers, n, start, false, if (io.last) .encoder else .whole, null, io);
+}
+
+fn emitMarkedIo(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths, o: block.Options, layers: []const u32, n: i64, start: i64, head: bool, part: Part, marks: ?*std.ArrayList(usize), io: ?prefill.StageIo) ![]calls.Call {
     if (n < 1 or n > o.prefill_rows or n > rowsCap(o)) return error.Unsupported;
     var e: E = .{ .a = a, .cfg = cfg, .w = w, .o = o, .n = n, .start = start, .marks = marks };
     const W: i64 = cfg.window;
@@ -227,7 +237,7 @@ fn emitMarked(a: std.mem.Allocator, cfg: *const Config, w: *const block.Widths, 
     const stage: i64 = @intCast(std.math.ceilPowerOfTwo(u64, @intCast(o.prefill_rows + W - 1)) catch return error.Unsupported);
     const ring = if (staged) stage else 2 * W;
     if (ring < n + W - 1) return error.Unsupported; // attn_pf: the ring must hold the rows and their windows
-    var s: Seg = .{ .e = &e, .staged = staged, .ring = ring, .short = n <= 16, .part = part };
+    var s: Seg = .{ .e = &e, .staged = staged, .ring = ring, .short = n <= 16, .part = part, .stage = io };
     try s.run(layers, head);
     if (o.holdsDeferred(n)) calls.holdDeferred(e.out.items);
     return e.out.items;
