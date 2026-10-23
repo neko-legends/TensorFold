@@ -15,6 +15,11 @@ const stashArgs = prefill.stashArgs;
 
 // -- attention -----------------------------------------------------------------------------------------------
 
+/// `_fused`'s heads a program on a rank with `H` query heads: BMQ 32, clamped to H (16 at TP=4, its own AOT variant)
+fn attnBmq(H: i64) i64 {
+    return @min(bmq, H);
+}
+
 pub fn pos(e: *E) !Arg {
     return e.buf("w.pos", .{}, .i32, &.{1});
 }
@@ -218,7 +223,7 @@ pub fn attention(s: *Seg, L: u32) !void {
     }
     // the CSA2 steps a segment at a time, into the group-major core output
     const groups: i64 = e.cfg.o_groups / e.o.world;
-    if (@mod(H, bmq) != 0 or @mod(H, groups) != 0) return error.Unsupported;
+    if (@mod(H, attnBmq(H)) != 0 or @mod(H, groups) != 0) return error.Unsupported;
     const hg = @divExact(H, groups);
     const o = try e.buf("L.o", .{}, .bf16, &.{ groups, n, hg * hd });
     if (s.multi) |segs| {
@@ -310,7 +315,7 @@ pub fn core(s: *Seg, L: u32, q: Arg, kv: Arg, cproj: Arg, own_kv: bool, indexer:
             fpg = try e.paging(e.cfg.compressRatio(src), false);
         }
     }
-    try e.triton("_fused", .{ n, @divExact(H, bmq), 1 }, &.{
+    try e.triton("_fused", .{ n, @divExact(H, attnBmq(H)), 1 }, &.{
         .{ .name = "Q", .arg = try e.view(q.t.role, .bf16, &.{ n, H, hd }, &.{ H * hd, hd, 1 }, e.row0 * H * hd * 2) },
         .{ .name = "CV", .arg = cv },
         .{ .name = "CSC", .arg = cs },
@@ -331,7 +336,7 @@ pub fn core(s: *Seg, L: u32, q: Arg, kv: Arg, cproj: Arg, own_kv: bool, indexer:
         .{ .name = "OUT", .arg = try e.view(o.t.role, .bf16, &.{ groups, n, hg * hd }, &.{ total * hg * hd, hg * hd, 1 }, e.row0 * hg * hd * 2) },
         .{ .name = "H", .arg = .{ .i = H } },
         .{ .name = "KT", .arg = .{ .i = kt } },
-        .{ .name = "BMQ", .arg = .{ .i = bmq } },
+        .{ .name = "BMQ", .arg = .{ .i = attnBmq(H) } },
         // D ** -0.5 (libm pow, correctly rounded): sqrt of the exact 1 / 512 rounds the same way
         .{ .name = "SCALE", .arg = .{ .f = @sqrt(1.0 / @as(f64, @floatFromInt(hd))) } },
         .{ .name = "RING", .arg = .{ .i = s.ring } },
