@@ -6,6 +6,8 @@ const api = @import("engine_api");
 const json = @import("json");
 const serve_mod = @import("dsv41_serve");
 const deepseek = @import("deepseek.zig");
+const video_mod = @import("deepseek_video.zig");
+const vision = serve_mod.vision;
 const server_mod = @import("server.zig");
 const listener_mod = @import("listener.zig");
 const Allocator = std.mem.Allocator;
@@ -495,5 +497,86 @@ test "long tool history: 120 history calls with garbage arguments, both wires, a
         try h.start(tok, tok.tokenId("<｜end▁of▁sentence｜>").?, 1 << 22, .{});
         defer h.finish();
         try checkHistory(&h, a);
+    }
+}
+
+/// Native vision on a harness, with a counting stub in place of the PyAV child.
+fn nativeVision(h: *Harness, frames: []const video_mod.Frame, max_images: u32) !*video_mod.Stub {
+    const vh = try h.gpa.create(vision.host.Host);
+    vh.* = vision.host.Host.init(h.gpa, h.io, .{ .image_token = 1003, .max_images = max_images });
+    h.ds.vision = vh;
+    h.ds.io = h.io;
+    const stub = try h.gpa.create(video_mod.Stub);
+    stub.* = .{ .frames = frames };
+    h.ds.video_decoder = stub.decoder();
+    return stub;
+}
+
+const video_body = "\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"look @chat\"},{\"type\":\"video_url\",\"video_url\":{\"url\":\"data:video/mp4;base64,AAAAIGZ0eXBpc29t\"}}]}]";
+
+test "DeepSeek-V4.1 over HTTP: video input is one decode a request, /tokenize agrees with chat, and the limits hold (mini tokenizer)" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+    const tok = try serve_mod.tokenizer.Tokenizer.parse(gpa, serve_mod.fixtures.mini_tokenizer);
+    defer tok.deinit();
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const png = try deepseek.test_frame_png(a);
+    const frames = [_]video_mod.Frame{ .{ .t = 0, .png = png }, .{ .t = 1, .png = png }, .{ .t = 2, .png = png } };
+
+    var h: Harness = .{ .gpa = gpa, .io = io, .stub = undefined, .ds = undefined, .srv = undefined };
+    try h.start(tok, tok.tokenId("<｜end▁of▁sentence｜>").?, 1 << 20, .{ .images = .native });
+    defer h.finish();
+    const stub = try nativeVision(&h, &frames, 4);
+    defer gpa.destroy(stub);
+
+    const chat = try h.post(a, "/v1/chat/completions", "{\"model\":\"deepseek-v41\"," ++ video_body ++ ",\"max_tokens\":50}");
+    try testing.expectEqual(@as(u16, 200), chat.status);
+    try testing.expectEqual(@as(usize, 1), stub.calls); // history and full render share one decode
+    const usage = (try json.parseText(a, chat.body)).ok.get("usage").?;
+    const prompt_tokens = usage.get("prompt_tokens").?.int64().?;
+    try testing.expectEqual(@as(i64, @intCast(h.stub.last_prompt.items.len)), prompt_tokens);
+
+    const tk = try h.post(a, "/tokenize", "{" ++ video_body ++ "}");
+    try testing.expectEqual(@as(u16, 200), tk.status);
+    try testing.expectEqual(@as(usize, 2), stub.calls);
+    const tv = (try json.parseText(a, tk.body)).ok;
+    try testing.expectEqual(prompt_tokens, tv.get("count").?.int64().?); // same length as the chat prompt
+    var shown: usize = 0;
+    for (tv.get("tokens").?.array) |t| {
+        if (t.int64().? == 1003) shown += 1;
+    }
+    try testing.expect(shown > 0); // each frame's positions show the image token
+
+    // 3 frames and 2 images in one request: over the budget of 4
+    const over = try h.post(a, "/v1/chat/completions", "{\"model\":\"deepseek-v41\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,AA==\"}},{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,AA==\"}},{\"type\":\"video_url\",\"video_url\":\"data:video/mp4;base64,AAAAIGZ0eXBpc29t\"}]}]}");
+    try testing.expectEqual(@as(u16, 400), over.status);
+    try testing.expect(std.mem.indexOf(u8, over.body, "TF_DSV41_VISION_MAX_IMAGES") != null);
+    // a remote video URL
+    const remote = try h.post(a, "/v1/chat/completions", "{\"model\":\"deepseek-v41\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"video_url\",\"video_url\":{\"url\":\"https://example.com/a.mp4\"}}]}]}");
+    try testing.expectEqual(@as(u16, 400), remote.status);
+    try testing.expect(std.mem.indexOf(u8, remote.body, "remote video URLs") != null);
+}
+
+test "DeepSeek-V4.1 over HTTP: without native vision a video part is refused and no decoder runs (mini tokenizer)" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+    const tok = try serve_mod.tokenizer.Tokenizer.parse(gpa, serve_mod.fixtures.mini_tokenizer);
+    defer tok.deinit();
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    for ([_]deepseek.Images{ .placeholder, .reject }) |mode| {
+        var h: Harness = .{ .gpa = gpa, .io = io, .stub = undefined, .ds = undefined, .srv = undefined };
+        try h.start(tok, tok.tokenId("<｜end▁of▁sentence｜>").?, 1 << 20, .{ .images = mode });
+        defer h.finish();
+        var stub: video_mod.Stub = .{};
+        h.ds.video_decoder = stub.decoder();
+        const chat = try h.post(a, "/v1/chat/completions", "{\"model\":\"deepseek-v41\"," ++ video_body ++ "}");
+        try testing.expectEqual(@as(u16, 400), chat.status);
+        const tk = try h.post(a, "/tokenize", "{" ++ video_body ++ "}");
+        try testing.expectEqual(@as(u16, 400), tk.status);
+        try testing.expectEqual(@as(usize, 0), stub.calls);
     }
 }
