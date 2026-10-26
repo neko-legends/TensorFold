@@ -52,6 +52,11 @@ are refused (HTTP 400), so more frames need that limit raised too. Also bounded:
 zig image's venv has both, checked at image build). One decoder run per video part per request, shared by the history and full renders;
 `/tokenize` counts the same tokens as chat. With `placeholder` or `reject`, video parts are refused and nothing runs.
 
+The live profile deployed 2026-10-26 raises the limits to `TF_VIDEO_MAX_DURATION=900` (15 minutes),
+`TF_VIDEO_MAX_FRAMES=32`, `TF_DSV41_VISION_MAX_IMAGES=32`, `TF_VIDEO_TIMEOUT=120` and
+`TF_VIDEO_MAX_OUTPUT_BYTES=64 MiB`; decoded input and the HTTP body cap remain 32 MiB. It was verified with a real
+six-minute MP4 (red first half, blue second half), which the model answered `red, blue`, and a normal text request.
+
 **Measured** (G15b-G16): visual questions 20 / 20; text-only replies byte-identical with images on, off or
 placeholder (4 / 4 HTTP text probes, and the speed suite's replies); hit == cold, batched == alone and turn-2 replay
 exact with images in the prompt; 4 image requests during a 299K prefill all answered with the worker at >= 5.1 GiB.
