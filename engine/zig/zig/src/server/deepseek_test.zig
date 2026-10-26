@@ -104,6 +104,7 @@ const Harness = struct {
     lis: listener_mod.Listener = undefined,
     wire: @FieldType(server_mod.Config, "wire") = .tensorfold,
     log_path: ?[]const u8 = null,
+    compact_at: ?server_mod.CompactAt = null,
 
     fn start(h: *Harness, tok: *serve_mod.tokenizer.Tokenizer, eos: u32, window: u32, options: deepseek.Options) !void {
         var o = options;
@@ -116,6 +117,7 @@ const Harness = struct {
             .default_sampling = null,
             .family = h.ds.family_(),
             .wire = h.wire,
+            .compact_at = h.compact_at,
             .spark = .{ .log = if (h.log_path) |p| .{ .path = p } else null },
         }, null);
         h.lis = try listener_mod.Listener.open(.{ .ip4 = .loopback(0) });
@@ -579,4 +581,36 @@ test "DeepSeek-V4.1 over HTTP: without native vision a video part is refused and
         try testing.expectEqual(@as(u16, 400), tk.status);
         try testing.expectEqual(@as(usize, 0), stub.calls);
     }
+}
+
+test "DeepSeek-V4.1 over HTTP: compaction decodes a video once, rebuilds from its frames and releases the discarded prepare's image hold (mini tokenizer)" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+    const tok = try serve_mod.tokenizer.Tokenizer.parse(gpa, serve_mod.fixtures.mini_tokenizer);
+    defer tok.deinit();
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const png = try deepseek.test_frame_png(a);
+    const frames = [_]video_mod.Frame{ .{ .t = 0, .png = png }, .{ .t = 1, .png = png } };
+
+    // a threshold of a few tokens: the first prepare is over it, so the request is discarded and rebuilt
+    var h: Harness = .{ .gpa = gpa, .io = io, .stub = undefined, .ds = undefined, .srv = undefined, .compact_at = .{ .fraction = 0.00001 } };
+    try h.start(tok, tok.tokenId("<｜end▁of▁sentence｜>").?, 1 << 20, .{ .images = .native });
+    defer h.finish();
+    const stub = try nativeVision(&h, &frames, 4);
+    defer gpa.destroy(stub);
+
+    const chat = try h.post(a, "/v1/chat/completions", "{\"model\":\"deepseek-v41\"," ++ video_body ++ ",\"max_tokens\":50}");
+    try testing.expectEqual(@as(u16, 200), chat.status);
+    try testing.expect(std.mem.indexOf(u8, chat.body, "\"compaction\"") != null); // the over-context path ran
+    try testing.expectEqual(@as(usize, 1), stub.calls); // first prepare, rebuild and its renders: one decode
+    const prompt = try h.lastPrompt(a);
+    try testing.expect(std.mem.indexOf(u8, prompt, "Video frame at 0.0 s:") != null);
+    try testing.expect(std.mem.indexOf(u8, prompt, "Video frame at 1.0 s:") != null);
+    try testing.expect(std.mem.indexOf(u8, prompt, "video_url") == null);
+    // every hold is back: the cache alone owns the prepared frame (the discarded prepare's hold was released,
+    // and the rebuilt one only once, when its reply ended)
+    for (h.ds.vision.?.cache.values()) |e| try testing.expectEqual(@as(u32, 1), e.refs.load(.acquire));
+    try testing.expect(h.ds.vision.?.cache.count() > 0);
 }
